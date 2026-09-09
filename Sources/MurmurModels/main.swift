@@ -1,3 +1,4 @@
+import AVFoundation
 import FluidAudio
 import Foundation
 
@@ -9,6 +10,7 @@ import Foundation
 //
 //   murmur-models status
 //   murmur-models download parakeet|speakers|all
+//   murmur-models diarize <file.wav>     # sanity-check the speaker models on a recording
 
 enum Kind: String, CaseIterable {
     case parakeet, speakers
@@ -75,7 +77,40 @@ case "download":
         }
     }
     status()
+case "diarize":
+    guard let path = args.dropFirst().first else {
+        print("usage: murmur-models diarize <file.wav>")
+        exit(2)
+    }
+    do {
+        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        let converter = AudioConverter()
+        let samples = try converter.resampleAudioFile(URL(fileURLWithPath: path))
+        let seconds = Double(samples.count) / 16_000
+        print("audio: \(String(format: "%.1f", seconds))s at \(Int(file.fileFormat.sampleRate)) Hz → 16 kHz mono")
+        let models = try await DiarizerModels.load()
+        let manager = DiarizerManager(config: DiarizerConfig(minSpeechDuration: 0.6, minSilenceGap: 0.3, chunkDuration: 10))
+        manager.initialize(models: models)
+        // Same shape as the app: 10 s chunks, speaker database carried across them.
+        let chunk = 160_000
+        var names: [String: String] = [:]
+        var offset = 0
+        let started = Date()
+        while offset < samples.count {
+            let slice = Array(samples[offset..<min(offset + chunk, samples.count)])
+            let result = try manager.performCompleteDiarization(slice, sampleRate: 16_000, atTime: Double(offset) / 16_000)
+            for seg in result.segments where !seg.speakerId.isEmpty {
+                let name = names[seg.speakerId] ?? { let n = "Speaker \(names.count + 1)"; names[seg.speakerId] = n; return n }()
+                print(String(format: "  %6.1f – %6.1f  %@", seg.startTimeSeconds, seg.endTimeSeconds, name))
+            }
+            offset += chunk
+        }
+        print("\(names.count) speaker(s) in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
+    } catch {
+        FileHandle.standardError.write("failed: \(error)\n".data(using: .utf8)!)
+        exit(1)
+    }
 default:
-    print("usage: murmur-models [status | download parakeet|speakers|all]")
+    print("usage: murmur-models [status | download parakeet|speakers|all | diarize <file.wav>]")
     exit(2)
 }
