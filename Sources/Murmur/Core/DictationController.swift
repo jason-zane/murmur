@@ -77,11 +77,13 @@ final class DictationController {
     private var isComparing = false
 
     /// A dictation longer than this is assumed to be a stuck session, not a monologue.
+    /// Five minutes: long enough for a dictated email or a voice note, short enough that a
+    /// lost key-up cannot leave the mic open indefinitely.
     ///
     /// Nothing guarantees a key-up arrives — a system panel can consume it, and the app can
     /// be suspended mid-hold. Without a ceiling the mic stays open indefinitely and no new
     /// dictation can start, which is exactly the failure this is here to end.
-    private static let maxHoldDuration: Duration = .seconds(120)
+    private static let maxHoldDuration: Duration = .seconds(300)
 
     /// Ceiling on the finish path — draining audio, finalizing the engine, waiting for the
     /// transcript. Generous, because Parakeet transcribes inside `finish()` and smart
