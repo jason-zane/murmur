@@ -12,16 +12,19 @@ struct CalendarEvent: Sendable, Identifiable, Hashable {
     let attendees: [Attendee]
     /// True when the event carries a video link, in its URL, location or notes.
     let hasConference: Bool
+    let conferenceURL: URL?
+
+    var scheduledMeeting: ScheduledMeeting? {
+        conferenceURL.map { ScheduledMeeting(eventID: id, start: start, end: end, url: $0) }
+    }
+    var occurrenceID: String { id + "@" + String(Int(start.timeIntervalSince1970)) }
 
     /// How far the event start is from `date`, in seconds; negative means it started already.
     func offset(from date: Date) -> TimeInterval { start.timeIntervalSince(date) }
 }
 
-/// Reads the Mac's own calendars through EventKit.
-///
-/// Google Calendar, iCloud, Exchange — whatever is signed into System Settings ▸ Internet
-/// Accounts is already syncing into Calendar.app, and EventKit reads that. No Google OAuth,
-/// no browser login, no token that expires. One Calendars permission, and it's done.
+/// Merges calendars on this Mac with Murmur's cached Google Calendar connection.
+/// EventKit remains available offline and does not require a Murmur account.
 @MainActor
 final class CalendarService {
     static let shared = CalendarService()
@@ -54,13 +57,18 @@ final class CalendarService {
     /// Events overlapping a window around `date`. Declined, all-day and free-time blocks are
     /// left out — none of them is a meeting you'd be on a call for.
     func events(around date: Date, before: TimeInterval = 15 * 60, after: TimeInterval = 15 * 60) -> [CalendarEvent] {
-        guard isAuthorized else { return [] }
+        let cloud = CloudSync.shared.meetings.filter { $0.ends_at > date.addingTimeInterval(-before) && $0.starts_at <= date.addingTimeInterval(after) }.map { event in
+            let url = event.meeting_url.flatMap { MeetingLink.provider(for: $0) != nil ? $0 : nil }
+            return CalendarEvent(id: "google-" + event.id, title: event.title, start: event.starts_at, end: event.ends_at,
+                attendees: event.attendees, hasConference: url != nil, conferenceURL: url)
+        }
+        guard isAuthorized else { return cloud.sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) } }
         let predicate = store.predicateForEvents(
             withStart: date.addingTimeInterval(-max(before, 4 * 3600)),
             end: date.addingTimeInterval(after),
             calendars: nil
         )
-        return store.events(matching: predicate)
+        let local = store.events(matching: predicate)
             .filter { event in
                 guard !event.isAllDay else { return false }
                 if event.availability == .free { return false }
@@ -71,6 +79,11 @@ final class CalendarService {
             }
             .map(Self.reduce)
             .sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) }
+        let additional = cloud.filter { remote in !local.contains { local in
+            abs(local.start.timeIntervalSince(remote.start)) < 60 &&
+                (local.conferenceURL == remote.conferenceURL && remote.conferenceURL != nil || local.title == remote.title)
+        } }
+        return (local + additional).sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) }
     }
 
     /// The single event most likely to be the call happening now.
@@ -80,8 +93,9 @@ final class CalendarService {
     /// started more than fifteen minutes ago and has no link is assumed to be over.
     func bestMatch(at date: Date = Date()) -> CalendarEvent? {
         let candidates = events(around: date)
-        let meetings = candidates.filter { $0.attendees.count >= 2 || $0.hasConference }
-        return meetings.first ?? candidates.first { abs($0.offset(from: date)) <= 5 * 60 }
+        return candidates.first {
+            ($0.attendees.count >= 2 || $0.hasConference) && $0.end > date && $0.start <= date.addingTimeInterval(5 * 60)
+        }
     }
 
     private static func reduce(_ event: EKEvent) -> CalendarEvent {
@@ -95,17 +109,15 @@ final class CalendarService {
         let haystack = [event.url?.absoluteString, event.location, event.notes]
             .compactMap { $0 }
             .joined(separator: " ")
-            .lowercased()
-        let conference = ["zoom.us", "meet.google.com", "teams.microsoft.com", "webex.com",
-                          "whereby.com", "around.co", "meet.jit.si", "facetime.apple.com"]
-            .contains { haystack.contains($0) }
+        let conferenceURL = MeetingLink.conferenceURL(in: haystack)
         return CalendarEvent(
             id: event.eventIdentifier ?? UUID().uuidString,
             title: event.title ?? "Untitled event",
             start: event.startDate,
             end: event.endDate,
             attendees: attendees,
-            hasConference: conference
+            hasConference: conferenceURL != nil,
+            conferenceURL: conferenceURL
         )
     }
 }

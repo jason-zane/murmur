@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Murmur</string>
+	<string>Voice Notes</string>
 	<key>CFBundleDisplayName</key>
-	<string>Murmur</string>
+	<string>Voice Notes</string>
 	<!-- Deliberately space-free and distinct from the existing app's `murmur`, so that
 	     `pkill`/`killall` on either app can never match the other. -->
 	<key>CFBundleExecutable</key>
@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.4.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>4</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<!-- Lets the dashboard's Clear button call back into the app. A file:// page can't
@@ -44,16 +44,16 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Murmur listens while you hold the push-to-talk key so it can turn your speech into text.</string>
+	<string>Voice Notes listens while you hold the push-to-talk key so it can turn your speech into text.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Murmur transcribes your speech on-device to insert text where you're typing.</string>
+	<string>Voice Notes transcribes your speech on-device to insert text where you're typing.</string>
 	<!-- Meeting capture: a Core Audio process tap hears the far side of a call. This is the
 	     "Audio Recording" grant, separate from the microphone. -->
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Murmur listens to the audio of a call so it can transcribe the other side of the conversation, on this Mac only.</string>
+	<string>Voice Notes listens to the audio of a call so it can transcribe the other side of the conversation, on this Mac only.</string>
 	<!-- Meeting detection: names sessions after the calendar event and seeds attendees.
 	     Read-only; the Mac's own Calendar app does the syncing. -->
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Murmur reads your calendar to name meetings and know who is in them. Nothing is written back.</string>
+	<string>Voice Notes reads your calendar to name meetings and know who is in them. Nothing is written back.</string>
 </dict>
 </plist>

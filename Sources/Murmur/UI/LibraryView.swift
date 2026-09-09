@@ -2,213 +2,217 @@ import AppKit
 import MurmurSessions
 import SwiftUI
 
-/// Every meeting, newest first, grouped by day. The main window's primary view.
 struct LibraryView: View {
     @Bindable var controller: MeetingController
+    @Binding var selection: String?
     let onStartMeeting: () -> Void
-
+    let onOpenNotepad: () -> Void
     @State private var sessions: [MeetingSession] = []
-    @State private var selection: String?
     @State private var query = ""
-    @State private var hitIDs: Set<String> = []
-
+    @State private var matches: [String: SessionMatch] = [:]
+    @State private var pinnedOnly = false
+    @State private var searching = false
+    @State private var searchID = UUID()
+    @State private var error: String?
+    @FocusState private var searchFocused: Bool
     private var store: SessionStore { controller.store }
 
     var body: some View {
-        // A plain split, not NavigationSplitView: that one installs a window toolbar with a
-        // sidebar toggle that cannot be removed from inside a tabbed content view.
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: 300)
+        VStack(spacing: DS.Space.zero) {
+            HStack(spacing: DS.Space.lg) {
+                WorkspaceHeading(title: "Meetings", subtitle: "Listen closely. Leave with useful notes.")
+                Spacer()
+                ActionButton(title: "New note", systemImage: "square.and.pencil", emphasis: .normal) { newNote() }
+                ActionButton(title: controller.state.isActive ? "Open notepad" : "Record meeting",
+                             systemImage: controller.state.isActive ? "note.text" : "mic",
+                             emphasis: .prominent) {
+                    if controller.state.isActive { onOpenNotepad() }
+                    else { onStartMeeting() }
+                }
+                .disabled(controller.state == .finalising || controller.state == .saveFailed)
+            }
+            .padding(DS.Space.xl)
+            if controller.state != .idle { recordingBanner }
+            if let message = error ?? controller.lastError {
+                InlineNotice(icon: "exclamationmark.triangle", text: message) {
+                    if controller.state == .saveFailed {
+                        ActionButton(title: "Retry save", emphasis: .normal) { controller.retrySave() }
+                    }
+                }.padding([.horizontal, .bottom], DS.Space.lg)
+            }
             Divider()
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: DS.Space.zero) {
+                sidebar.frame(width: DS.Layout.libraryWidth)
+                Divider()
+                detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .onAppear(perform: reload)
-        .onChange(of: controller.lastFinishedSessionID) { _, id in
-            reload()
-            if let id { selection = id }
-        }
+        .onChange(of: controller.lastFinishedSessionID) { _, id in reload(); if let id { selection = id } }
         .onChange(of: controller.state) { _, _ in reload() }
-        .onChange(of: query) { _, _ in search() }
-        .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { note in
-            reload()
-            if let id = note.object as? String { selection = id }
-        }
-    }
-
-    @ViewBuilder
-    private var detail: some View {
-        if let id = selection, let session = sessions.first(where: { $0.id == id }) {
-            SessionDetailView(session: session, store: store, onChanged: reload, onDeleted: {
-                selection = nil
+        .onChange(of: selection) { _, _ in reload() }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurNotesChanged)) { _ in reload() }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurFind)) { _ in searchFocused = true }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: DS.Timing.refresh) } catch { return }
                 reload()
-            })
-            .id(id)
-        } else {
-            EmptyState(
-                icon: "waveform.and.mic",
-                label: sessions.isEmpty ? "No meetings yet" : "Select a meeting",
-                detail: sessions.isEmpty
-                    ? "Murmur listens for calls in Zoom, Meet, Teams and the rest — or press Record."
-                    : "Notes, your bullets and the transcript live here."
-            )
+                if !query.isEmpty { await search(debounce: false) }
+            }
         }
+        .task(id: query) { await search() }
     }
 
     private var sidebar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: DS.Space.sm) {
-                SearchField(text: $query, placeholder: "Search meetings")
-                Button(action: onStartMeeting) {
-                    Image(systemName: controller.isRecording ? "stop.fill" : "record.circle")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(controller.isRecording ? .white : DS.Color.record)
-                        .frame(width: 28, height: 28)
-                        .background(controller.isRecording ? DS.Color.record : DS.Color.surface, in: .circle)
-                        .overlay { Circle().strokeBorder(DS.Color.separator, lineWidth: DS.Stroke.hairline) }
-                        .contentShape(.circle)
+        VStack(spacing: DS.Space.zero) {
+            VStack(spacing: DS.Space.md) {
+                SearchField(text: $query, placeholder: "Search all notes")
+                    .focused($searchFocused)
+                HStack(spacing: DS.Space.sm) {
+                    Button { selection = nil } label: { Label("Up next", systemImage: "calendar") }
+                        .font(DS.Font.callout).buttonStyle(.plain).foregroundStyle(DS.Color.textSecondary)
+                    Spacer()
+                    Button { pinnedOnly.toggle() } label: {
+                        Image(systemName: pinnedOnly ? "pin.fill" : "pin")
+                            .font(DS.Font.smallSymbol)
+                            .foregroundStyle(pinnedOnly ? DS.Color.accent : DS.Color.textTertiary)
+                    }.buttonStyle(.plain).help(pinnedOnly ? "Show all notes" : "Show pinned notes")
+                    if searching { ProgressView().controlSize(.mini) }
+                    else { Readout(String(filtered.count), color: DS.Color.textTertiary) }
                 }
-                .buttonStyle(.plain)
-                .help(controller.isRecording ? "Stop recording" : "Record a meeting now")
-            }
-            .padding(DS.Space.md)
-
-            if controller.state.isActive, let live = controller.session {
-                LiveRow(session: live, elapsed: controller.elapsed)
-                    .padding(.horizontal, DS.Space.sm)
-                    .padding(.bottom, DS.Space.xs)
-            }
-
-            List(selection: $selection) {
-                ForEach(groups, id: \.title) { group in
-                    Section {
-                        ForEach(group.sessions) { session in
-                            SessionRow(session: session)
-                                .tag(session.id)
-                                .listRowInsets(EdgeInsets(top: 3, leading: DS.Space.sm, bottom: 3, trailing: DS.Space.sm))
+            }.padding(DS.Space.lg)
+            if filtered.isEmpty {
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    Text(query.isEmpty ? (pinnedOnly ? "No pinned notes" : "Your notes will live here")
+                         : "No matching notes").font(DS.Font.bodyEmphasis)
+                    Text(query.isEmpty ? "Record a meeting or start a note. Pin the ones you return to."
+                         : "Search titles, people, your notes or something that was said.")
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    Spacer()
+                }.padding(DS.Space.lg).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                List(selection: $selection) {
+                    ForEach(groups, id: \.date) { group in
+                        Section {
+                            ForEach(group.sessions) { session in
+                                LibrarySessionRow(session: session, match: matches[session.id])
+                                    .tag(session.id)
+                                    .listRowInsets(EdgeInsets(top: DS.Space.sm, leading: DS.Space.md,
+                                                             bottom: DS.Space.sm, trailing: DS.Space.md))
+                                    .contextMenu {
+                                        Button(session.isPinned ? "Unpin note" : "Pin note") { togglePin(session) }
+                                        Button("Copy as Markdown") { copy(store.markdown(for: session.id)) }
+                                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)]) }
+                                    }
+                            }
+                        } header: {
+                            Text(group.title).font(DS.Font.label).foregroundStyle(DS.Color.textTertiary)
                         }
-                    } header: {
-                        Text(group.title.uppercased())
-                            .font(DS.Font.readout)
-                            .tracking(0.8)
-                            .foregroundStyle(DS.Color.textTertiary)
                     }
                 }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .overlay {
-                if filtered.isEmpty, !query.isEmpty {
-                    EmptyState(icon: "magnifyingglass", label: "No matches", detail: "Titles, people, apps and what was said.")
-                }
-            }
-        }
-        .background(DS.Color.window)
+        }.background(DS.Color.window)
     }
 
-    // MARK: - Data
+    @ViewBuilder private var detail: some View {
+        if let id = selection, let session = sessions.first(where: { $0.id == id }) {
+            SessionDetailView(session: session, store: store, initialMatch: matches[id], onChanged: reload, onDeleted: {
+                selection = nil; reload()
+            }).id(id)
+        } else {
+            MeetingHomeView(onRecord: onStartMeeting, onNewNote: newNote)
+        }
+    }
+
+    private var recordingBanner: some View {
+        HStack(spacing: DS.Space.md) {
+            if controller.isRecording { RecordingDot(size: DS.Layout.statusDot) }
+            else { ProgressView().controlSize(.small) }
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                Text(controller.session?.title ?? "Preparing your meeting…").font(DS.Font.bodyEmphasis).lineLimit(1)
+                Text(controller.isRecording ? "Recording on this Mac" : controller.state == .saveFailed ? "Save needs attention" : controller.state == .starting ? "Preparing on-device transcription…" : "Saving your conversation…")
+                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+            }
+            Spacer()
+            Readout(TimeFormat.clock(controller.elapsed), color: DS.Color.text)
+            if controller.isRecording {
+                StreamMeters(you: controller.youLevel, call: controller.callLevel, callUnavailable: !controller.systemAudioActive)
+                    .frame(width: DS.Layout.meterWidth)
+                ActionButton(title: "Stop", systemImage: "stop.fill", emphasis: .normal) { controller.stop() }
+            }
+        }
+        .padding(DS.Space.md)
+        .background(controller.isRecording ? DS.Color.recordSoft : DS.Color.hover, in: .rect(cornerRadius: DS.Radius.md))
+        .padding([.horizontal, .bottom], DS.Space.lg)
+    }
 
     private var filtered: [MeetingSession] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return sessions }
-        return sessions.filter { s in
-            hitIDs.contains(s.id)
-                || s.title.lowercased().contains(needle)
-                || (s.app ?? "").lowercased().contains(needle)
-                || s.speakers.contains { $0.lowercased().contains(needle) }
-                || s.attendees.contains { $0.name.lowercased().contains(needle) }
-        }
-    }
-
-    private struct Group { let title: String; let sessions: [MeetingSession] }
-
-    private var groups: [Group] {
-        let calendar = Calendar.current
-        var order: [String] = []
-        var buckets: [String: [MeetingSession]] = [:]
-        for s in filtered {
-            let key: String
-            if calendar.isDateInToday(s.startedAt) { key = "Today" }
-            else if calendar.isDateInYesterday(s.startedAt) { key = "Yesterday" }
-            else {
-                let f = DateFormatter()
-                f.dateFormat = calendar.isDate(s.startedAt, equalTo: Date(), toGranularity: .year) ? "EEEE d MMMM" : "d MMMM yyyy"
-                key = f.string(from: s.startedAt)
-            }
-            if buckets[key] == nil { order.append(key) }
-            buckets[key, default: []].append(s)
-        }
-        return order.map { Group(title: $0, sessions: buckets[$0] ?? []) }
-    }
-
-    private func reload() {
-        sessions = store.listSessions().filter { !$0.state.isInterrupted || $0.id != controller.session?.id }
-    }
-
-    private func search() {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard needle.count >= 2 else { hitIDs = []; return }
-        let store = self.store
-        Task.detached(priority: .userInitiated) {
-            let ids = Set(store.search(needle, limit: 200).map(\.sessionID))
-            await MainActor.run { hitIDs = ids }
-        }
+        return sessions.filter { (!pinnedOnly || $0.isPinned) && (needle.isEmpty || matches[$0.id] != nil) }
     }
-}
-
-private struct SessionRow: View {
-    let session: MeetingSession
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
-                Text(session.title)
-                    .font(DS.Font.bodyEmphasis)
-                    .foregroundStyle(DS.Color.text)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Chip(text: session.state == .noted ? "Noted" : "Raw",
-                     tint: session.state == .noted ? DS.Color.success : DS.Color.textSecondary,
-                     filled: session.state == .noted)
+    private struct DayGroup { let date: Date; let title: String; let sessions: [MeetingSession] }
+    private var groups: [DayGroup] {
+        let calendar = Calendar.current
+        return Dictionary(grouping: filtered, by: { calendar.startOfDay(for: $0.startedAt) })
+            .sorted { $0.key > $1.key }.map { date, sessions in
+                let title = calendar.isDateInToday(date) ? "Today" : calendar.isDateInYesterday(date) ? "Yesterday"
+                    : date.formatted(.dateTime.day().month(.wide))
+                return DayGroup(date: date, title: title, sessions: sessions)
             }
-            Readout(meta, color: DS.Color.textTertiary)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 3)
     }
-
-    private var meta: String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        var parts = [f.string(from: session.startedAt), TimeFormat.clock(session.duration)]
-        let people = session.speakers.isEmpty ? session.attendees.map(\.name) : session.speakers
-        if !people.isEmpty { parts.append(people.prefix(3).joined(separator: ", ")) }
-        if let app = session.app { parts.append(app) }
-        return parts.joined(separator: " · ")
+    private func reload() {
+        let latest = store.listSessions().filter { $0.id != controller.session?.id }
+        if latest != sessions { sessions = latest }
     }
+    private func search(debounce: Bool = true) async {
+        let token = UUID(); searchID = token
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { matches = [:]; searching = false; return }
+        searching = true
+        if debounce { do { try await Task.sleep(for: DS.Timing.searchDebounce) } catch { return } }
+        let store = store
+        let result = await Task.detached(priority: .userInitiated) { store.findSessions(needle) }.value
+        guard !Task.isCancelled, token == searchID, needle == query.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        matches = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0) })
+        searching = false
+    }
+    private func newNote() {
+        do { let note = try store.createNote(); query = ""; pinnedOnly = false; reload(); selection = note.id }
+        catch { self.error = error.localizedDescription }
+    }
+    private func togglePin(_ session: MeetingSession) {
+        do { try store.update(id: session.id) { $0.pinned = !session.isPinned }; reload() }
+        catch { self.error = error.localizedDescription }
+    }
+    private func copy(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
 }
 
-private struct LiveRow: View {
+private struct LibrarySessionRow: View {
     let session: MeetingSession
-    let elapsed: TimeInterval
-
+    let match: SessionMatch?
     var body: some View {
-        HStack(spacing: DS.Space.sm) {
-            RecordingDot(size: 7)
-            Text(session.title)
-                .font(DS.Font.bodyEmphasis)
-                .foregroundStyle(DS.Color.text)
-                .lineLimit(1)
-            Spacer()
-            Readout(TimeFormat.clock(elapsed), color: DS.Color.text)
-        }
-        .padding(.horizontal, DS.Space.md)
-        .padding(.vertical, DS.Space.sm)
-        .background(DS.Color.recordSoft, in: .rect(cornerRadius: DS.Radius.sm))
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+                Text(session.title).font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.text).lineLimit(2)
+                Spacer(minLength: DS.Space.zero)
+                if session.isPinned { Image(systemName: "pin.fill").font(DS.Font.smallSymbol).foregroundStyle(DS.Color.accent) }
+            }
+            if let match {
+                Text(match.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
+            }
+            HStack(spacing: DS.Space.sm) {
+                Readout(session.startedAt.formatted(.dateTime.hour().minute()), color: DS.Color.textTertiary)
+                if !session.isNoteOnly { Readout(TimeFormat.clock(session.duration), color: DS.Color.textTertiary) }
+                Spacer(minLength: DS.Space.zero)
+                Text(session.isNoteOnly ? "Note" : session.app ?? "Meeting").font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary).lineLimit(1)
+            }
+        }.padding(.vertical, DS.Space.xs)
     }
 }
 
 extension Notification.Name {
     static let murmurShowSession = Notification.Name("com.jasonhunt.murmur.showSession")
+    static let murmurFind = Notification.Name("com.jasonhunt.murmur.find")
 }

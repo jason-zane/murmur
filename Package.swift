@@ -13,8 +13,7 @@ let package = Package(
             path: "Sources/MurmurDictionary",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
-        // Session model and file store, shared by the app and the MCP server. Pure
-        // Foundation on purpose: the MCP process must start fast and must not link AppKit.
+        // Session model and file store, shared by the app and the MCP server. Foundation and CryptoKit only: the MCP process must start fast and must not link AppKit.
         .target(
             name: "MurmurSessions",
             path: "Sources/MurmurSessions",
@@ -33,13 +32,15 @@ let package = Package(
             ]
         ),
         // Local stdio MCP server. Claude Desktop spawns it; it reads the session store and
-        // answers over stdin/stdout. Nothing is hosted and nothing leaves the machine.
+        // answers over stdin/stdout. Connected clients decide which text reaches their AI provider.
         .executableTarget(
             name: "murmur-mcp",
-            dependencies: ["MurmurSessions"],
+            dependencies: ["MurmurMCPServer"],
             path: "Sources/MurmurMCP",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .target(name: "MurmurMCPServer", dependencies: ["MurmurSessions"],
+                swiftSettings: [.swiftLanguageMode(.v6)]),
         // Developer tool: pre-seed or inspect the on-device models from a terminal.
         .executableTarget(
             name: "murmur-models",
@@ -60,5 +61,9 @@ let package = Package(
             path: "Tests/MurmurSessionsTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .testTarget(name: "MurmurMCPServerTests", dependencies: ["MurmurMCPServer", "MurmurSessions"],
+                    swiftSettings: [.swiftLanguageMode(.v6)]),
+        .testTarget(name: "MurmurAppTests", dependencies: ["Murmur", "MurmurSessions"],
+                    swiftSettings: [.swiftLanguageMode(.v6)]),
     ]
 )

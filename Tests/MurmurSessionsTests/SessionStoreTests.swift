@@ -42,7 +42,8 @@ import Testing
         try store.saveNote("second", for: id)
 
         #expect(store.note(for: id) == "second")
-        #expect(store.noteRevisionCount(for: id) == 2)
+        #expect(store.noteRevisionCount(for: id) == 1)
+        #expect(store.noteVersion(for: id) == 2)
         #expect(store.session(id: id)?.state == .noted)
     }
 

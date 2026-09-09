@@ -102,6 +102,13 @@ public struct MeetingSession: Codable, Sendable, Identifiable, Hashable {
     public var segmentCount: Int
     /// Seconds. Kept in the manifest so the Library never has to open a transcript.
     public var duration: TimeInterval
+    /// Optional additions keep manifests written by earlier Murmur versions readable.
+    public var pinned: Bool?
+    public var noteSource: String?
+    public var summaryTemplate: String?
+
+    public var isPinned: Bool { pinned == true }
+    public var isNoteOnly: Bool { engine == "Notes" }
 
     public init(
         id: String,
@@ -133,13 +140,13 @@ public struct MeetingSession: Codable, Sendable, Identifiable, Hashable {
         self.duration = duration
     }
 
-    /// Makes a directory-safe id for a session starting now.
+    /// The suffix prevents two notes created in the same second from sharing a directory.
     public static func makeID(for date: Date = Date()) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss"
-        return formatter.string(from: date)
+        return formatter.string(from: date) + "-" + UUID().uuidString.prefix(8).lowercased()
     }
 }
 
@@ -172,7 +179,8 @@ public enum TimeFormat {
     /// `m:ss` under an hour, `h:mm:ss` above it — the readout used everywhere a duration
     /// or position is shown.
     public static func clock(_ seconds: TimeInterval) -> String {
-        let total = max(0, Int(seconds.rounded()))
+        guard seconds.isFinite else { return "0:00" }
+        let total = Int(min(max(0, seconds.rounded()), Double(Int.max / 2)))
         let h = total / 3600
         let m = (total % 3600) / 60
         let s = total % 60

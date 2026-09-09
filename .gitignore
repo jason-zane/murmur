@@ -3,22 +3,24 @@
 *.xcuserdatad
 .DS_Store
 
-# Built .app bundles, at the repo root ONLY.
-#
-# Anchored deliberately. An unanchored `*.app/` also matches `windows/src/Murmur.App/`,
-# because macOS filesystems are case-insensitive — which silently kept the entire Avalonia
-# app out of the repo until a CI publish step failed to find the project file.
+# Built .app bundles, at the repo root only.
 /*.app/
 
-# Windows / .NET build
-[Bb]in/
-[Oo]bj/
-*.user
-.vs/
 artifacts/
+output/playwright/
+.playwright-cli/
 
-# Local ASR model weights. Large, redistributed under their own license, and every
-# platform fetches them itself — see docs/PARAKEET-WINDOWS.md.
-models/
+# Local ASR model weights at the repo root. Anchoring keeps the app's Models source
+# directory visible to Git on case-insensitive macOS filesystems.
+/models/
 *.onnx
 *.nemo
+
+# Cloud dependencies, build artifacts and credentials.
+node_modules/
+.next/
+.vercel/
+.env*
+!.env.example
+*.tsbuildinfo
+supabase/.temp/

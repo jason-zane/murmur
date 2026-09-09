@@ -14,9 +14,9 @@ import SwiftUI
 /// carries on, and the menu bar brings it back.
 @MainActor
 final class NotepadWindow: NSWindow, NSWindowDelegate {
-    private static let defaultSize = NSSize(width: 380, height: 440)
+    private static let defaultSize = NSSize(width: DS.Layout.notepadWidth, height: DS.Layout.notepadHeight)
 
-    init(controller: MeetingController) {
+    init(controller: MeetingController, onRecord: @escaping () -> Void) {
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -30,9 +30,9 @@ final class NotepadWindow: NSWindow, NSWindowDelegate {
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isReleasedWhenClosed = false
-        minSize = NSSize(width: 320, height: 300)
+        minSize = NSSize(width: DS.Layout.notepadMinWidth, height: DS.Layout.notepadMinHeight)
         delegate = self
-        contentView = NSHostingView(rootView: NotepadView(controller: controller))
+        contentView = NSHostingView(rootView: NotepadView(controller: controller, onRecord: onRecord))
         setFrameAutosaveName("MurmurNotepad")
     }
 
@@ -64,14 +64,15 @@ final class NotepadWindow: NSWindow, NSWindowDelegate {
         let visible = screen.visibleFrame
         let size = frame.size
         setFrameOrigin(NSPoint(
-            x: visible.maxX - size.width - 24,
-            y: visible.maxY - size.height - 48
+            x: visible.maxX - size.width - DS.Space.xl,
+            y: visible.maxY - size.height - DS.Space.xxxl
         ))
     }
 }
 
 struct NotepadView: View {
     @Bindable var controller: MeetingController
+    let onRecord: () -> Void
     @State private var settings = MeetingSettings.shared
     @State private var title = ""
     @State private var showTranscript = false
@@ -80,11 +81,14 @@ struct NotepadView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             if controller.state == .idle { idleHeader } else { header }
+            if controller.state == .starting {
+                Text("Preparing on-device transcription…").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+            }
             StreamMeters(
                 you: controller.youLevel,
                 call: controller.callLevel,
                 isActive: controller.isRecording,
-                callUnavailable: controller.warning != nil
+                callUnavailable: !controller.systemAudioActive
             )
             if let warning = controller.warning {
                 Text(warning)
@@ -92,13 +96,19 @@ struct NotepadView: View {
                     .foregroundStyle(DS.Color.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let error = controller.lastError {
+                Text(error).font(DS.Font.callout).foregroundStyle(DS.Color.warning)
+                if controller.state == .saveFailed {
+                    ActionButton(title: "Retry save", emphasis: .prominent) { controller.retrySave() }
+                }
+            }
             Divider()
-            if showTranscript { liveTranscript } else { bullets }
+            if showTranscript { liveTranscript } else { bullets.disabled(!controller.isRecording) }
             footer
         }
-        .padding(.top, DS.Space.xl + 4)
+        .padding(.top, DS.Layout.notepadTopInset)
         .padding([.horizontal, .bottom], DS.Space.lg)
-        .frame(minWidth: 320, minHeight: 300)
+        .frame(minWidth: DS.Layout.notepadMinWidth, minHeight: DS.Layout.notepadMinHeight)
         .background(DS.Color.window)
         .onAppear { syncTitle(); seedBullet() }
         .onChange(of: controller.session?.id) { _, _ in syncTitle(); seedBullet() }
@@ -115,22 +125,20 @@ struct NotepadView: View {
     /// The notepad opened with nothing running: say so, and offer to start.
     private var idleHeader: some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text("Not recording")
                     .font(DS.Font.headline)
                     .foregroundStyle(DS.Color.textSecondary)
                 Readout("Waiting for a call, or press Record", color: DS.Color.textTertiary)
             }
-            Spacer(minLength: 0)
-            ActionButton(title: "Record", emphasis: .prominent) {
-                (NSApp.delegate as? AppDelegate)?.toggleMeeting()
-            }
+            Spacer(minLength: DS.Space.zero)
+            ActionButton(title: "Record", emphasis: .prominent, action: onRecord)
         }
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 TextField("Untitled meeting", text: $title)
                     .textFieldStyle(.plain)
                     .font(DS.Font.headline)
@@ -147,17 +155,17 @@ struct NotepadView: View {
                     }
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: DS.Space.zero)
             if controller.state == .finalising {
                 ProgressView().controlSize(.small)
             } else if controller.isRecording {
                 RecordingDot()
-                    .padding(.top, 4)
+                    .padding(.top, DS.Space.xs)
             }
-            ActionButton(title: controller.state == .finalising ? "Saving…" : "Stop", emphasis: .normal) {
+            ActionButton(title: controller.state == .finalising ? "Saving…" : controller.state == .starting ? "Cancel" : "Stop", emphasis: .normal) {
                 controller.stop()
             }
-            .disabled(!controller.isRecording)
+            .disabled(!controller.state.isActive)
         }
     }
 

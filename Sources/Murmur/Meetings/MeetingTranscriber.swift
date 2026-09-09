@@ -9,6 +9,7 @@ import Synchronization
 enum MeetingTranscriptEvent: Sendable {
     case partial(String)
     case final(TranscriptSegment)
+    case failed(AudioStreamSource, String)
 }
 
 /// The dictation engines collapse everything into one growing string, which is right for a
@@ -80,6 +81,7 @@ actor AppleMeetingTranscriber: MeetingTranscriber {
                 }
             } catch {
                 Log.speech.error("meeting transcriber results failed: \(error.localizedDescription)")
+                await self?.reportFailure(error.localizedDescription)
             }
             await self?.closeEvents()
         }
@@ -159,6 +161,8 @@ actor AppleMeetingTranscriber: MeetingTranscriber {
         events?.finish()
         events = nil
     }
+
+    private func reportFailure(_ message: String) { events?.yield(.failed(source, message)) }
 
     private func absorb(_ result: SpeechTranscriber.Result) {
         let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)

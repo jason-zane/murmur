@@ -3,6 +3,8 @@ import AVFoundation
 import AppKit
 import Foundation
 import Observation
+import MurmurSessions
+import Synchronization
 
 /// Builds the engine named by the current setting.
 ///
@@ -10,14 +12,12 @@ import Observation
 /// `@MainActor`, which would make a static method main-actor-isolated and therefore
 /// ineligible to be `@Sendable`. Reading the setting per-utterance is what lets the menu's
 /// engine picker take effect on the very next hold instead of needing a restart.
-@Sendable
+@MainActor
 func engineForCurrentSetting() -> any TranscriptionEngine {
     // Always invoked from `beginDictation`, which runs on the main actor.
-    MainActor.assumeIsolated {
-        switch Settings.shared.engine {
-        case .apple: AppleSpeechEngine()
-        case .parakeet: ParakeetEngine()
-        }
+    switch Settings.shared.engine {
+    case .apple: AppleSpeechEngine()
+    case .parakeet: ParakeetEngine()
     }
 }
 
@@ -44,11 +44,23 @@ final class DictationController {
     private(set) var transcript = ""
     /// Smoothed 0…1 mic level for the waveform.
     private(set) var level: Float = 0
+    /// Kept in the main window after the temporary HUD message disappears.
+    private(set) var lastError: String?
 
     private let hotkey = HotkeyMonitor()
     private let pasteShortcut = ShortcutMonitor()
-    private let capture = AudioCapture()
-    private let makeEngine: @Sendable () -> any TranscriptionEngine
+    private let capture: any DictationAudioCapturing
+    private let makeEngine: @MainActor @Sendable () -> any TranscriptionEngine
+    private let requestMicrophone: @MainActor @Sendable () async -> Bool
+    private let insertText: @MainActor (String) -> Void
+    private let saveRun: @MainActor (DictationRun) -> Void
+    private let finishLimit: Duration
+    private let startupLimit: Duration
+    private var sessionID: UUID?
+    private var setupTask: Task<Void, Never>?
+    private var finishTask: Task<Void, Never>?
+    private var errorDismissTask: Task<Void, Never>?
+    private var captureWatchdog: Task<Void, Never>?
 
     /// Injected only by tests; production reads the setting per-utterance below.
     private let formatter: (any TextFormatter)?
@@ -89,8 +101,6 @@ final class DictationController {
     /// transcript. Generous, because Parakeet transcribes inside `finish()` and smart
     /// cleanup adds seconds on top; but finite, because an engine that never returns must
     /// not be able to wedge the app.
-    private static let finishDeadline: Duration = .seconds(25)
-
     private var watchdog: Task<Void, Never>?
 
     /// A press shorter than this counts as a tap rather than a hold, in `.hybrid`.
@@ -101,15 +111,24 @@ final class DictationController {
     private var isLatched = false
     /// Set when a release arrives while the engine is still starting up. See `endDictation`.
     private var pendingStop = false
-    /// Set by the drain task when it completes; watched by `drainWithDeadline`.
-    private var drainFinished = false
-
     init(
         formatter: (any TextFormatter)? = nil,
-        makeEngine: @escaping @Sendable () -> any TranscriptionEngine = engineForCurrentSetting
+        makeEngine: @escaping @MainActor @Sendable () -> any TranscriptionEngine = engineForCurrentSetting,
+        capture: any DictationAudioCapturing = AudioCapture(),
+        requestMicrophone: @escaping @MainActor @Sendable () async -> Bool = { await Permissions.requestMicrophone() },
+        insertText: @escaping @MainActor (String) -> Void = { TextInjector.insert($0) },
+        saveRun: @escaping @MainActor (DictationRun) -> Void = { RunLog.record($0) },
+        finishLimit: Duration = .seconds(25),
+        startupLimit: Duration = .seconds(60)
     ) {
         self.formatter = formatter
         self.makeEngine = makeEngine
+        self.capture = capture
+        self.requestMicrophone = requestMicrophone
+        self.insertText = insertText
+        self.saveRun = saveRun
+        self.finishLimit = finishLimit
+        self.startupLimit = startupLimit
     }
 
     // MARK: - Lifecycle
@@ -181,12 +200,13 @@ final class DictationController {
     /// than queued — the engine and cleanup pass can take seconds, and starting a second
     /// capture underneath the first is how you get two transcripts racing for one text field.
     private func handleTriggerPress(_ trigger: PushToTalkTrigger) {
+        if state == .finishing { forceReset(); return }
         if isLatched || (Settings.shared.activation == .toggle && state.isActive) {
             isLatched = false
             endDictation()
             return
         }
-        guard case .idle = state else { return }
+        guard !state.isActive else { return }
         pressedAt = Date()
         beginDictation()
     }
@@ -222,7 +242,7 @@ final class DictationController {
     /// into another app is a comparison affordance; during ordinary dictation it would mean
     /// every recording silently shipped your audio to a third party's servers.
     func startButtonRecording() {
-        guard case .idle = state else { return }
+        guard !state.isActive else { return }
         if Settings.shared.compareMode { WisprTrigger.press() }
         beginDictation()
     }
@@ -231,6 +251,7 @@ final class DictationController {
     /// finishing — otherwise every run would wait the full round trip end to end.
     func stopButtonRecording() {
         WisprTrigger.release()
+        if state == .starting || state == .finishing { forceReset(); return }
         endDictation()
     }
 
@@ -258,12 +279,17 @@ final class DictationController {
         hotkey.clearPressState()
         WisprTrigger.release()
         cancelDictation()
+        lastError = nil
     }
 
     // MARK: - Dictation
 
     private func beginDictation() {
-        guard case .idle = state else { return }
+        guard !state.isActive else { return }
+        errorDismissTask?.cancel()
+        lastError = nil
+        let runID = UUID()
+        sessionID = runID
         state = .starting
         pendingStop = false
         transcript = ""
@@ -272,17 +298,28 @@ final class DictationController {
         recorded.removeAll(keepingCapacity: true)
         engineName = isComparing ? "Comparing…" : Settings.shared.engine.displayName
 
-        Task { @MainActor in
+        let engine = makeEngine()
+        self.engine = engine
+        setupTask = Task { @MainActor in
             do {
-                guard await Permissions.requestMicrophone() else {
+                let allowed = await requestMicrophone()
+                guard self.sessionID == runID, !Task.isCancelled else { return }
+                guard allowed else {
                     fail("Microphone access is off. Enable it in System Settings ▸ Privacy & Security ▸ Microphone.")
                     return
                 }
 
-                let engine = makeEngine()
-                self.engine = engine
-
-                let chunks = try await engine.start()
+                let chunks = try await AsyncDeadline.run(for: startupLimit) {
+                    do {
+                        let stream = try await engine.start()
+                        try Task.checkCancellation()
+                        return stream
+                    } catch {
+                        await engine.cancel()
+                        throw error
+                    }
+                }
+                guard self.sessionID == runID, !Task.isCancelled else { await engine.cancel(); return }
 
                 // Compare mode captures in *Apple's* format, not a format of our choosing.
                 //
@@ -295,6 +332,7 @@ final class DictationController {
                 guard let format = await formatOwner.preferredInputFormat() else {
                     throw TranscriptionError.noAudioFormat
                 }
+                guard self.sessionID == runID, !Task.isCancelled else { await engine.cancel(); return }
 
                 // Audio must reach the engine in capture order. A stream plus a single
                 // draining task guarantees that; spawning a Task per buffer would not.
@@ -317,33 +355,36 @@ final class DictationController {
                     return recording
                 }
 
-                try capture.start(
+                let receipt = AudioReceipt()
+                try await capture.start(
                     outputFormat: format,
                     onBuffer: { chunk in
+                        receipt.received()
                         audioContinuation.yield(chunk)
                     },
                     onLevel: { [weak self] level in
-                        Task { @MainActor in self?.updateLevel(level) }
+                        Task { @MainActor in
+                            if self?.sessionID == runID, self?.state == .listening { self?.updateLevel(level) }
+                        }
                     }
                 )
 
                 // Bail out if the user already let go while we were spinning up.
-                guard case .starting = self.state else {
-                    await self.teardown()
-                    return
-                }
+                guard self.sessionID == runID, !Task.isCancelled else { await engine.cancel(); return }
 
                 self.state = .listening
                 if Settings.shared.soundEnabled { NSSound(named: "Tink")?.play() }
                 self.armWatchdog()
+                self.watchCapture(receipt, for: runID)
 
                 self.consumeTask = Task { @MainActor in
                     do {
                         for try await chunk in chunks {
+                            guard self.sessionID == runID, !Task.isCancelled else { break }
                             self.transcript = chunk.text
                         }
                     } catch {
-                        self.fail(error.localizedDescription)
+                        if self.sessionID == runID { self.fail(error.localizedDescription) }
                     }
                 }
 
@@ -362,44 +403,48 @@ final class DictationController {
                     self.endDictation()
                 }
             } catch {
-                self.fail(error.localizedDescription)
+                if self.sessionID == runID {
+                    self.fail(error is AsyncDeadline.TimedOut
+                        ? "The speech engine could not get ready. Try again or select the other model in Settings."
+                        : error.localizedDescription)
+                }
             }
         }
     }
 
-    /// Drain captured audio into the engine, finalize it, and wait for the transcript —
-    /// giving up after `finishDeadline`.
-    ///
-    /// Written as a completion flag plus a polling wait rather than the obvious
-    /// `withTaskGroup` race: the whole controller is `@MainActor`, and a `@MainActor` child
-    /// task inside a task group defeats Swift 6's region-based isolation checker. Polling on
-    /// the main actor is plain, and each `sleep` yields so the drain can make progress.
-    ///
-    /// - Returns: `true` if the drain completed, `false` if it timed out.
-    private func drainWithDeadline() async -> Bool {
-        drainFinished = false
-
-        let drain = Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Every captured buffer must reach the engine before it is asked to finalize,
-            // or the tail of the utterance is dropped.
-            self.audioContinuation?.finish()
-            self.audioContinuation = nil
-            self.recorded = await self.feedTask?.value ?? []
-            self.feedTask = nil
-
-            await self.engine?.finish()
-            await self.consumeTask?.value
-            self.drainFinished = true
+    /// Drain this recording in order, with a deadline that also responds to cancellation.
+    private func drainWithDeadline() async throws -> [AudioChunk] {
+        // Capture this session's handles before awaiting. A late framework completion
+        // must never finish a newer recording or write into its transcript.
+        let feed = feedTask, consume = consumeTask, engine = engine
+        audioContinuation?.finish()
+        audioContinuation = nil
+        return try await AsyncDeadline.run(for: finishLimit) {
+            let recording = await feed?.value ?? []
+            await engine?.finish()
+            await consume?.value
+            return recording
         }
+    }
 
-        let deadline = ContinuousClock.now.advanced(by: Self.finishDeadline)
-        while !drainFinished, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(50))
+    private final class AudioReceipt: Sendable {
+        private let last = Mutex(ContinuousClock.now)
+        func received() { last.withLock { $0 = .now } }
+        var stalled: Bool { last.withLock { .now - $0 > .seconds(2) } }
+    }
+
+    private func watchCapture(_ receipt: AudioReceipt, for runID: UUID) {
+        captureWatchdog?.cancel()
+        captureWatchdog = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard let self, self.sessionID == runID, self.state == .listening else { return }
+                if receipt.stalled {
+                    self.fail("The microphone stopped sending audio. Check its connection and try again.")
+                    return
+                }
+            }
         }
-
-        if !drainFinished { drain.cancel() }
-        return drainFinished
     }
 
     private func armWatchdog() {
@@ -429,41 +474,46 @@ final class DictationController {
         guard state.isActive, state != .finishing else { return }
         watchdog?.cancel()
         watchdog = nil
+        captureWatchdog?.cancel()
+        captureWatchdog = nil
         state = .finishing
         capture.stop()
         level = 0
         releasedAt = Date()
 
-        Task { @MainActor in
-            let drained = await drainWithDeadline()
-            consumeTask = nil
-            engine = nil
-
-            // A drain that overruns means the engine is wedged. Discard the utterance and
-            // return to idle rather than leaving the app unusable until it is relaunched —
-            // losing one dictation is recoverable, a stuck app is not.
-            guard drained else {
-                Log.speech.error("engine did not finish within the deadline — discarding")
-                cancelDictation()
-                NSSound(named: "Funk")?.play()
+        guard let runID = sessionID else { return }
+        finishTask = Task { @MainActor in
+            do {
+                let recording = try await drainWithDeadline()
+                guard self.sessionID == runID, !Task.isCancelled else { return }
+                recorded = recording
+            }
+            catch {
+                guard self.sessionID == runID else { return }
+                Log.speech.error("dictation finish failed: \(error.localizedDescription)")
+                fail("Transcription could not finish. Try again; you can cancel at any time.")
                 return
             }
+            guard self.sessionID == runID, !Task.isCancelled else { return }
+            consumeTask = nil
+            feedTask = nil
+            engine = nil
 
             if isComparing {
-                await runComparison()
+                await runComparison(for: runID)
                 return
             }
 
             let raw = transcript
             guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                state = .idle
-                transcript = ""
+                fail("No speech was heard. Check the selected microphone in Settings and try again.")
                 return
             }
 
             let cleaned = Settings.shared.cleanupEnabled
                 ? await activeFormatter.format(raw)
                 : raw
+            guard self.sessionID == runID, !Task.isCancelled else { return }
 
             // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
             // only raises the odds of the right word; this is the pass that guarantees it,
@@ -474,15 +524,25 @@ final class DictationController {
             }
 
             recordRun(text: output, corrections: corrections)
-            TextInjector.insert(output)
+            insertText(output)
             if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
             state = .idle
+            sessionID = nil
             transcript = ""
         }
     }
 
     private func cancelDictation() {
+        sessionID = nil
+        setupTask?.cancel()
+        setupTask = nil
+        finishTask?.cancel()
+        finishTask = nil
+        captureWatchdog?.cancel()
+        captureWatchdog = nil
+        errorDismissTask?.cancel()
+        errorDismissTask = nil
         watchdog?.cancel()
         watchdog = nil
         isLatched = false
@@ -497,24 +557,11 @@ final class DictationController {
 
         let engine = self.engine
         self.engine = nil
-        Task { await engine?.finish() }
+        Task { await engine?.cancel() }
 
         state = .idle
         transcript = ""
         level = 0
-    }
-
-    private func teardown() async {
-        capture.stop()
-        audioContinuation?.finish()
-        audioContinuation = nil
-        _ = await feedTask?.value
-        feedTask = nil
-        await engine?.finish()
-        engine = nil
-        consumeTask?.cancel()
-        consumeTask = nil
-        state = .idle
     }
 
     // MARK: - Helpers
@@ -528,7 +575,7 @@ final class DictationController {
     ///
     /// Nothing is injected in this mode — the point is to read the outputs side by side,
     /// and typing one of them into whatever had focus would be a surprise.
-    private func runComparison() async {
+    private func runComparison(for runID: UUID) async {
         let chunks = recorded
         recorded.removeAll(keepingCapacity: false)
 
@@ -546,6 +593,7 @@ final class DictationController {
         // Filed one at a time as each engine finishes, so the window fills in progressively
         // rather than snapping both rows into place at the end.
         let results = await EngineComparison.run(chunks: chunks) { result in
+            guard self.sessionID == runID else { return }
             RunLog.record(
                 DictationRun(
                     date: releasedAt,
@@ -557,6 +605,7 @@ final class DictationController {
                 )
             )
         }
+        guard sessionID == runID, !Task.isCancelled else { return }
 
         for result in results {
             Log.speech.info("""
@@ -572,6 +621,7 @@ final class DictationController {
         if WisprReader.isInstalled {
             transcript = "Waiting for Wispr Flow…"
             if let wispr = await WisprReader.result(after: holdStarted, timeout: 8) {
+                guard sessionID == runID, !Task.isCancelled else { return }
                 RunLog.record(
                     DictationRun(
                         date: releasedAt,
@@ -591,6 +641,7 @@ final class DictationController {
                 Log.speech.info("compare · Wispr Flow: no result (hotkey not held, or timed out)")
             }
         }
+        guard sessionID == runID, !Task.isCancelled else { return }
 
         self.holdStarted = nil
         self.releasedAt = nil
@@ -608,7 +659,7 @@ final class DictationController {
     /// engine and a batch engine can be compared honestly.
     private func recordRun(text: String, corrections: [AppliedCorrection] = []) {
         guard let holdStarted, let releasedAt else { return }
-        RunLog.record(
+        saveRun(
             DictationRun(
                 date: releasedAt,
                 engine: engineName,
@@ -629,19 +680,15 @@ final class DictationController {
 
     private func fail(_ message: String) {
         Log.app.error("\(message)")
-        capture.stop()
-        audioContinuation?.finish()
-        audioContinuation = nil
-        feedTask?.cancel()
-        feedTask = nil
-        engine = nil
-        consumeTask?.cancel()
-        consumeTask = nil
+        cancelDictation()
+        hotkey.clearPressState()
+        lastError = message
         state = .error(message)
         level = 0
 
-        Task { @MainActor in
+        errorDismissTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
             if case .error = state { state = .idle }
         }
     }

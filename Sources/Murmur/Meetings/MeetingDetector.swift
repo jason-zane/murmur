@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Foundation
 import Observation
+import MurmurSessions
 
 /// A process that looks like it is on a call, and everything known about it.
 struct MeetingCandidate: Identifiable, Equatable, Sendable {
@@ -41,7 +42,8 @@ struct MeetingCandidate: Identifiable, Equatable, Sendable {
 ///
 /// Signals, in the order they are trusted: a process with both input *and* output running
 /// (from `AudioProcessMonitor`), whether that process is a known meeting app, for browsers
-/// whether a window title names a meeting service, and whether the calendar agrees. Then a
+/// whether a window title names a meeting service, and whether the calendar agrees. Google
+/// Meet also requires visible joined-call controls, because its preview opens audio devices. Then a
 /// sustained-use delay before anything is shown, so a call you decline never becomes a
 /// session, and a release timer afterwards, so the recording ends when the call does.
 @MainActor
@@ -62,6 +64,8 @@ final class MeetingDetector {
     /// Set by the controller while a session records, so the detector can watch for the
     /// call ending rather than offering to record it again.
     var recordingBundleID: String?
+    /// Suppresses offers during manual recording, startup and finalisation too.
+    var captureIsBusy = false
 
     var onDecision: ((Decision) -> Void)?
     /// The recorded app has had no input for `autoStopAfter` seconds.
@@ -73,7 +77,7 @@ final class MeetingDetector {
     private var declined: Set<String> = []
     /// Bundle IDs already decided on for the current call, so one call yields one offer.
     private var decided: Set<String> = []
-    private var releaseSince: Date?
+    private var endPolicy = CallEndPolicy()
 
     /// Unknown apps wait longer before a quiet offer. A known app's two-way audio is a call;
     /// an unknown app's might be a game.
@@ -85,7 +89,7 @@ final class MeetingDetector {
         tick = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                self?.evaluate()
+                await self?.evaluate()
             }
         }
         Log.app.info("meeting detector started")
@@ -111,30 +115,45 @@ final class MeetingDetector {
         offered = nil
     }
 
+    /// A manual Stop means stop for this call, not restart on the next detector tick.
+    func suppressCurrentCall() {
+        if let bundle = recordingBundleID ?? candidate?.bundleID {
+            declined.insert(bundle)
+            decided.insert(bundle)
+        }
+        offered = nil
+    }
+
     // MARK: - Evaluation
 
-    private func evaluate() {
+    private func evaluate() async {
         let settings = MeetingSettings.shared
         let now = Date()
+        let browserPIDs = Set(monitor.processes.filter {
+            MeetingAppRegistry.app(for: $0.bundleID)?.kind == .browser
+                && ($0.isRunningInput || $0.isRunningOutput)
+        }.map(\.pid))
+        let browserStates = await Task.detached(priority: .utility) {
+            Dictionary(uniqueKeysWithValues: browserPIDs.map { ($0, BrowserCallReader.googleMeet(pid: $0)) })
+        }.value
+        guard !Task.isCancelled else { return }
 
         // While recording, the only question is whether the call has ended.
-        if let recording = recordingBundleID {
-            let stillLive = monitor.processes.contains { $0.bundleID == recording && $0.isRunningInput }
-            if stillLive {
-                releaseSince = nil
-            } else {
-                if releaseSince == nil { releaseSince = now }
-                if let since = releaseSince, now.timeIntervalSince(since) >= settings.autoStopAfter {
-                    releaseSince = nil
-                    Log.app.info("call ended — \(recording, privacy: .public) released the mic \(Int(settings.autoStopAfter))s ago")
-                    onCallEnded?()
-                }
+        if captureIsBusy {
+            let processes = monitor.processes.filter { $0.bundleID == recordingBundleID }
+            if processes.contains(where: { browserStates[$0.pid] == .preview }) {
+                onCallEnded?()
+                return
+            }
+            if endPolicy.shouldStop(bundleID: recordingBundleID, hasInput: processes.contains(where: \.isRunningInput),
+                                    hasOutput: processes.contains(where: \.isRunningOutput), now: now, delay: settings.autoStopAfter) {
+                onCallEnded?()
             }
             if offered != nil { offered = nil }
             candidate = nil
             return
         }
-        releaseSince = nil
+        endPolicy = CallEndPolicy()
 
         guard settings.detectionEnabled else {
             candidate = nil
@@ -143,7 +162,9 @@ final class MeetingDetector {
         }
 
         let twoWay = monitor.processes.filter {
-            $0.isTwoWay && !MeetingAppRegistry.ignoredBundleIDs.contains($0.bundleID)
+            ($0.isTwoWay || (browserStates[$0.pid] == .active && $0.isRunningOutput))
+                && browserStates[$0.pid] != .preview
+                && !MeetingAppRegistry.ignoredBundleIDs.contains($0.bundleID) && settings.rule(for: $0.bundleID) != .never
         }
 
         // Forget decisions and declines for apps whose calls have ended.
@@ -157,8 +178,11 @@ final class MeetingDetector {
             return
         }
 
-        if candidate?.bundleID != best.bundleID || candidate?.pid != best.pid {
-            candidate = best
+        let sameCall = candidate?.bundleID == best.bundleID && candidate?.pid == best.pid
+        let since = sameCall ? (candidate?.since ?? now) : now
+        candidate = MeetingCandidate(bundleID: best.bundleID, pid: best.pid, label: best.label, callNoun: best.callNoun,
+                                     isKnown: best.isKnown, isBrowser: best.isBrowser, since: since)
+        if !sameCall {
             Log.app.info("call candidate: \(best.label, privacy: .public) (\(best.bundleID, privacy: .public))")
         }
         guard var current = candidate else { return }
@@ -167,17 +191,25 @@ final class MeetingDetector {
         let rule = settings.rule(for: current.bundleID)
         guard rule != .never else { return }
 
+        if settings.calendarEnabled {
+            current.calendarEvent = CalendarService.shared.bestMatch(at: now)
+            if current.isBrowser, !current.isKnown, let event = current.calendarEvent,
+               let url = event.conferenceURL, let provider = MeetingLink.provider(for: url) {
+                current = MeetingCandidate(bundleID: current.bundleID, pid: current.pid, label: provider,
+                                           callNoun: provider + " call", isKnown: true, isBrowser: true,
+                                           since: current.since, calendarEvent: event)
+            }
+            candidate = current
+        }
         let delay = current.isKnown ? settings.offerDelay : Self.unknownAppDelay
         guard current.elapsed(at: now) >= delay else { return }
 
-        if settings.calendarEnabled {
-            current.calendarEvent = CalendarService.shared.bestMatch(at: now)
-            candidate = current
-        }
-
         decided.insert(current.bundleID)
         let strongEvidence = current.isKnown && current.calendarEvent != nil
-        if rule == .auto || (settings.autoStartOnCalendarMatch && strongEvidence) {
+        let explicitRule = settings.appRules[current.bundleID]
+        let autoKnown = settings.autoRecordKnownCalls && current.isKnown && explicitRule == nil
+        let joinedMeet = !current.isBrowser || current.label != "Google Meet" || browserStates[current.pid] == .active
+        if joinedMeet && (rule == .auto || autoKnown || (settings.autoStartOnCalendarMatch && strongEvidence && explicitRule == nil)) {
             offered = nil
             onDecision?(.autoStart(current))
         } else {

@@ -4,7 +4,7 @@ import SwiftUI
 /// The window the HUD capsule floats in.
 ///
 /// The panel is a **fixed, transparent canvas** — deliberately wider and taller than the
-/// pill it contains. The pill sizes itself to its content and centres inside, so it can grow
+/// pill it contains. The pill sizes itself to its content and anchors to an edge, so it can grow
 /// with the transcript and shrink again without the window ever resizing. Resizing an
 /// `NSPanel` on every partial ASR result judders badly and fights the SwiftUI animation.
 ///
@@ -14,17 +14,19 @@ import SwiftUI
 @MainActor
 final class HUDPanel: NSPanel {
     /// Canvas, not pill. Big enough for the widest the capsule is allowed to get.
-    private static let canvas = NSSize(width: 460, height: 72)
-
-    /// How far above the bottom of the screen the capsule sits. Clear of the Dock.
-    private static let bottomInset: CGFloat = 72
+    private static let canvas = DS.HUD.canvas
 
     /// Must outlast the SwiftUI exit animation, or the window vanishes mid-fade.
-    private static let exitDuration: Duration = .milliseconds(320)
+    private static let exitDuration = DS.HUD.exitDuration
 
     private var dismissTask: Task<Void, Never>?
+    private var previewTask: Task<Void, Never>?
+    private var isPreviewing = false
+    private var currentScreen: NSScreen?
+    private let controller: DictationController
 
     init(controller: DictationController) {
+        self.controller = controller
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.canvas),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -37,15 +39,20 @@ final class HUDPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         hidesOnDeactivate = false
         isMovableByWindowBackground = false
-        ignoresMouseEvents = true
+        ignoresMouseEvents = false
 
         isOpaque = false
         backgroundColor = .clear
-        // The capsule draws its own shadow in SwiftUI; a window shadow would trace the
-        // transparent canvas rectangle instead of the pill.
+        // No window or SwiftUI shadow: only the capsule is visible, with no rectangular
+        // backing around the transparent canvas.
         hasShadow = false
 
-        contentView = NSHostingView(rootView: HUDView(controller: controller))
+        let hosting = TransparentHUDHostingView(rootView: HUDView(controller: controller))
+        hosting.sizingOptions = []
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = NSColor.clear.cgColor
+        contentView = hosting
+        observePosition()
     }
 
     override var canBecomeKey: Bool { false }
@@ -53,28 +60,33 @@ final class HUDPanel: NSPanel {
 
     /// Follows the screen the user is actually working on, not whichever screen the panel
     /// was last shown on — otherwise dictating on a second display puts the HUD elsewhere.
-    func reposition() {
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+    func reposition(followPointer: Bool = false) {
+        let previousScreen = followPointer ? nil : currentScreen.flatMap { previous in
+            NSScreen.screens.first { $0 == previous }
+        }
+        guard let screen = previousScreen
+                ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
                 ?? NSScreen.main
                 ?? NSScreen.screens.first else {
             Log.app.error("no screen available to position HUD")
             return
         }
-        let visible = screen.visibleFrame
-        setFrameOrigin(
-            NSPoint(
-                x: visible.midX - Self.canvas.width / 2,
-                y: visible.minY + Self.bottomInset
-            )
-        )
+        currentScreen = screen
+        setFrame(Settings.shared.dictationBarPosition.frame(in: screen.visibleFrame), display: true)
     }
 
     func present() {
         dismissTask?.cancel()
         dismissTask = nil
+        previewTask?.cancel()
+        previewTask = nil
+        if isPreviewing {
+            setPreview(false)
+            reposition(followPointer: true)
+        }
 
         guard !isVisible else { return }
-        reposition()
+        reposition(followPointer: true)
         // No alpha animation here — the capsule animates itself in SwiftUI, and animating
         // both produces a double fade.
         alphaValue = 1
@@ -82,6 +94,9 @@ final class HUDPanel: NSPanel {
     }
 
     func dismiss() {
+        previewTask?.cancel()
+        previewTask = nil
+        if isPreviewing { setPreview(false) }
         guard isVisible else { return }
         dismissTask?.cancel()
         // Hold the window open long enough for the capsule's exit spring to finish, then
@@ -94,4 +109,45 @@ final class HUDPanel: NSPanel {
             self?.orderOut(nil)
         }
     }
+
+    /// A real overlay preview, with no microphone, engine or text insertion involved.
+    func preview() {
+        guard !controller.state.isActive else { return }
+        dismissTask?.cancel()
+        dismissTask = nil
+        previewTask?.cancel()
+        setPreview(true)
+        reposition(followPointer: true)
+        alphaValue = DS.HUD.visibleOpacity
+        orderFrontRegardless()
+        previewTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: DS.HUD.previewDuration)
+            guard !Task.isCancelled else { return }
+            self?.dismiss()
+        }
+    }
+
+    private func setPreview(_ value: Bool) {
+        isPreviewing = value
+        (contentView as? TransparentHUDHostingView)?.rootView = HUDView(
+            controller: controller, isPreview: value,
+            onDismissPreview: { [weak self] in self?.dismiss() }
+        )
+    }
+
+    private func observePosition() {
+        withObservationTracking {
+            _ = Settings.shared.dictationBarPosition
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.isVisible { self.reposition() }
+                self.observePosition()
+            }
+        }
+    }
+}
+
+private final class TransparentHUDHostingView: NSHostingView<HUDView> {
+    override var isOpaque: Bool { false }
 }

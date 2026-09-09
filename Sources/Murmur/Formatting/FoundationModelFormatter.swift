@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import MurmurSessions
 
 /// Cleanup via Apple's on-device LLM (macOS 26 Foundation Models).
 ///
@@ -50,17 +51,9 @@ struct FoundationModelFormatter: TextFormatter {
         }
 
         do {
-            let cleaned = try await withThrowingTaskGroup(of: String.self) { group in
-                group.addTask { try await Self.clean(trimmed) }
-                group.addTask {
-                    try await Task.sleep(for: timeout)
-                    throw CleanupError.timedOut
-                }
-                // Whichever finishes first wins; cancel the loser.
-                guard let first = try await group.next() else { throw CleanupError.timedOut }
-                group.cancelAll()
-                return first
-            }
+            // A task group waits for a noncooperative model even after cancelAll(). The
+            // deadline returns promptly and discards any late result instead.
+            let cleaned = try await AsyncDeadline.run(for: timeout) { try await Self.clean(trimmed) }
 
             guard Self.isPlausibleCleanup(original: trimmed, cleaned: cleaned) else {
                 Log.speech.info("Foundation model output rejected — using rule-based cleanup")
@@ -209,8 +202,4 @@ struct FoundationModelFormatter: TextFormatter {
         "kind", "sort", "of", "stuff", "thing", "things",
     ]
 
-    private enum CleanupError: LocalizedError {
-        case timedOut
-        var errorDescription: String? { "on-device cleanup timed out" }
-    }
 }

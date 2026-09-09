@@ -80,18 +80,33 @@ final class AudioProcessMonitor {
             let bundle: String = Self.readString(id, kAudioProcessPropertyBundleID) ?? ""
             let input: UInt32 = Self.read(id, kAudioProcessPropertyIsRunningInput) ?? 0
             let output: UInt32 = Self.read(id, kAudioProcessPropertyIsRunningOutput) ?? 0
-            let resolvedBundle = bundle.isEmpty
+            let resolvedBundle = Self.canonicalBundle(bundle.isEmpty
                 ? (NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "pid.\(pid)")
-                : bundle
+                : bundle)
+            let rootPID = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == resolvedBundle }?.processIdentifier ?? pid
             next.append(AudioProcessInfo(
                 objectID: id,
-                pid: pid,
+                pid: rootPID,
                 bundleID: resolvedBundle,
                 isRunningInput: input != 0,
                 isRunningOutput: output != 0
             ))
         }
-        if next != processes { processes = next }
+        // Chromium can put input and output in separate audio process objects. Combine
+        // them by owning app before looking for a two-way call.
+        let grouped = Dictionary(grouping: next, by: \.bundleID).values.compactMap { group -> AudioProcessInfo? in
+            guard let first = group.first else { return nil }
+            return AudioProcessInfo(objectID: first.objectID, pid: first.pid, bundleID: first.bundleID,
+                                    isRunningInput: group.contains(where: \.isRunningInput),
+                                    isRunningOutput: group.contains(where: \.isRunningOutput))
+        }.sorted { $0.bundleID < $1.bundleID }
+        if grouped != processes { processes = grouped }
+    }
+
+    private static func canonicalBundle(_ bundle: String) -> String {
+        MeetingAppRegistry.apps.first {
+            bundle == $0.bundleID || bundle.lowercased().hasPrefix($0.bundleID.lowercased() + ".")
+        }?.bundleID ?? bundle
     }
 
     // MARK: - Listener

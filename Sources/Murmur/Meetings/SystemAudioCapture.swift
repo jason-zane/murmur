@@ -36,6 +36,7 @@ final class SystemAudioCapture: @unchecked Sendable {
     }
 
     private let queue = DispatchQueue(label: "com.jasonhunt.murmur.systemaudio", qos: .userInitiated)
+    private let lifecycle = NSRecursiveLock()
 
     /// Remembered after the first successful tap. There is no public API to *ask* TCC about
     /// Audio Recording without triggering the prompt, so success is the only evidence.
@@ -87,6 +88,8 @@ final class SystemAudioCapture: @unchecked Sendable {
         onBuffer: @escaping @Sendable (AudioChunk) -> Void,
         onLevel: @escaping @Sendable (Float) -> Void
     ) throws {
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
         guard !isRunning else { return }
         self.onBuffer = onBuffer
         self.onLevel = onLevel
@@ -116,7 +119,7 @@ final class SystemAudioCapture: @unchecked Sendable {
 
         // 3. Wrap the tap in a private aggregate device anchored on the default output, so
         //    it can be read like any input device.
-        guard let outputID: AudioDeviceID = Self.read(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice),
+        guard let outputID: AudioDeviceID = Self.read(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice),
               outputID != kAudioObjectUnknown,
               let outputUID = Self.readString(outputID, kAudioDevicePropertyDeviceUID) else {
             teardown()
@@ -125,7 +128,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         outputDeviceUID = outputUID
 
         let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Murmur call capture",
+            kAudioAggregateDeviceNameKey: "Voice Notes call capture",
             kAudioAggregateDeviceUIDKey: "com.jasonhunt.murmur.capture." + UUID().uuidString,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
@@ -170,6 +173,8 @@ final class SystemAudioCapture: @unchecked Sendable {
     }
 
     func stop() {
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
         guard isRunning else { return }
         isRunning = false
         teardown()
@@ -181,10 +186,22 @@ final class SystemAudioCapture: @unchecked Sendable {
 
     /// Whether the default output device has moved away from the one the tap is anchored to.
     var outputDeviceChanged: Bool {
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
         guard let anchored = outputDeviceUID,
-              let outputID: AudioDeviceID = Self.read(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice),
+              let outputID: AudioDeviceID = Self.read(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice),
               let current = Self.readString(outputID, kAudioDevicePropertyDeviceUID) else { return false }
         return current != anchored
+    }
+
+    /// Re-anchor when headphones or the output device change. The controller invokes this
+    /// on a background task, never while blocking the main actor.
+    func restart() throws {
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
+        guard isRunning, let outputFormat, let onBuffer, let onLevel else { return }
+        stop()
+        try start(outputFormat: outputFormat, onBuffer: onBuffer, onLevel: onLevel)
     }
 
     // MARK: - IO

@@ -1,78 +1,84 @@
 import AVFoundation
 import CoreAudio
+import CoreMedia
 import Foundation
+import Synchronization
 
-/// Microphone capture with on-the-fly conversion to whatever format the speech engine wants.
-///
-/// The tap runs on a real-time audio thread, so everything it touches lives behind
-/// `nonisolated(unsafe)` and is only ever mutated from that one thread.
 enum CaptureError: LocalizedError {
     case noInputFormat
+    case couldNotStart
     var errorDescription: String? {
-        "No usable input format on the current microphone. Check System Settings ▸ Sound ▸ Input."
+        switch self {
+        case .noInputFormat: "No usable microphone is connected. Check System Settings ▸ Sound ▸ Input."
+        case .couldNotStart: "The microphone could not start. Check its connection and try again."
+        }
     }
 }
 
-final class AudioCapture: @unchecked Sendable {
-    /// Recreated for every capture, never reused.
-    ///
-    /// `AVAudioEngine.inputNode` binds to a device the first time it is touched and then
-    /// keeps it. A single long-lived engine therefore latches onto whatever was the default
-    /// input at first launch — a Bluetooth headset, say — and goes on using it after that
-    /// headset disconnects or the user changes source in System Settings. Building a fresh
-    /// engine per dictation means each one starts from the current default.
-    private nonisolated(unsafe) var engine = AVAudioEngine()
-    private nonisolated(unsafe) var converter: AVAudioConverter?
-    private nonisolated(unsafe) var outputFormat: AVAudioFormat?
-    private var isRunning = false
+protocol DictationAudioCapturing: AnyObject, Sendable {
+    func start(outputFormat: AVAudioFormat,
+               onBuffer: @escaping @Sendable (AudioChunk) -> Void,
+               onLevel: @escaping @Sendable (Float) -> Void) async throws
+    func stop()
+}
 
-    /// Called on the audio thread with each converted buffer.
-    private nonisolated(unsafe) var onBuffer: (@Sendable (AudioChunk) -> Void)?
-    /// Called on the audio thread with a 0…1 RMS level, for the HUD waveform.
-    private nonisolated(unsafe) var onLevel: (@Sendable (Float) -> Void)?
+/// Input-only capture. AVAudioEngine's duplex graph repeatedly stopped delivering AirPods
+/// buffers after about 85 ms when Bluetooth changed its format between recordings.
+/// AVCaptureSession owns input-device negotiation; conversion follows each buffer's actual
+/// format. All session operations and buffer handling share one queue, never the UI thread.
+final class AudioCapture: NSObject, DictationAudioCapturing, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.jasonhunt.murmur.microphone", qos: .userInitiated)
+    private let activeID = Mutex<UUID?>(nil)
+    // Only accessed on queue. activeID is the synchronous cancellation boundary.
+    private var session: AVCaptureSession?
+    private var sessionID: UUID?
+    private var converter: AVAudioConverter?
+    private var inputFormat: AVAudioFormat?
+    private var outputFormat: AVAudioFormat?
+    private var onBuffer: (@Sendable (AudioChunk) -> Void)?
+    private var onLevel: (@Sendable (Float) -> Void)?
 
     func start(
         outputFormat: AVAudioFormat,
         onBuffer: @escaping @Sendable (AudioChunk) -> Void,
         onLevel: @escaping @Sendable (Float) -> Void
-    ) throws {
-        guard !isRunning else { return }
-
-        self.onBuffer = onBuffer
-        self.onLevel = onLevel
-        self.outputFormat = outputFormat
-
-        // A fresh engine binds to the system default input at creation, which is the whole
-        // fix for following device changes. Do NOT also set the device explicitly on the
-        // input unit: that kicks off an asynchronous graph reconfiguration, and the format
-        // read on the next line comes back stale (44.1k against 48k hardware). The tap
-        // then fails to install — "Failed to create tap, config change pending!" — while
-        // `engine.start()` still succeeds. Capture logs as started and no buffer ever
-        // arrives, so the speech engine has nothing to finalize and hangs on stop.
-        engine = AVAudioEngine()
-        let input = engine.inputNode
-
-        let nativeFormat = input.outputFormat(forBus: 0)
-
-        // Fail loudly rather than start a capture that can't produce audio. A degenerate
-        // format here is exactly the symptom of the graph being mid-reconfiguration.
-        guard nativeFormat.sampleRate > 0, nativeFormat.channelCount > 0 else {
-            throw CaptureError.noInputFormat
+    ) async throws {
+        let id = UUID()
+        activeID.withLock { $0 = id }
+        // AVAudioFormat is immutable here and confined to queue once handed off.
+        let format = outputFormat
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                do {
+                    self.stopSession()
+                    guard self.activeID.withLock({ $0 == id }) else { throw CancellationError() }
+                    guard let device = AVCaptureDevice.default(for: .audio) else { throw CaptureError.noInputFormat }
+                    let session = AVCaptureSession()
+                    let input = try AVCaptureDeviceInput(device: device)
+                    let output = AVCaptureAudioDataOutput()
+                    guard session.canAddInput(input), session.canAddOutput(output) else { throw CaptureError.couldNotStart }
+                    session.addInput(input)
+                    session.addOutput(output)
+                    output.setSampleBufferDelegate(self, queue: self.queue)
+                    self.session = session
+                    self.sessionID = id
+                    self.outputFormat = format
+                    self.onBuffer = onBuffer
+                    self.onLevel = onLevel
+                    session.startRunning()
+                    guard self.activeID.withLock({ $0 == id }) else {
+                        self.stopSession()
+                        throw CancellationError()
+                    }
+                    guard session.isRunning else { throw CaptureError.couldNotStart }
+                    Log.audio.info("microphone capture started: \(device.localizedName, privacy: .public)")
+                    continuation.resume()
+                } catch {
+                    self.stopSession()
+                    continuation.resume(throwing: error)
+                }
+            }
         }
-
-        converter = nativeFormat == outputFormat
-            ? nil
-            : AVAudioConverter(from: nativeFormat, to: outputFormat)
-
-        input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 2048, format: nativeFormat) { [weak self] buffer, _ in
-            self?.handle(buffer)
-        }
-
-        engine.prepare()
-        try engine.start()
-        isRunning = true
-        Log.audio.info("capture started — native \(nativeFormat.sampleRate)Hz → engine \(outputFormat.sampleRate)Hz")
     }
 
     /// The system's current default input, for display in Settings and in the log.
@@ -108,28 +114,51 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     func stop() {
-        guard isRunning else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        isRunning = false
-        converter = nil
-        onBuffer = nil
-        onLevel = nil
-        Log.audio.info("capture stopped")
+        activeID.withLock { $0 = nil }
+        queue.async { self.stopSession() }
     }
 
-    // MARK: - Audio thread
+    private func stopSession() {
+        session?.stopRunning()
+        for output in session?.outputs ?? [] {
+            (output as? AVCaptureAudioDataOutput)?.setSampleBufferDelegate(nil, queue: nil)
+        }
+        session = nil
+        sessionID = nil
+        converter = nil
+        inputFormat = nil
+        onBuffer = nil
+        onLevel = nil
+    }
+
+    // MARK: - Capture queue
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let sessionID, activeID.withLock({ $0 == sessionID }),
+              let description = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
+        let format = AVAudioFormat(cmAudioFormatDescription: description)
+        let frames = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
+        buffer.frameLength = frames
+        guard CMSampleBufferCopyPCMDataIntoAudioBufferList(sampleBuffer, at: 0, frameCount: Int32(frames), into: buffer.mutableAudioBufferList) == noErr else { return }
+        handle(buffer)
+    }
 
     private func handle(_ buffer: AVAudioPCMBuffer) {
         onLevel?(Self.rms(of: buffer))
 
         guard let outputFormat else { return }
 
-        // AVAudioEngine reuses the tap's buffer as soon as this returns, so the engine
-        // must never see it directly — copy when no conversion would otherwise allocate.
+        if inputFormat != buffer.format {
+            inputFormat = buffer.format
+            converter = buffer.format == outputFormat ? nil : AVAudioConverter(from: buffer.format, to: outputFormat)
+            Log.audio.info("microphone format: \(buffer.format.sampleRate) Hz → \(outputFormat.sampleRate) Hz")
+        }
+
+        // captureOutput already copied CoreMedia's storage into this owned buffer.
         guard let converter else {
-            if let copy = Self.copy(buffer) {
-                onBuffer?(AudioChunk(buffer: copy))
+            if buffer.format == outputFormat {
+                onBuffer?(AudioChunk(buffer: buffer))
             }
             return
         }
@@ -160,35 +189,6 @@ final class AudioCapture: @unchecked Sendable {
         onBuffer?(AudioChunk(buffer: converted))
     }
 
-    /// Deep-copies a tap buffer into storage we own.
-    private static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard buffer.frameLength > 0,
-              let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength)
-        else { return nil }
-
-        copy.frameLength = buffer.frameLength
-        let channels = Int(buffer.format.channelCount)
-        let frames = Int(buffer.frameLength)
-
-        if let source = buffer.floatChannelData, let destination = copy.floatChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else if let source = buffer.int16ChannelData, let destination = copy.int16ChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else if let source = buffer.int32ChannelData, let destination = copy.int32ChannelData {
-            for channel in 0..<channels {
-                destination[channel].update(from: source[channel], count: frames)
-            }
-        } else {
-            return nil
-        }
-
-        return copy
-    }
-
     /// One-shot flag. Only touched from the audio thread inside a synchronous call.
     private final class Latch: @unchecked Sendable {
         private var fired = false
@@ -200,13 +200,18 @@ final class AudioCapture: @unchecked Sendable {
     }
 
     private static func rms(of buffer: AVAudioPCMBuffer) -> Float {
-        guard let channel = buffer.floatChannelData?[0] else { return 0 }
         let count = Int(buffer.frameLength)
         guard count > 0 else { return 0 }
 
         var sum: Float = 0
-        for i in 0..<count {
-            let sample = channel[i]
+        let stride = buffer.format.isInterleaved ? Int(buffer.format.channelCount) : 1
+        for frame in 0..<count {
+            let index = frame * stride
+            let sample: Float
+            if let channel = buffer.floatChannelData?[0] { sample = channel[index] }
+            else if let channel = buffer.int16ChannelData?[0] { sample = Float(channel[index]) / 32_768 }
+            else if let channel = buffer.int32ChannelData?[0] { sample = Float(channel[index]) / 2_147_483_648 }
+            else { return 0 }
             sum += sample * sample
         }
         let rms = (sum / Float(count)).squareRoot()

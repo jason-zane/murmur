@@ -2,7 +2,13 @@ import SwiftUI
 
 struct SettingsWindow: View {
     @Bindable var controller: DictationController
+    var onPreviewBar: () -> Void
     @State private var settings = Settings.shared
+    @State private var account = CloudAccount.shared
+    @State private var section: SettingsSection = .account
+    private enum SettingsSection: String, CaseIterable {
+        case account = "Account", dictation = "Dictation", meetings = "Meetings", general = "General"
+    }
 
     @State private var isCapturing = false
     @State private var captureNote: String?
@@ -11,6 +17,42 @@ struct SettingsWindow: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
+
+                HStack(alignment: .top) {
+                    Text("Settings").font(DS.Font.pageTitle)
+                    Spacer(minLength: DS.Space.md)
+                    Button { section = .account } label: {
+                        VStack(alignment: .trailing, spacing: DS.Space.xs) {
+                            Text(account.isConnected ? "Signed in as" : "Not signed in")
+                                .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                            Text(account.isConnected ? account.email : "Account settings")
+                                .font(DS.Font.callout).foregroundStyle(DS.Color.accent)
+                        }
+                    }.buttonStyle(.plain).accessibilityLabel("Account settings")
+                }
+                Segmented(options: SettingsSection.allCases.map { ($0, $0.rawValue) }, selection: $section)
+                if section == .account { AccountSettingsCards() }
+                if section == .dictation {
+                Card {
+                    VStack(alignment: .leading, spacing: DS.Space.md) {
+                        HStack {
+                            SectionLabel(text: "Dictation bar")
+                            Spacer()
+                            ActionButton(title: "Preview", systemImage: "eye", emphasis: .quiet,
+                                         action: onPreviewBar)
+                                .disabled(controller.state.isActive)
+                        }
+                        SettingToggle(title: "Show live text", isOn: $settings.showLiveDictationText)
+                        Hint("Show your words in the floating bar while you speak. With this off, "
+                             + "the microphone meter and controls stay visible.")
+                        Divider().padding(.vertical, DS.Space.xs)
+                        Text("Screen edge").font(DS.Font.body)
+                        Segmented(options: HUDPosition.allCases.map { ($0, $0.displayName) },
+                                  selection: $settings.dictationBarPosition)
+                        Hint("Sits close to the edge, clear of the Dock and menu bar. "
+                             + "Follows the screen you start dictating on.")
+                    }
+                }
 
                 Card {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
@@ -125,7 +167,7 @@ struct SettingsWindow: View {
                             }
                         }
 
-                        Hint("Murmur always follows your system input device, and picks up "
+                        Hint("Voice Notes always follows your system input device, and picks up "
                              + "changes on the next dictation — so unplugging a headset "
                              + "hands you back the built-in mic.")
                     }
@@ -150,8 +192,6 @@ struct SettingsWindow: View {
                                + "downloaded from the menu bar item.")
                     }
                 }
-
-                MeetingsSettingsCards()
 
                 Card {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
@@ -180,12 +220,15 @@ struct SettingsWindow: View {
                     }
                 }
 
+                }
+                if section == .meetings { MeetingsSettingsCards() }
+                if section == .general {
                 Card {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
                         SectionLabel(text: "General")
 
                         SettingToggle(
-                            title: "Start Murmur at login",
+                            title: "Start Voice Notes at login",
                             isOn: $settings.launchAtLogin
                         )
 
@@ -199,7 +242,7 @@ struct SettingsWindow: View {
                                 }
                             }
                         } else {
-                            Hint("The push-to-talk trigger only works while Murmur is running.")
+                            Hint("The push-to-talk trigger only works while Voice Notes is running.")
                         }
 
                         Divider().padding(.vertical, DS.Space.xs)
@@ -226,11 +269,12 @@ struct SettingsWindow: View {
                         )
                     }
                 }
+                }
             }
             .padding(DS.Space.xl)
         }
         .background(DS.Color.window)
-        .frame(width: 580, height: 760)
+        .frame(width: DS.Layout.settingsWidth, height: DS.Layout.settingsHeight)
     }
 
     // MARK: - Recording a trigger
@@ -311,8 +355,9 @@ private struct SettingToggle: View {
                 .font(DS.Font.body)
                 .foregroundStyle(isEnabled ? DS.Color.text : DS.Color.textTertiary)
             Spacer()
-            Toggle("", isOn: $isOn)
+            Toggle(title, isOn: $isOn)
                 .toggleStyle(.switch)
+                .tint(DS.Color.accent)
                 .labelsHidden()
                 .disabled(!isEnabled)
         }

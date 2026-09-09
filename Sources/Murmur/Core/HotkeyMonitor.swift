@@ -346,7 +346,7 @@ final class HotkeyMonitor {
                 captureHandler = nil
                 capture(.trigger(trigger))
             } else {
-                capture(.unsupported("That mouse button isn't one Murmur can bind."))
+                capture(.unsupported("That mouse button isn't one Voice Notes can bind."))
             }
             return true
 

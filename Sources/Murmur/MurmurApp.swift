@@ -9,14 +9,24 @@ struct MurmurApp: App {
 
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
-        // panel, and letting ⌘N spawn a second copy of a tape deck makes no sense.
-        Window("Murmur", id: "main") {
-            MainWindow(controller: delegate.controller, meetings: delegate.meetings)
+        // workspace. ⌘N creates a note rather than another copy of the window.
+        Window("Voice Notes", id: "main") {
+            MainWindow(controller: delegate.controller, meetings: delegate.meetings,
+                       onToggleMeeting: delegate.toggleMeeting, onShowNotepad: delegate.showNotepad)
         }
-        .defaultSize(width: 860, height: 620)
+        .defaultSize(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight)
         .windowResizability(.contentMinSize)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                Button("New note") { NotificationCenter.default.post(name: .murmurNewNote, object: nil) }
+                    .keyboardShortcut("n", modifiers: .command)
+                Button("Record meeting") { delegate.toggleMeeting() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+            }
+            CommandGroup(after: .textEditing) {
+                Button("Find in notes") { NotificationCenter.default.post(name: .murmurFind, object: nil) }
+                    .keyboardShortcut("f", modifiers: .command)
+            }
             CommandGroup(after: .appInfo) {
                 Button("Reveal Dictionary File") {
                     NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
@@ -27,7 +37,7 @@ struct MurmurApp: App {
         // Fully qualified: this app has its own `Settings` type, which otherwise shadows
         // SwiftUI's settings scene.
         SwiftUI.Settings {
-            SettingsWindow(controller: delegate.controller)
+            SettingsWindow(controller: delegate.controller, onPreviewBar: delegate.previewDictationBar)
         }
 
         // Secondary now: status and the hotkey while you're working in another app.
@@ -57,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboarding: OnboardingWindow?
     private var stateObservation: NSObjectProtocol?
 
+    func previewDictationBar() { hud?.preview() }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // A regular app now: dock icon, app menu, standard windows. The HUD is still a
         // non-activating panel, so dictating into another app never steals its focus — that
@@ -64,11 +76,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
 
         hud = HUDPanel(controller: controller)
-        notepad = NotepadWindow(controller: meetings)
+        notepad = NotepadWindow(controller: meetings) { [weak self] in self?.toggleMeeting() }
         offerStrip = OfferStrip(detector: detector) { [weak self] candidate in
             self?.startMeeting(from: candidate)
         }
+        if PreviewEnvironment.isActive { return }
         wireMeetings()
+        MeetingSchedule.shared.start()
+        CloudSync.shared.start()
 
         if !OnboardingWindow.isCompleted {
             showOnboarding()
@@ -130,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// From a detection — the candidate's app and calendar event name the session.
     func startMeeting(from candidate: MeetingCandidate) {
+        guard meetings.state == .idle else { return }
         offerStrip?.dismiss()
         detector.dismissOffer()
         meetings.start(.init(
@@ -146,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if meetings.state.isActive {
             meetings.stop()
         } else {
+            guard meetings.state == .idle else { return }
             offerStrip?.dismiss()
             detector.dismissOffer()
             let event = MeetingSettings.shared.calendarEnabled ? CalendarService.shared.bestMatch() : nil
@@ -176,22 +193,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+                self.observeMeetingState()
+                if self.meetings.state == .finalising { self.detector.suppressCurrentCall() }
+                self.detector.captureIsBusy = self.meetings.state != .idle
+                self.detector.recordingBundleID = self.meetings.isRecording ? self.meetings.session?.bundleID : nil
+                MeetingSchedule.shared.captureIsBusy = self.meetings.state != .idle
                 switch self.meetings.state {
                 case .recording:
-                    self.detector.recordingBundleID = self.meetings.session?.bundleID ?? "manual"
+                    break
                 case .idle:
                     self.detector.recordingBundleID = nil
                     if let finished = self.meetings.lastFinishedSessionID, self.notepad?.isVisible == true {
                         // Leave the notepad up for a beat so "Saved" registers, then hand off
                         // to the Library with the new session selected.
                         try? await Task.sleep(for: .milliseconds(900))
+                        guard self.meetings.state == .idle else { return }
                         self.notepad?.dismiss()
                         NotificationCenter.default.post(name: .murmurShowSession, object: finished)
                     }
                 default:
                     break
                 }
-                self.observeMeetingState()
             }
         }
     }
@@ -216,6 +238,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleMeeting()
             case "notes":
                 showNotepad()
+            case "sessions":
+                let id = url.lastPathComponent
+                if SessionStore.isValidID(id), meetings.store.session(id: id) != nil {
+                    NotificationCenter.default.post(name: .murmurShowSession, object: id)
+                }
+            case "connections", "cloud":
+                NotificationCenter.default.post(name: .murmurShowConnections, object: nil)
+                NSApp.activate(ignoringOtherApps: true)
             case "setup":
                 showOnboarding()
             case "paste":
@@ -244,12 +274,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard meetings.state != .idle else { return .terminateNow }
+        if meetings.state == .saveFailed { showNotepad(); return .terminateCancel }
+        if meetings.state.isActive { meetings.stop() }
+        Task { @MainActor in
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while meetings.state != .idle, meetings.state != .saveFailed, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if meetings.state != .idle { showNotepad() }
+            sender.reply(toApplicationShouldTerminate: meetings.state == .idle)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         let isOpen = NSApp.windows.contains { $0.title == "Engine comparison" && $0.isVisible }
         UserDefaults.standard.set(isOpen, forKey: "comparisonWindowOpen")
         controller.deactivate()
         detector.stop()
-        if meetings.state.isActive { meetings.stop() }
+        MeetingSchedule.shared.stop()
     }
 
     /// Shows and hides the HUD in step with the controller's state.
@@ -333,7 +378,7 @@ private struct MenuContent: View {
         SettingsLink { Text("Settings…") }
             .keyboardShortcut(",", modifiers: .command)
 
-        Button("Open Murmur") {
+        Button("Open Voice Notes") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -395,7 +440,7 @@ private struct MenuContent: View {
             Button("Grant Microphone…") { Permissions.openMicrophoneSettings() }
         }
 
-        Button("Quit Murmur") { NSApp.terminate(nil) }
+        Button("Quit Voice Notes") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }
@@ -409,6 +454,7 @@ private struct StatusLabel: View {
     @Bindable var controller: DictationController
     let meetings: MeetingController
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
@@ -427,6 +473,8 @@ private struct StatusLabel: View {
         .onReceive(NotificationCenter.default.publisher(for: .murmurOpenSettings)) { _ in
             openSettings()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { _ in openWindow(id: "main") }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowConnections)) { _ in openWindow(id: "main") }
     }
 }
 

@@ -1,15 +1,14 @@
 name: macOS
 
-# Runs the shared dictionary contract against the Swift implementation. The Windows
-# workflow runs the identical vectors against the C# one. Both must be green for the two
-# implementations to be considered in agreement — that pairing is the whole point.
+# Runs the native tests, including the shared dictionary contract. Microphone and
+# on-device model checks remain opt-in and are verified on the installed app.
 
 on:
   push:
-    branches: [main]
-    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Package.swift', '.github/workflows/macos.yml']
+    branches: [master]
+    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Package.swift', 'Package.resolved', 'Makefile', '.github/workflows/macos.yml']
   pull_request:
-    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Package.swift', '.github/workflows/macos.yml']
+    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Package.swift', 'Package.resolved', 'Makefile', '.github/workflows/macos.yml']
   workflow_dispatch:
 
 permissions:
@@ -17,8 +16,8 @@ permissions:
 
 jobs:
   dictionary-contract:
-    name: Dictionary contract
-    runs-on: macos-15
+    name: Native tests and dictionary contract
+    runs-on: macos-26
     timeout-minutes: 20
 
     steps:
@@ -36,11 +35,10 @@ jobs:
       - name: Swift version
         run: swift --version
 
-      # The app target needs macOS 26 and the Speech framework, which the runner image
-      # does not have. The dictionary target is deliberately platform-neutral, so it — and
-      # the contract that matters here — builds and tests anywhere.
-      - name: Test the dictionary target
-        run: swift test --filter VectorTests
+      # The app test target requires macOS 26. make keeps build products outside the
+      # checkout and also checks that the shared dictionary vectors have not drifted.
+      - name: Test the native app, session store and MCP server
+        run: make test
 
       - name: Confirm the vectors on both sides are identical
         run: |

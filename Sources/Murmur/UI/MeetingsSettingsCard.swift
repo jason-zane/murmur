@@ -1,20 +1,17 @@
 import AppKit
 import SwiftUI
+import MurmurSessions
 
-/// Meetings settings: detection, calendar, engine, per-app rules, and the Claude Desktop
-/// connection. Cards, like the rest of the settings window. Each card is its own property
-/// so the type-checker sees six small views rather than one enormous one.
+/// Meeting capture, calendar, speech models and per-app overrides.
 struct MeetingsSettingsCards: View {
     @State private var settings = MeetingSettings.shared
     @State private var calendarGranted = CalendarService.shared.isAuthorized
     @State private var calendarDenied = CalendarService.shared.isDenied
     @State private var parakeetOnDisk = ParakeetModels.isDownloaded
-    @State private var claudeConfigured = ClaudeDesktopIntegration.isConfigured
-    @State private var claudeMessage: String?
-    @State private var didCopySnippet = false
     @State private var audioGranted = SystemAudioCapture.isKnownGranted
     @State private var models = ModelLibrary.shared
     @State private var isAskingAudio = false
+    private var hasCalendar: Bool { calendarGranted || CloudSync.shared.calendarConnected }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
@@ -23,14 +20,12 @@ struct MeetingsSettingsCards: View {
             rulesCard
             engineCard
             modelsCard
-            claudeCard
             audioCard
         }
         .onAppear {
             calendarGranted = CalendarService.shared.isAuthorized
             calendarDenied = CalendarService.shared.isDenied
             parakeetOnDisk = ParakeetModels.isDownloaded
-            claudeConfigured = ClaudeDesktopIntegration.isConfigured
             audioGranted = SystemAudioCapture.isKnownGranted
         }
     }
@@ -43,10 +38,12 @@ struct MeetingsSettingsCards: View {
                 SectionLabel(text: "Meetings")
 
                 SettingToggleRow(title: "Detect calls automatically", isOn: $settings.detectionEnabled)
-                Hint("Murmur notices when an app has two-way audio — a mic in use and sound "
+                Hint("Voice Notes notices when an app has two-way audio — a mic in use and sound "
                      + "coming out — and offers to record. Music, Siri and voice memos never qualify.")
 
                 if settings.detectionEnabled {
+                    SettingToggleRow(title: "Start notes when I enter a known meeting", isOn: $settings.autoRecordKnownCalls)
+                    Hint("Starts after a sustained call in Meet, Zoom, Teams and other recognized apps. An explicit per-app Ask or Never rule takes priority.")
                     Divider().padding(.vertical, DS.Space.xs)
                     offerDelayRow
                     Divider().padding(.vertical, DS.Space.xs)
@@ -59,7 +56,7 @@ struct MeetingsSettingsCards: View {
     private var offerDelayRow: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack {
-                Text("Offer after")
+                Text("Confirm a call after")
                     .font(DS.Font.body)
                     .foregroundStyle(DS.Color.text)
                 Spacer()
@@ -84,7 +81,7 @@ struct MeetingsSettingsCards: View {
                 Text("2 min").tag(120.0)
             }
             .labelsHidden()
-            .frame(width: 90)
+            .frame(width: DS.Layout.smallPicker)
         }
     }
 
@@ -96,16 +93,17 @@ struct MeetingsSettingsCards: View {
                 SectionLabel(text: "Calendar")
 
                 SettingToggleRow(title: "Name meetings from my calendar", isOn: $settings.calendarEnabled)
-                Hint("Reads the Mac's own Calendar — Google, iCloud, Exchange, whatever is signed "
-                     + "in — for the event's name and who's in it. Nothing is written back.")
+                SettingToggleRow(title: "Open scheduled meeting links automatically", isOn: $settings.autoOpenMeetings)
+                    .disabled(!settings.calendarEnabled)
+                Hint("Opens supported meeting links a minute before the start. Google Meet opens in Chrome. Recording starts only when the call is detected. Skip a meeting from Up next.")
+                Hint("Uses Google Calendar connected through Voice Notes, or calendars on this Mac, to find meeting names, people and links. Nothing is written back.")
 
                 if settings.calendarEnabled {
                     calendarPermissionRow
                     Divider().padding(.vertical, DS.Space.xs)
                     SettingToggleRow(title: "Start without asking when the calendar agrees",
                                      isOn: $settings.autoStartOnCalendarMatch)
-                    Hint("When a known meeting app is on a call and an event is on right now, "
-                         + "just start. Otherwise you're asked.")
+                    Hint("Also allows a matching calendar event to start capture when automatic capture of known calls is off. Per-app rules still take priority.")
                 }
             }
         }
@@ -113,16 +111,16 @@ struct MeetingsSettingsCards: View {
 
     private var calendarPermissionRow: some View {
         HStack(spacing: DS.Space.md) {
-            StatusDot(color: calendarGranted ? DS.Color.success : DS.Color.warning, isLit: true, size: 7)
-            VStack(alignment: .leading, spacing: 2) {
+            StatusDot(color: hasCalendar ? DS.Color.success : DS.Color.warning, isLit: true, size: DS.Layout.permissionDot)
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text("Calendars")
                     .font(DS.Font.body)
                     .foregroundStyle(DS.Color.text)
-                Hint(calendarGranted ? "Granted." : calendarDenied ? "Turned off in System Settings." : "Not asked yet.")
+                Hint(CloudSync.shared.calendarConnected ? "Google Calendar is connected to Voice Notes." : calendarGranted ? "Calendars on this Mac are available." : calendarDenied ? "Mac access is off. Connect Google in Connections, or allow Calendar access here." : "Connect Google in Connections, or allow calendars on this Mac.")
             }
             Spacer()
-            if calendarGranted {
-                Chip(text: "Granted", tint: DS.Color.success, filled: true)
+            if hasCalendar {
+                Chip(text: "Connected", tint: DS.Color.success, filled: true)
             } else if calendarDenied {
                 ActionButton(title: "Open Settings…", emphasis: .normal) { CalendarService.openSettings() }
             } else {
@@ -142,7 +140,7 @@ struct MeetingsSettingsCards: View {
         Card {
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 SectionLabel(text: "Per-app rules")
-                Hint("Ask is the default. Promote an app to Auto once it's been right a few times.")
+                Hint("Default follows the automatic capture settings above. Choose Ask, Auto or Never to override them for one app.")
                 VStack(spacing: DS.Space.xs) {
                     ForEach(MeetingAppRegistry.apps.filter { $0.kind == .native }) { app in
                         AppRuleRow(app: app, settings: settings)
@@ -153,7 +151,7 @@ struct MeetingsSettingsCards: View {
                     }
                 }
                 Hint("Browser calls are named from the window title — “Meet – …”, “Zoom Meeting” — "
-                     + "using the Accessibility grant Murmur already has. Nothing else is read.")
+                     + "using the Accessibility grant Voice Notes already has. Nothing else is read.")
             }
         }
     }
@@ -176,6 +174,16 @@ struct MeetingsSettingsCards: View {
                 SettingToggleRow(title: "Show the live transcript in the notepad", isOn: $settings.showLiveTranscript)
                 Hint("Off by default: watching text arrive competes with the call. ⌘T toggles it any time.")
                 SettingToggleRow(title: "Sound when a recording starts and stops", isOn: $settings.soundEnabled)
+                Divider().padding(.vertical, DS.Space.xs)
+                SettingToggleRow(title: "Summarize after each meeting", isOn: $settings.autoSummarize)
+                Hint(FoundationModelFormatter.unavailableReason ?? "Uses Apple Intelligence on this Mac. Long meetings are read in parts; your transcript and personal notes are kept.")
+                HStack {
+                    Text("Default note template").font(DS.Font.body)
+                    Spacer()
+                    Picker("Template", selection: $settings.defaultTemplate) {
+                        ForEach(SummaryTemplate.allCases) { template in Text(template.title).tag(template) }
+                    }.labelsHidden().frame(width: DS.Layout.templatePicker)
+                }
             }
         }
     }
@@ -216,42 +224,6 @@ struct MeetingsSettingsCards: View {
         }
     }
 
-    // MARK: - Claude
-
-    private var claudeCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: DS.Space.md) {
-                SectionLabel(text: "Claude")
-                Hint("Claude Desktop can read your meetings through a local connector — a small "
-                     + "program inside Murmur that Claude runs on this Mac. Nothing is uploaded; "
-                     + "Claude asks it for a transcript the way it would read a file.")
-
-                HStack(spacing: DS.Space.md) {
-                    StatusDot(color: claudeConfigured ? DS.Color.success : DS.Color.textTertiary, isLit: true, size: 7)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(claudeConfigured ? "Connected to Claude Desktop" : "Not connected")
-                            .font(DS.Font.body)
-                            .foregroundStyle(DS.Color.text)
-                        Hint(claudeMessage ?? (claudeConfigured
-                             ? "Restart Claude Desktop if it doesn't see Murmur yet."
-                             : "Adds Murmur to Claude Desktop's connector list."))
-                    }
-                    Spacer()
-                    if claudeConfigured {
-                        Chip(text: "Connected", tint: DS.Color.success, filled: true)
-                    } else {
-                        ActionButton(title: "Connect…", emphasis: .prominent) { connectClaude() }
-                    }
-                }
-
-                HStack(spacing: DS.Space.sm) {
-                    ActionButton(title: didCopySnippet ? "Copied" : "Copy config", emphasis: .quiet) { copySnippet() }
-                    Hint("For ChatGPT, Cursor or any other MCP client.")
-                }
-            }
-        }
-    }
-
     // MARK: - Audio
 
     private var audioCard: some View {
@@ -259,7 +231,7 @@ struct MeetingsSettingsCards: View {
             VStack(alignment: .leading, spacing: DS.Space.md) {
                 SectionLabel(text: "Audio recording")
                 HStack(spacing: DS.Space.md) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("System audio")
                             .font(DS.Font.body)
                             .foregroundStyle(DS.Color.text)
@@ -292,33 +264,7 @@ struct MeetingsSettingsCards: View {
         }
     }
 
-    // MARK: - Actions
 
-    private func copySnippet() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(ClaudeDesktopIntegration.snippet, forType: .string)
-        didCopySnippet = true
-        Task {
-            try? await Task.sleep(for: .seconds(1.4))
-            didCopySnippet = false
-        }
-    }
-
-    private func connectClaude() {
-        let alert = NSAlert()
-        alert.messageText = "Add Murmur to Claude Desktop?"
-        alert.informativeText = "This edits Claude Desktop's connector list at\n\(ClaudeDesktopIntegration.configURL.path)\n\nExisting connectors are kept. Claude Desktop needs a restart afterwards."
-        alert.addButton(withTitle: "Add")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        do {
-            try ClaudeDesktopIntegration.configure()
-            claudeConfigured = true
-            claudeMessage = "Added. Restart Claude Desktop to finish."
-        } catch {
-            claudeMessage = error.localizedDescription
-        }
-    }
 }
 
 private struct AppRuleRow: View {
@@ -332,16 +278,17 @@ private struct AppRuleRow: View {
                 .foregroundStyle(DS.Color.text)
             Spacer()
             Picker("", selection: Binding(
-                get: { settings.rule(for: app.bundleID) },
+                get: { settings.appRules[app.bundleID] },
                 set: { settings.setRule($0, for: app.bundleID) }
             )) {
+                Text("Default").tag(Optional<MeetingAppRule>.none)
                 ForEach(MeetingAppRule.allCases, id: \.self) { rule in
-                    Text(rule.displayName).tag(rule)
+                    Text(rule.displayName).tag(Optional(rule))
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 180)
+            .frame(width: DS.Layout.rulePicker)
         }
     }
 }
@@ -363,53 +310,6 @@ private struct SettingToggleRow: View {
     }
 }
 
-/// Wires murmur-mcp into Claude Desktop's config, keeping whatever is already there.
-enum ClaudeDesktopIntegration {
-    static var configURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Claude", isDirectory: true)
-            .appendingPathComponent("claude_desktop_config.json")
-    }
-
-    /// The helper inside the running bundle. Stable as long as the app lives in /Applications.
-    static var serverPath: String {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/murmur-mcp").path
-    }
-
-    static var isConfigured: Bool {
-        guard let data = try? Data(contentsOf: configURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let servers = json["mcpServers"] as? [String: Any] else { return false }
-        return servers["murmur"] != nil
-    }
-
-    static var snippet: String {
-        """
-        {
-          "mcpServers": {
-            "murmur": {
-              "command": "\(serverPath)"
-            }
-          }
-        }
-        """
-    }
-
-    static func configure() throws {
-        var json: [String: Any] = [:]
-        if let data = try? Data(contentsOf: configURL),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            json = existing
-        }
-        var servers = json["mcpServers"] as? [String: Any] ?? [:]
-        servers["murmur"] = ["command": serverPath]
-        json["mcpServers"] = servers
-        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: configURL, options: .atomic)
-    }
-}
-
 private struct ModelRow: View {
     let kind: ModelKind
     let library: ModelLibrary
@@ -419,9 +319,9 @@ private struct ModelRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
-            StatusDot(color: onDisk ? DS.Color.success : DS.Color.textTertiary, isLit: true, size: 7)
-                .padding(.top, 6)
-            VStack(alignment: .leading, spacing: 3) {
+            StatusDot(color: onDisk ? DS.Color.success : DS.Color.textTertiary, isLit: true, size: DS.Layout.permissionDot)
+                .padding(.top, DS.Space.compact)
+            VStack(alignment: .leading, spacing: DS.Space.tight) {
                 HStack(spacing: DS.Space.sm) {
                     Text(kind.title)
                         .font(DS.Font.body)
@@ -433,8 +333,8 @@ private struct ModelRow: View {
                     ProgressView(value: progress)
                         .controlSize(.small)
                         .tint(DS.Color.accent)
-                        .frame(maxWidth: 260)
-                        .padding(.top, 2)
+                        .frame(maxWidth: DS.Layout.modelProgress)
+                        .padding(.top, DS.Space.xxs)
                 }
                 if let error = library.errors[kind] {
                     Text(error)
