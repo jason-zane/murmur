@@ -1,309 +1,442 @@
 import AppKit
 import MurmurSessions
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// One meeting: the note, your bullets, and the transcript with speakers.
-///
-/// Your words at full strength; anything a model added recedes into tertiary. No highlight
-/// fills, no "AI" badges — the contrast is the label, and it survives a paste into Obsidian.
 struct SessionDetailView: View {
     @State var session: MeetingSession
     let store: SessionStore
+    var initialMatch: SessionMatch?
     let onChanged: () -> Void
     let onDeleted: () -> Void
-
     @State private var segments: [TranscriptSegment] = []
     @State private var bullets: [NoteBullet] = []
-    @State private var note: String = ""
-    @State private var noteDraft: String = ""
-    @State private var isEditingNote = false
+    @State private var note = ""
+    @State private var draft = ""
+    @State private var version = 0
     @State private var title = ""
-    @State private var didCopy = false
-    @State private var isConfirmingDelete = false
-    @State private var renaming: String?
-    @State private var renameText = ""
+    @State private var editing = false
+    @State private var tab: DetailTab = .notes
+    @State private var template = MeetingSettings.shared.defaultTemplate
+    @State private var transcriptQuery = ""
+    @State private var speakerFilter = "Everyone"
+    @State private var scrollTarget: UUID?
+    @State private var error: String?
+    @State private var externalChange = false
+    @State private var copied: String?
+    @State private var confirmTrash = false
+    @State private var showHistory = false
+    @State private var revisionPreview: NoteRevision?
+    @State private var renamingSpeaker: String?
+    @State private var speakerName = ""
+    @State private var summaries = MeetingSummaryService.shared
+    @FocusState private var titleFocused: Bool
+
+    private enum DetailTab: String, CaseIterable { case notes = "Notes", transcript = "Transcript" }
+    private var working: Bool { summaries.isWorking(session.id) }
+    private var hasSource: Bool { !segments.isEmpty || !bullets.isEmpty }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Space.xl) {
-                header
-                noteSection
-                if !bullets.isEmpty { bulletsSection }
-                transcriptSection
+        VStack(spacing: DS.Space.zero) {
+            header
+            if let progress = summaries.progress[session.id] {
+                InlineNotice(icon: "sparkles", text: progress) {
+                    ActionButton(title: "Cancel", emphasis: .quiet) { summaries.cancel(session.id) }
+                }.padding([.horizontal, .bottom], DS.Space.xl)
             }
-            .padding(DS.Space.xl)
-            .frame(maxWidth: 760, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            if let message = error ?? summaries.errors[session.id] {
+                InlineNotice(icon: "info.circle", text: message) {
+                    if let generated = summaries.drafts[session.id] {
+                        ActionButton(title: "Review draft", emphasis: .normal) { draft = generated; editing = true }
+                    }
+                }.padding([.horizontal, .bottom], DS.Space.xl)
+            }
+            if externalChange {
+                InlineNotice(icon: "arrow.triangle.2.circlepath", text: "The saved note changed in another app. Your draft is kept here.") {
+                    ActionButton(title: "Copy draft", emphasis: .quiet) { copy(draft, label: "draft") }
+                    ActionButton(title: "Keep my draft", emphasis: .normal) {
+                        version = store.noteVersion(for: session.id); externalChange = false; _ = saveDraft()
+                    }
+                    ActionButton(title: "Use saved", emphasis: .quiet) {
+                        do { try store.clearEditingDraft(for: session.id, matching: draft); loadNote(); externalChange = false; error = nil }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }.padding([.horizontal, .bottom], DS.Space.xl)
+            }
+            HStack {
+                Segmented(options: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
+                    .frame(width: DS.Layout.tabPicker)
+                Spacer()
+                if tab == .notes {
+                    ActionButton(title: editing ? "Done" : "Edit", systemImage: editing ? "checkmark" : "square.and.pencil", emphasis: .quiet) {
+                        if editing { if saveDraft() { editing = false } }
+                        else { draft = note; editing = true }
+                    }
+                } else { Readout("\(segments.count) segments", color: DS.Color.textTertiary) }
+            }
+            .padding(.horizontal, DS.Space.xl).padding(.bottom, DS.Space.lg)
+            Divider()
+            if tab == .notes { notesBody } else { transcriptBody }
+            Divider()
+            footer
         }
-        .background(DS.Color.window)
-        .onAppear(perform: load)
-        .confirmationDialog("Delete “\(session.title)”?", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                try? store.delete(id: session.id)
-                onDeleted()
+        .background(DS.Color.surface)
+        .onAppear {
+            load()
+            if let time = initialMatch?.timestamp { jump(to: time) }
+        }
+        .onDisappear { saveTitle(); if editing { _ = saveDraft() } }
+        .task(id: draft) {
+            guard editing, draft != note else { return }
+            do { try store.saveEditingDraft(draft, baseVersion: version, for: session.id) }
+            catch { self.error = error.localizedDescription; return }
+            guard !externalChange else { return }
+            do { try await Task.sleep(for: DS.Timing.autosave) } catch { return }
+            _ = saveDraft()
+        }
+        .task(id: title) {
+            guard !title.isEmpty, title != session.title else { return }
+            do { try await Task.sleep(for: DS.Timing.autosave) } catch { return }
+            saveTitle()
+        }
+        .task(id: copied) {
+            guard copied != nil else { return }
+            do { try await Task.sleep(for: DS.Timing.feedback); copied = nil } catch {}
+        }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: DS.Timing.refresh) } catch { return }
+                refreshExternal()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurNotesChanged)) { event in
+            if event.object as? String == session.id { refreshExternal(refreshSource: true) }
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "murmur-time", let seconds = Double(url.host ?? "") else { return .systemAction }
+            jump(to: seconds); return .handled
+        })
+        .confirmationDialog("Move “\(session.title)” to Trash?", isPresented: $confirmTrash, titleVisibility: .visible) {
+            Button("Move to Trash", role: .destructive) { trash() }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The transcript, your notes and every revision. This can't be undone.")
-        }
+        } message: { Text("The meeting and all its note versions can be recovered from the Mac's Trash.") }
+        .sheet(isPresented: $showHistory) { historySheet }
     }
-
-    // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
-            TextField("Untitled meeting", text: $title)
-                .textFieldStyle(.plain)
-                .font(DS.Font.sessionTitle)
-                .foregroundStyle(DS.Color.text)
-                .onSubmit(saveTitle)
-
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
             HStack(spacing: DS.Space.sm) {
-                Readout(dateText)
-                Readout("·", color: DS.Color.textTertiary)
-                Readout(TimeFormat.clock(session.duration))
-                if let app = session.app {
-                    Readout("·", color: DS.Color.textTertiary)
-                    Readout(app)
-                }
-                Readout("·", color: DS.Color.textTertiary)
-                Readout(session.engine)
+                Text(session.isNoteOnly ? "Personal note" : "Meeting notes").font(DS.Font.label).foregroundStyle(DS.Color.textTertiary)
                 Spacer()
-                ActionButton(title: didCopy ? "Copied" : "Copy as Markdown", systemImage: "doc.on.doc", emphasis: .normal) { copyMarkdown() }
+                Button { pin() } label: { Image(systemName: session.isPinned ? "pin.fill" : "pin").font(DS.Font.symbol) }
+                    .buttonStyle(.plain).foregroundStyle(session.isPinned ? DS.Color.accent : DS.Color.textSecondary)
+                    .help(session.isPinned ? "Unpin note" : "Pin note")
                 Menu {
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)])
-                    }
+                    Button("Copy notes") { copy(note.isEmpty ? bullets.map(\.text).joined(separator: "\n") : note, label: "notes") }
+                    Button("Copy full meeting as Markdown") { copy(store.markdown(for: session.id), label: "meeting") }
+                    Button("Copy for AI") { copyForAI() }
                     Divider()
-                    Button("Delete…", role: .destructive) { isConfirmingDelete = true }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DS.Color.textSecondary)
-                        .frame(width: 26, height: 26)
-                        .contentShape(.rect)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 26)
+                    Button("Export Markdown…") { export() }
+                    Button("Note history…") { revisionPreview = nil; showHistory = true }
+                        .disabled(store.noteRevisionCount(for: session.id) == 0)
+                    Button("Reveal files in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)]) }
+                    Divider()
+                    Button("Move to Trash…") { confirmTrash = true }
+                } label: { Image(systemName: "ellipsis").font(DS.Font.symbol) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: DS.Layout.symbolColumn)
+                .help("Copy, export and note options")
             }
-
+            TextField("Untitled note", text: $title, axis: .vertical)
+                .textFieldStyle(.plain).font(DS.Font.documentTitle).foregroundStyle(DS.Color.text)
+                .focused($titleFocused).onSubmit(saveTitle)
+            HStack(spacing: DS.Space.sm) {
+                Readout(session.startedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute()))
+                if !session.isNoteOnly { Readout("· " + TimeFormat.clock(session.duration)) }
+                if let app = session.app { Text("· " + app).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary) }
+                Spacer(minLength: DS.Space.zero)
+            }
             if !session.attendees.isEmpty {
-                HStack(spacing: DS.Space.xs) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 10))
-                        .foregroundStyle(DS.Color.textTertiary)
-                    Text(session.attendees.map(\.name).joined(separator: ", "))
-                        .font(DS.Font.caption)
-                        .foregroundStyle(DS.Color.textSecondary)
-                        .lineLimit(1)
+                Label(session.attendees.map(\.name).joined(separator: ", "), systemImage: "person.2")
+                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
+            }
+            if hasSource {
+                HStack(spacing: DS.Space.sm) {
+                    Picker("Note template", selection: $template) {
+                        ForEach(SummaryTemplate.allCases) { template in Text(template.title).tag(template) }
+                    }.labelsHidden().frame(width: DS.Layout.templatePicker)
+                    ActionButton(title: note.isEmpty ? "Summarize" : "Refresh summary", systemImage: "sparkles", emphasis: .prominent) {
+                        if editing, !saveDraft() { return }
+                        editing = false
+                        summaries.generate(id: session.id, template: template, store: store)
+                    }.disabled(working || !FoundationModelFormatter.isAvailable || externalChange)
+                    ActionButton(title: copied == "ai" ? "Copied" : "Copy for AI", emphasis: .quiet) { copyForAI() }
                 }
             }
         }
+        .padding(DS.Space.xl)
     }
 
-    // MARK: - Note
-
-    private var noteSection: some View {
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
-            HStack {
-                SectionLabel(text: "Note")
-                if store.noteRevisionCount(for: session.id) > 0 {
-                    Readout("v\(store.noteRevisionCount(for: session.id) + 1)", color: DS.Color.textTertiary)
-                }
-                Spacer()
-                if isEditingNote {
-                    ActionButton(title: "Cancel", emphasis: .quiet) { isEditingNote = false; noteDraft = note }
-                    ActionButton(title: "Save", emphasis: .prominent) { saveNote() }
-                } else {
-                    ActionButton(title: note.isEmpty ? "Write" : "Edit", emphasis: .quiet) { noteDraft = note; isEditingNote = true }
-                }
-            }
-
-            if isEditingNote {
-                TextEditor(text: $noteDraft)
-                    .font(DS.Font.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(DS.Space.sm)
-                    .frame(minHeight: 160)
-                    .background(DS.Color.surface, in: .rect(cornerRadius: DS.Radius.md))
-                    .overlay { RoundedRectangle(cornerRadius: DS.Radius.md).strokeBorder(DS.Color.accent.opacity(0.5), lineWidth: 1.5) }
-            } else if note.isEmpty {
-                VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    Text("No note yet.")
-                        .font(DS.Font.body)
-                        .foregroundStyle(DS.Color.textSecondary)
-                    Hint("Ask Claude — “write up my \(session.title) call” — once Murmur is connected in Settings, or write one here.")
-                }
-                .padding(DS.Space.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DS.Color.surface, in: .rect(cornerRadius: DS.Radius.md))
-                .overlay { RoundedRectangle(cornerRadius: DS.Radius.md).strokeBorder(DS.Color.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 4])) }
-            } else {
-                Text(LocalizedStringKey(note))
-                    .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.text)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    // MARK: - Bullets
-
-    private var bulletsSection: some View {
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
-            SectionLabel(text: "Your notes")
-            VStack(alignment: .leading, spacing: DS.Space.xs + 1) {
-                ForEach(bullets) { bullet in
-                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
-                        Text("•").foregroundStyle(DS.Color.textTertiary)
-                        Text(bullet.text)
-                            .font(DS.Font.body)
-                            .foregroundStyle(DS.Color.text)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Readout(TimeFormat.clock(bullet.at), color: DS.Color.textTertiary)
+    private var notesBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.xxl) {
+                if editing {
+                    ZStack(alignment: .topLeading) {
+                        if draft.isEmpty {
+                            Text("Write down what matters…").font(DS.Font.documentBody)
+                                .foregroundStyle(DS.Color.textTertiary).padding(.top, DS.Space.sm).padding(.leading, DS.Space.xs)
+                        }
+                        TextEditor(text: $draft).font(DS.Font.documentBody)
+                            .scrollContentBackground(.hidden).frame(minHeight: DS.Layout.editorHeight)
+                            .accessibilityLabel("Meeting notes editor")
                     }
+                } else if note.isEmpty {
+                    VStack(alignment: .leading, spacing: DS.Space.md) {
+                        Image(systemName: "square.and.pencil").font(DS.Font.largeSymbol).foregroundStyle(DS.Color.textTertiary)
+                        Text(hasSource ? "Turn the conversation into a useful note." : session.isNoteOnly ? "A blank page, ready for you." : "No speech was captured.")
+                            .font(DS.Font.documentHeading)
+                        Text(hasSource ? (summaries.unavailableReason ?? "Make a summary on this Mac, with key points, decisions and next steps.")
+                             : session.isNoteOnly ? "Capture a thought, prepare an agenda or write something you want to keep."
+                             : "You can add a note here. For your next recording, check that the You and Call meters respond while people speak.")
+                            .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                        ActionButton(title: "Write a note", systemImage: "square.and.pencil", emphasis: .normal) { draft = note; editing = true }
+                    }.padding(.vertical, DS.Space.xl)
+                } else {
+                    MarkdownNoteView(text: note, onToggleTask: toggleTask, onTimestamp: jump)
                 }
-            }
-        }
-    }
-
-    // MARK: - Transcript
-
-    private var transcriptSection: some View {
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
-            HStack {
-                SectionLabel(text: "Transcript")
-                Spacer()
-                Readout("\(segments.count) segments", color: DS.Color.textTertiary)
-            }
-            if segments.isEmpty {
-                Hint("Nothing was transcribed.")
-            } else {
-                LazyVStack(alignment: .leading, spacing: DS.Space.sm + 2) {
-                    ForEach(segments) { segment in
-                        HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
-                            Readout(TimeFormat.clock(segment.start), color: DS.Color.textTertiary)
-                                .frame(width: 44, alignment: .trailing)
-                            speakerChip(for: segment)
-                            Text(segment.text)
-                                .font(DS.Font.body)
-                                .foregroundStyle(DS.Color.text)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
+                if !bullets.isEmpty {
+                    VStack(alignment: .leading, spacing: DS.Space.lg) {
+                        Divider()
+                        Text("Your notes during the meeting").font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary)
+                        ForEach(bullets) { bullet in
+                            HStack(alignment: .firstTextBaseline, spacing: DS.Space.md) {
+                                Text("•").foregroundStyle(DS.Color.textTertiary)
+                                Text(bullet.text).font(DS.Font.documentBody).textSelection(.enabled)
+                                Spacer(minLength: DS.Space.zero)
+                                Button { jump(to: bullet.at) } label: { Readout(TimeFormat.clock(bullet.at), color: DS.Color.accent) }
+                                    .buttonStyle(.plain).help("Show this moment in the transcript")
+                            }
                         }
                     }
                 }
             }
+            .padding(DS.Space.xl)
+            .frame(maxWidth: DS.Layout.documentWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func speakerChip(for segment: TranscriptSegment) -> some View {
-        let name = displayName(segment)
-        return Button {
-            renameText = segment.source == .you ? "" : (segment.speaker ?? "")
-            renaming = name
-        } label: {
-            SpeakerChip(name: name, color: speakerColor(name))
-        }
-        .buttonStyle(.plain)
-        .disabled(segment.source == .you)
-        .popover(isPresented: Binding(get: { renaming == name && segment.id == firstSegment(named: name)?.id }, set: { if !$0 { renaming = nil } })) {
-            VStack(alignment: .leading, spacing: DS.Space.sm) {
-                SectionLabel(text: "Who is this?")
-                TextField("Name", text: $renameText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 200)
-                    .onSubmit { rename(name, to: renameText) }
-                HStack {
-                    Spacer()
-                    ActionButton(title: "Rename", emphasis: .prominent) { rename(name, to: renameText) }
+    private var transcriptBody: some View {
+        VStack(spacing: DS.Space.zero) {
+            HStack(spacing: DS.Space.md) {
+                SearchField(text: $transcriptQuery, placeholder: "Find in transcript")
+                Picker("Speaker", selection: $speakerFilter) {
+                    Text("Everyone").tag("Everyone")
+                    ForEach(speakers, id: \.self) { Text($0).tag($0) }
+                }.labelsHidden().frame(width: DS.Layout.templatePicker)
+            }.padding(DS.Space.lg)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: DS.Space.xl) {
+                        if filteredSegments.isEmpty {
+                            Text(segments.isEmpty ? "No speech was captured in this note." : "No matching lines. Try another word or speaker.")
+                                .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                        }
+                        ForEach(filteredSegments) { segment in
+                            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                                HStack(spacing: DS.Space.sm) {
+                                    Button { speakerName = displayName(segment); renamingSpeaker = speakerName } label: {
+                                        SpeakerChip(name: displayName(segment), color: speakerColor(segment))
+                                    }
+                                    .buttonStyle(.plain).disabled(segment.source == .you)
+                                    .popover(isPresented: Binding(get: { renamingSpeaker == displayName(segment) && firstSegment(named: displayName(segment)) == segment.id }, set: { if !$0 { renamingSpeaker = nil } })) {
+                                        VStack(alignment: .leading, spacing: DS.Space.md) {
+                                            Text("Name this speaker").font(DS.Font.headline)
+                                            TextField("Name", text: $speakerName).textFieldStyle(.roundedBorder)
+                                            ActionButton(title: "Save name", emphasis: .prominent) { renameSpeaker(displayName(segment), to: speakerName) }
+                                        }.padding(DS.Space.lg).frame(width: DS.Layout.tabPicker)
+                                    }
+                                    Readout(TimeFormat.clock(segment.start), color: DS.Color.textTertiary)
+                                }
+                                Text(segment.text).font(DS.Font.documentBody).foregroundStyle(DS.Color.text)
+                                    .lineSpacing(DS.Layout.proseLineSpacing).textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(DS.Space.md)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(scrollTarget == segment.id ? DS.Color.accentSoft : .clear, in: .rect(cornerRadius: DS.Radius.md))
+                            .id(segment.id)
+                        }
+                    }
+                    .padding(DS.Space.lg)
                 }
-                Hint("Applies to every segment labelled “\(name)” in this meeting.")
+                .onAppear { if let scrollTarget { proxy.scrollTo(scrollTarget, anchor: .top) } }
+                .onChange(of: scrollTarget) { _, id in if let id { proxy.scrollTo(id, anchor: .top) } }
             }
-            .padding(DS.Space.lg)
         }
     }
 
-    // MARK: - Speakers
+    private var footer: some View {
+        HStack(spacing: DS.Space.sm) {
+            Image(systemName: "laptopcomputer").font(DS.Font.smallSymbol).foregroundStyle(DS.Color.textTertiary)
+            Text(copied != nil ? "Copied to clipboard" : editing && draft != note ? "Unsaved changes" : "Saved on this Mac")
+                .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+            Spacer()
+            if let source = session.noteSource { Text(source).font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary) }
+            if version > 0 { Readout("v\(version)", color: DS.Color.textTertiary) }
+        }.padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.md)
+    }
 
-    private var speakerOrder: [String] {
-        var order: [String] = ["You"]
-        for s in segments {
-            let n = displayName(s)
-            if !order.contains(n) { order.append(n) }
+    private var historySheet: some View {
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
+            HStack {
+                Text("Note history").font(DS.Font.pageTitle)
+                Spacer()
+                ActionButton(title: "Done", emphasis: .quiet) { showHistory = false }
+            }
+            if let revision = revisionPreview {
+                HStack {
+                    ActionButton(title: "All versions", systemImage: "chevron.left", emphasis: .quiet) { revisionPreview = nil }
+                    Spacer()
+                    ActionButton(title: "Restore this version", emphasis: .prominent) { restore(revision) }
+                }
+                ScrollView { MarkdownNoteView(text: revision.text) }
+            } else {
+                Text("Restoring an earlier note keeps the current one as a revision.")
+                    .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                List(store.noteRevisions(for: session.id)) { revision in
+                    Button { revisionPreview = revision } label: {
+                        VStack(alignment: .leading, spacing: DS.Space.sm) {
+                            Readout("Version \(revision.number)")
+                            Text(revision.text).font(DS.Font.body).lineLimit(2)
+                        }.padding(.vertical, DS.Space.sm)
+                    }.buttonStyle(.plain)
+                }
+            }
         }
-        return order
+        .padding(DS.Space.xl).frame(width: DS.Layout.sheetWidth, height: DS.Layout.sheetHeight)
     }
 
-    private func speakerColor(_ name: String) -> Color {
-        DS.Color.speaker(speakerOrder.firstIndex(of: name) ?? 1)
+    private var filteredSegments: [TranscriptSegment] {
+        let query = transcriptQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return segments.filter { (speakerFilter == "Everyone" || displayName($0) == speakerFilter) && (query.isEmpty || $0.text.localizedStandardContains(query)) }
     }
-
-    private func displayName(_ segment: TranscriptSegment) -> String {
-        segment.source == .you ? "You" : (segment.speaker ?? "Speaker")
-    }
-
-    private func firstSegment(named name: String) -> TranscriptSegment? {
-        segments.first { displayName($0) == name }
-    }
-
-    private func rename(_ old: String, to new: String) {
-        let trimmed = new.trimmingCharacters(in: .whitespacesAndNewlines)
-        renaming = nil
-        guard !trimmed.isEmpty, trimmed != old else { return }
-        segments = segments.map { seg in
-            guard seg.source == .call, displayName(seg) == old else { return seg }
-            var copy = seg
-            copy.speaker = trimmed
-            return copy
-        }
-        try? store.replaceTranscript(segments, for: session.id)
-        session.speakers = Array(Set(segments.compactMap(\.speaker))).sorted()
-        try? store.save(session)
-        onChanged()
-    }
-
-    // MARK: - Actions
-
+    private var speakers: [String] { var names: [String] = []; for s in segments { let name = displayName(s); if !names.contains(name) { names.append(name) } }; return names }
+    private func displayName(_ s: TranscriptSegment) -> String { s.source == .you ? "You" : s.speaker ?? "Speaker" }
+    private func speakerColor(_ s: TranscriptSegment) -> Color { s.source == .you ? DS.Color.speaker(0) : DS.Color.speaker((speakers.filter { $0 != "You" }.firstIndex(of: displayName(s)) ?? 0) + 1) }
+    private func firstSegment(named name: String) -> UUID? { filteredSegments.first { displayName($0) == name }?.id }
     private func load() {
         title = session.title
-        segments = store.transcript(for: session.id)
-        bullets = store.bullets(for: session.id)
-        note = store.note(for: session.id) ?? ""
-        noteDraft = note
+        segments = store.transcript(for: session.id); bullets = store.bullets(for: session.id)
+        template = SummaryTemplate(rawValue: session.summaryTemplate ?? "") ?? MeetingSettings.shared.defaultTemplate
+        loadNote()
+        editing = session.isNoteOnly && note.isEmpty
+        if let recovered = store.editingDraft(for: session.id), recovered.text != note {
+            draft = recovered.text; editing = true
+            externalChange = recovered.baseVersion != version
+            version = recovered.baseVersion
+        }
     }
-
+    private func loadNote() {
+        note = store.note(for: session.id) ?? ""; draft = note; version = store.noteVersion(for: session.id)
+        if let current = store.session(id: session.id) { session = current }
+    }
+    private func refreshExternal(refreshSource: Bool = false) {
+        if let current = store.session(id: session.id), current != session {
+            if !titleFocused, title == session.title { title = current.title }
+            session = current
+        }
+        if refreshSource {
+            segments = store.transcript(for: session.id)
+            bullets = store.bullets(for: session.id)
+        }
+        let saved = store.note(for: session.id) ?? ""
+        if saved != note {
+            if editing && draft != note { externalChange = true }
+            else { loadNote(); onChanged() }
+        }
+    }
     private func saveTitle() {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != session.title else { title = session.title; return }
-        session.title = trimmed
-        try? store.save(session)
-        onChanged()
+        guard !trimmed.isEmpty, trimmed != session.title else { return }
+        do { session = try store.update(id: session.id) { $0.title = trimmed }; onChanged() }
+        catch { self.error = error.localizedDescription }
     }
-
-    private func saveNote() {
-        let text = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        try? store.saveNote(text, for: session.id)
-        note = text
-        isEditingNote = false
-        if let refreshed = store.session(id: session.id) { session = refreshed }
-        onChanged()
+    @discardableResult private func saveDraft() -> Bool {
+        guard draft != note else { return true }
+        do {
+            try store.saveEditingDraft(draft, baseVersion: version, for: session.id)
+            guard !externalChange else { return false }
+            try store.saveNote(draft, for: session.id, expectedVersion: version, source: "Edited by you", template: template)
+            try store.clearEditingDraft(for: session.id, matching: draft)
+            note = draft; version = store.noteVersion(for: session.id); error = nil
+            if let updated = store.session(id: session.id) { session = updated }
+            onChanged(); return true
+        } catch {
+            if case SessionStoreError.noteConflict = error { externalChange = true }
+            self.error = error.localizedDescription; return false
+        }
     }
-
-    private func copyMarkdown() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(store.markdown(for: session.id), forType: .string)
-        didCopy = true
-        Task { try? await Task.sleep(for: .seconds(1.4)); didCopy = false }
+    private func toggleTask(_ line: Int) {
+        var lines = note.components(separatedBy: "\n")
+        guard lines.indices.contains(line) else { return }
+        if lines[line].contains("- [ ] ") { lines[line] = lines[line].replacingOccurrences(of: "- [ ] ", with: "- [x] ", range: lines[line].range(of: "- [ ] ")) }
+        else if let range = lines[line].range(of: "- [x] ", options: .caseInsensitive) { lines[line].replaceSubrange(range, with: "- [ ] ") }
+        draft = lines.joined(separator: "\n"); _ = saveDraft()
     }
-
-    private var dateText: String {
-        let f = DateFormatter()
-        f.dateFormat = "EEE d MMM · HH:mm"
-        return f.string(from: session.startedAt)
+    private func pin() {
+        let pinned = !session.isPinned
+        do { session = try store.update(id: session.id) { $0.pinned = pinned }; onChanged() }
+        catch { self.error = error.localizedDescription }
+    }
+    private func jump(to time: TimeInterval) {
+        transcriptQuery = ""; speakerFilter = "Everyone"
+        scrollTarget = segments.first { $0.end >= time }?.id ?? segments.last?.id
+        tab = .transcript
+    }
+    private func renameSpeaker(_ old: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let updated = segments.map { s -> TranscriptSegment in
+            guard s.source == .call, displayName(s) == old else { return s }
+            var changed = s; changed.speaker = trimmed; return changed
+        }
+        do {
+            try store.replaceTranscript(updated, for: session.id)
+            session = try store.update(id: session.id) { $0.speakers = Array(Set(updated.compactMap(\.speaker))).sorted() }
+            segments = updated; renamingSpeaker = nil; speakerFilter = "Everyone"; onChanged()
+        } catch { self.error = error.localizedDescription }
+    }
+    private func restore(_ revision: NoteRevision) {
+        do {
+            try store.saveNote(revision.text, for: session.id, expectedVersion: version, source: "Restored by you")
+            loadNote(); editing = false; externalChange = false; showHistory = false; onChanged()
+        } catch { self.error = error.localizedDescription; showHistory = false }
+    }
+    private func copyForAI() {
+        copy(MeetingNotes.prompt(session: session, bullets: bullets, segments: segments, template: template)
+             + (note.isEmpty ? "" : "\n\nCurrent note (for reference):\n" + note), label: "ai")
+    }
+    private func copy(_ text: String, label: String) {
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); copied = label
+    }
+    private func export() {
+        if editing, !saveDraft() { return }
+        saveTitle()
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+        panel.nameFieldStringValue = session.title.replacingOccurrences(of: "/", with: "-") + ".md"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do { try store.markdown(for: session.id).write(to: url, atomically: true, encoding: .utf8) }
+            catch { self.error = error.localizedDescription }
+        }
+    }
+    private func trash() {
+        summaries.cancel(session.id)
+        NSWorkspace.shared.recycle([store.directory(for: session.id)]) { _, error in
+            Task { @MainActor in
+                if let error { self.error = error.localizedDescription } else { onDeleted() }
+            }
+        }
     }
 }

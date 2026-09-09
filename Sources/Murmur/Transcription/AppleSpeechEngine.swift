@@ -1,6 +1,7 @@
 import MurmurDictionary
 import AVFoundation
 import Foundation
+import MurmurSessions
 import Speech
 
 /// Streaming on-device transcription via macOS 26's `SpeechAnalyzer` / `SpeechTranscriber`.
@@ -14,6 +15,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
     private var analyzer: SpeechAnalyzer?
     private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
     private var resultsTask: Task<Void, Never>?
+    private var outputContinuation: AsyncThrowingStream<TranscriptionChunk, Error>.Continuation?
 
     /// Text the engine has committed. Volatile results are appended on top for display
     /// but discarded as soon as a final result covering the same range arrives.
@@ -69,6 +71,7 @@ actor AppleSpeechEngine: TranscriptionEngine {
         didReceiveAudio = false
 
         let (chunks, chunkContinuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
+        outputContinuation = chunkContinuation
 
         // Drain the transcriber's results into our simpler chunk stream.
         resultsTask = Task { [weak self] in
@@ -108,23 +111,42 @@ actor AppleSpeechEngine: TranscriptionEngine {
             // session is where a stop can hang, so don't ask for a finalization there was
             // never any input for.
             Log.speech.info("finish: no audio received — cancelling rather than finalizing")
-            await analyzer?.cancelAndFinishNow()
-            analyzer = nil
-            transcriber = nil
-            resultsTask = nil
+            await cancel()
             return
         }
 
         do {
-            try await analyzer?.finalizeAndFinishThroughEndOfInput()
+            let analyzer = self.analyzer
+            try await AsyncDeadline.run(for: .seconds(10)) {
+                try await analyzer?.finalizeAndFinishThroughEndOfInput()
+            }
         } catch {
             Log.speech.error("finalize failed: \(error.localizedDescription)")
-            await analyzer?.cancelAndFinishNow()
+            outputContinuation?.finish(throwing: error)
+            await cancel()
+            return
         }
 
+        await resultsTask?.value
         analyzer = nil
         transcriber = nil
         resultsTask = nil
+        outputContinuation = nil
+    }
+
+    func cancel() async {
+        inputContinuation?.finish()
+        inputContinuation = nil
+        // An empty SpeechAnalyzer can finish without ending transcriber.results. Close
+        // our own stream before asking the framework to cancel, so consumers never hang.
+        outputContinuation?.finish()
+        outputContinuation = nil
+        resultsTask?.cancel()
+        resultsTask = nil
+        let analyzer = self.analyzer
+        self.analyzer = nil
+        transcriber = nil
+        Task { await analyzer?.cancelAndFinishNow() }
     }
 
     // MARK: - Result accumulation

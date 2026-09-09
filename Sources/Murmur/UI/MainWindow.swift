@@ -5,154 +5,235 @@ import SwiftUI
 struct MainWindow: View {
     @Bindable var controller: DictationController
     let meetings: MeetingController
-
+    let onToggleMeeting: () -> Void
+    let onShowNotepad: () -> Void
     @State private var section: Section = .meetings
+    @State private var selectedSession: String?
+    @State private var error: String?
+    @State private var settings = Settings.shared
+    @State private var cloud = CloudAccount.shared
+    @State private var sync = CloudSync.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Section: String, CaseIterable, Identifiable {
-        case meetings
-        case transcriptions
-        case dictionary
-
+        case meetings, transcriptions, dictionary, connections
         var id: String { rawValue }
         var title: String {
             switch self {
             case .meetings: "Meetings"
             case .transcriptions: "Dictation"
             case .dictionary: "Dictionary"
+            case .connections: "Connections"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .meetings: "text.book.closed"
+            case .transcriptions: "waveform"
+            case .dictionary: "character.book.closed"
+            case .connections: "point.3.connected.trianglepath.dotted"
             }
         }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Header(controller: controller)
-
+        HStack(spacing: DS.Space.zero) {
+            navigation
             Divider()
-
-            VStack(spacing: 0) {
-                Segmented(
-                    options: Section.allCases.map { ($0, $0.title) },
-                    selection: $section
-                )
-                .frame(width: 340)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, DS.Space.md)
-
-                Group {
-                    switch section {
-                    case .meetings:
-                        LibraryView(controller: meetings) {
-                            (NSApp.delegate as? AppDelegate)?.toggleMeeting()
-                        }
-                    case .transcriptions:
-                        TranscriptionList().padding([.horizontal, .bottom], DS.Space.xl)
-                    case .dictionary:
-                        DictionaryPanel().padding([.horizontal, .bottom], DS.Space.xl)
-                    }
+            Group {
+                switch section {
+                case .meetings:
+                    LibraryView(controller: meetings, selection: $selectedSession,
+                                onStartMeeting: onToggleMeeting, onOpenNotepad: onShowNotepad)
+                case .transcriptions:
+                    DictationWorkspace(controller: controller)
+                case .dictionary:
+                    VStack(alignment: .leading, spacing: DS.Space.xl) {
+                        WorkspaceHeading(title: "Dictionary", subtitle: "Names, phrases and the words you use every day.")
+                        DictionaryPanel()
+                    }.padding(DS.Space.xl)
+                case .connections:
+                    ConnectionsView()
                 }
-                .frame(maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .tint(DS.Color.accent)
         .background(DS.Color.window)
-        .frame(minWidth: 820, minHeight: 560)
-        .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { _ in
+        .frame(minWidth: DS.Layout.minWindowWidth, minHeight: DS.Layout.minWindowHeight)
+        .transaction { if reduceMotion { $0.animation = nil } }
+        .alert("Couldn't create note", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") { error = nil }
+        } message: { Text(error ?? "") }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { note in
             section = .meetings
+            selectedSession = note.object as? String
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurNewNote)) { _ in
+            section = .meetings
+            do { selectedSession = try meetings.store.createNote().id }
+            catch { self.error = error.localizedDescription }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowConnections)) { _ in section = .connections }
+    }
+
+    private var navigation: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xl) {
+            HStack(spacing: DS.Space.sm) {
+                Image(systemName: "waveform")
+                    .font(DS.Font.symbol)
+                    .foregroundStyle(DS.Color.accent)
+                    .frame(width: DS.Layout.brandMark, height: DS.Layout.brandMark)
+                    .background(DS.Color.accentSoft, in: .rect(cornerRadius: DS.Radius.md))
+                Text("Voice Notes").font(DS.Font.brand).lineLimit(1)
+            }
+            .padding(.horizontal, DS.Space.sm)
+            .padding(.top, DS.Space.lg)
+
+            VStack(spacing: DS.Space.xs) {
+                ForEach(Section.allCases) { item in
+                    Button { section = item } label: {
+                        HStack(spacing: DS.Space.sm) {
+                            Image(systemName: item.icon).font(DS.Font.symbol).frame(width: DS.Layout.symbolColumn)
+                            Text(item.title).font(DS.Font.bodyEmphasis)
+                            Spacer(minLength: DS.Space.zero)
+                        }
+                        .foregroundStyle(section == item ? DS.Color.accent : DS.Color.textSecondary)
+                        .padding(.horizontal, DS.Space.md)
+                        .frame(height: DS.Layout.navRowHeight)
+                        .background(section == item ? DS.Color.accentSoft : .clear, in: .rect(cornerRadius: DS.Radius.sm))
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(section == item ? [.isSelected] : [])
+                }
+            }
+            Spacer()
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                SettingsLink {
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                        Text(cloud.isConnected ? "Signed in as" : "Not signed in")
+                            .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                        Text(cloud.isConnected ? cloud.email : "Sign in to sync")
+                            .font(DS.Font.caption).foregroundStyle(DS.Color.accent)
+                            .lineLimit(DS.Account.sidebarEmailLines).truncationMode(.middle)
+                    }
+                }.buttonStyle(.plain).help(cloud.isConnected ? cloud.email : "Account settings")
+                Label(sync.status, systemImage: cloud.isConnected ? "icloud" : "laptopcomputer")
+                    .font(DS.Font.label).foregroundStyle(DS.Color.textSecondary)
+                Text("Hold " + settings.triggerSummary + " to dictate")
+                    .font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary)
+                Divider().padding(.vertical, DS.Space.xs)
+                HStack {
+                    SettingsLink {
+                        Label("Settings", systemImage: "gearshape").font(DS.Font.callout)
+                    }.buttonStyle(.plain).foregroundStyle(DS.Color.textSecondary)
+                    Spacer()
+                    Readout("⌘,", color: DS.Color.textTertiary)
+                }
+            }
+            .padding(.horizontal, DS.Space.sm)
+            .padding(.bottom, DS.Space.md)
+        }
+        .padding(.horizontal, DS.Space.md)
+        .frame(width: DS.Layout.navigationWidth)
+        .background(.ultraThinMaterial)
+    }
+}
+
+struct WorkspaceHeading: View {
+    let title: String
+    let subtitle: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            Text(title).font(DS.Font.pageTitle).foregroundStyle(DS.Color.text)
+            Text(subtitle).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
         }
     }
 }
 
-// MARK: - Header
-
-private struct Header: View {
+private struct DictationWorkspace: View {
     @Bindable var controller: DictationController
     @State private var settings = Settings.shared
-
-    @State private var elapsed: TimeInterval = 0
-    @State private var startedAt: Date?
-
-    private var isRecording: Bool { controller.state.isActive }
+    @State private var store = RunStore.shared
 
     var body: some View {
-        HStack(spacing: DS.Space.lg) {
-            RecordButton(isRecording: isRecording) {
-                controller.toggleRecording()
-            }
-
-            // Meter and counter occupy their space permanently so the header doesn't
-            // reflow the moment recording starts.
-            HStack(spacing: DS.Space.md) {
-                LevelMeter(level: controller.level, isActive: isRecording, barCount: 7)
-                    .frame(width: 46, height: 20)
-                    .opacity(isRecording ? 1 : 0.25)
-
-                Text(counterText)
-                    .font(DS.Font.monoLarge)
-                    .foregroundStyle(isRecording ? DS.Color.text : DS.Color.textTertiary)
-                    .contentTransition(.numericText())
-            }
-
-            Spacer()
-
-            HStack(spacing: DS.Space.sm) {
-                StatusDot(
-                    color: isRecording ? DS.Color.record : DS.Color.success,
-                    isLit: true,
-                    size: 6
-                )
-                Text(isRecording
-                     ? "Listening"
-                     : "Hold \(settings.triggerSummary) to dictate")
-                    .font(DS.Font.callout)
-                    .foregroundStyle(DS.Color.textSecondary)
-            }
-            .animation(DS.Motion.smooth, value: isRecording)
-
-            // Only offered while something is in flight — it discards the utterance, so it
-            // shouldn't be sitting there inviting a click the rest of the time.
-            if isRecording {
-                ActionButton(title: "Reset", emphasis: .quiet) {
-                    controller.forceReset()
+        VStack(alignment: .leading, spacing: DS.Space.xl) {
+            HStack {
+                WorkspaceHeading(title: "Dictation", subtitle: "Speak naturally. Keep your words close.")
+                Spacer()
+                if controller.state.isActive {
+                    LevelMeter(level: controller.level, isActive: controller.state == .listening)
+                        .frame(width: DS.Layout.compactMeterWidth, height: DS.Layout.meterHeight)
+                    ActionButton(title: controller.state == .listening ? "Stop" : "Cancel",
+                                 systemImage: controller.state == .listening ? "stop.fill" : "xmark",
+                                 emphasis: .prominent,
+                                 tint: controller.state == .listening ? DS.Color.record : DS.Color.accent) { controller.toggleRecording() }
                 }
-                .help("Abandon this recording and return to idle")
             }
+            if settings.compareMode {
+                InlineNotice(icon: "rectangle.split.2x1", text: "Compare mode is on. Transcripts appear in Engine comparison and are not typed into other apps.") {
+                    ActionButton(title: "Use dictation", emphasis: .normal) { settings.compareMode = false }
+                }
+            }
+            if let message = controller.lastError {
+                InlineNotice(icon: "exclamationmark.triangle", text: message) {
+                    ActionButton(title: "Reset", emphasis: .quiet) { controller.forceReset() }
+                }
+            }
+            HStack(spacing: DS.Space.xxl) {
+                DictationStat(value: String(store.runs.count), label: "Dictations")
+                DictationStat(value: String(store.runs.reduce(0) { $0 + $1.text.split(whereSeparator: { $0.isWhitespace }).count }), label: "Words captured")
+                Spacer()
+                VStack(alignment: .trailing, spacing: DS.Space.xs) {
+                    Text("Hold " + settings.triggerSummary + " in any text field").font(DS.Font.bodyEmphasis)
+                    Text("Release to insert. Your history stays here.").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                }
+            }
+            .padding(DS.Space.lg)
+            .background(DS.Color.surface, in: .rect(cornerRadius: DS.Radius.md))
+            TranscriptionList()
+        }
+        .padding(DS.Space.xl)
+    }
+}
 
-            // The app menu already carries Settings, but nothing in the window pointed at
-            // it, so it was effectively undiscoverable.
-            SettingsLink {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(DS.Color.textSecondary)
-                    .padding(DS.Space.sm - 2)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .help("Settings (⌘,)")
-        }
-        .padding(.horizontal, DS.Space.xl)
-        .padding(.vertical, DS.Space.lg)
-        .animation(DS.Motion.quick, value: isRecording)
-        .onChange(of: controller.state.isActive) { _, active in
-            startedAt = active ? Date() : nil
-            if !active { elapsed = 0 }
-        }
-        .task(id: startedAt) {
-            guard let startedAt else { return }
-            while !Task.isCancelled {
-                elapsed = Date().timeIntervalSince(startedAt)
-                try? await Task.sleep(for: .milliseconds(100))
-            }
+private struct DictationStat: View {
+    let value: String
+    let label: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            Readout(value, font: DS.Font.readoutLarge, color: DS.Color.text)
+            Text(label).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
         }
     }
+}
 
-    private var counterText: String {
-        let total = Int(elapsed)
-        return String(format: "%01d:%02d", total / 60, total % 60)
+struct InlineNotice<Actions: View>: View {
+    let icon: String
+    let text: String
+    @ViewBuilder var actions: Actions
+    var body: some View {
+        HStack(alignment: .center, spacing: DS.Space.md) {
+            Image(systemName: icon).foregroundStyle(DS.Color.accent).font(DS.Font.symbol)
+            Text(text).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: DS.Space.sm)
+            actions
+        }
+        .padding(DS.Space.md)
+        .background(DS.Color.accentSoft, in: .rect(cornerRadius: DS.Radius.md))
     }
+}
+
+extension Notification.Name {
+    static let murmurNewNote = Notification.Name("com.jasonhunt.murmur.newNote")
+    static let murmurShowConnections = Notification.Name("com.jasonhunt.murmur.showConnections")
 }
 
 // MARK: - Transcriptions
 
-private struct TranscriptionList: View {
+struct TranscriptionList: View {
     @State private var store = RunStore.shared
     @State private var query = ""
     @State private var isConfirmingClear = false

@@ -72,6 +72,7 @@ struct DictationRun: Codable, Sendable, Identifiable {
 @MainActor
 enum RunLog {
     static var directory: URL {
+        if let root = PreviewEnvironment.root { return root }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Murmur", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)

@@ -2,6 +2,8 @@ EXEC     := Murmur
 MCP      := murmur-mcp
 MODELS   := murmur-models
 CONFIG   := debug
+LAUNCH   ?= 1
+TEST_ARGS ?=
 
 ## Build products live OUTSIDE this directory, for the same reason the .app does.
 ##
@@ -46,12 +48,16 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build app run install clean icon
+.PHONY: all build test app run install clean icon
 
 all: app
 
 build:
 	swift build -c $(CONFIG) --scratch-path "$(SCRATCH)"
+
+test:
+	@cmp shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/dictionary-test-vectors.json
+	swift test --scratch-path "$(SCRATCH)" $(TEST_ARGS)
 
 ## Regenerates AppIcon.icns from Tools/makeicon.swift. Not a dependency of `app` — the
 ## icon rarely changes and rendering 10 PNGs on every build is wasted time.
@@ -85,9 +91,7 @@ app: build
 	@echo "built $(BUNDLE)  [signed: $(SIGN_ID)]"
 
 ## Only ever targets the Murmur executable — never the separate `murmur` app.
-run: app
-	@pkill -x $(EXEC) 2>/dev/null || true
-	@open "$(BUNDLE)"
+run: install
 
 ## Ad-hoc signatures change on every rebuild, which resets the Accessibility grant.
 ## Installing to /Applications keeps the path stable and makes re-granting a one-click fix.
@@ -96,7 +100,7 @@ install: app
 	@# $(BUNDLE) is an absolute staging path — the destination must use $(APPNAME) alone.
 	@rm -rf "/Applications/$(APPNAME)"
 	@cp -R "$(BUNDLE)" "/Applications/$(APPNAME)"
-	@open "/Applications/$(APPNAME)"
+	@if [ "$(LAUNCH)" = "1" ]; then open "/Applications/$(APPNAME)"; fi
 	@echo "installed to /Applications/$(APPNAME)"
 
 clean:

@@ -110,6 +110,14 @@ final class Settings {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
 
+    var showLiveDictationText: Bool {
+        didSet { defaults.set(showLiveDictationText, forKey: Keys.showLiveDictationText) }
+    }
+
+    var dictationBarPosition: HUDPosition {
+        didSet { defaults.set(dictationBarPosition.rawValue, forKey: Keys.dictationBarPosition) }
+    }
+
     var launchAtLogin: Bool {
         didSet {
             guard launchAtLogin != oldValue else { return }
@@ -146,6 +154,8 @@ final class Settings {
         static let engine = "engine"
         static let smartCleanup = "smartCleanup"
         static let compareMode = "compareMode"
+        static let showLiveDictationText = "showLiveDictationText"
+        static let dictationBarPosition = "dictationBarPosition"
         // Legacy single-key setting, read once to carry an existing choice forward.
         static let legacyPushToTalkKey = "pushToTalkKey"
     }
@@ -189,6 +199,9 @@ final class Settings {
         smartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? true
         compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        showLiveDictationText = defaults.object(forKey: Keys.showLiveDictationText) as? Bool ?? true
+        dictationBarPosition = HUDPosition(rawValue: defaults.string(forKey: Keys.dictationBarPosition) ?? "")
+            ?? .bottom
         launchAtLogin = LoginItem.state.isOn
     }
 }

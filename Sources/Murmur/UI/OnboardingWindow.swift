@@ -25,7 +25,7 @@ final class OnboardingWindow: NSWindow {
             backing: .buffered,
             defer: false
         )
-        title = "Welcome to Murmur"
+        title = "Welcome to Voice Notes"
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
         isReleasedWhenClosed = false
@@ -61,7 +61,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
             VStack(alignment: .leading, spacing: DS.Space.sm) {
-                Text("Murmur")
+                Text("Voice Notes")
                     .font(DS.Font.sessionTitle)
                     .foregroundStyle(DS.Color.text)
                 Text("Dictation and meeting notes, all on this Mac. Three permissions make it work; "
@@ -169,9 +169,9 @@ struct OnboardingView: View {
 
     private var wedgedHint: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Hint("If the Accessibility switch already shows Murmur as on but this row stays red, the "
+            Hint("If the Accessibility switch already shows Voice Notes as on but this row stays red, the "
                  + "stored grant belongs to an older build. Don't toggle it — reset that one entry, "
-                 + "then quit System Settings entirely and re-add Murmur:")
+                 + "then quit System Settings entirely and re-add Voice Notes:")
             HStack(spacing: DS.Space.sm) {
                 Text("tccutil reset Accessibility com.jasonhunt.murmur")
                     .font(DS.Font.readout)

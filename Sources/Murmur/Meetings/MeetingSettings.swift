@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import MurmurSessions
 
 /// Everything meetings need that dictation doesn't. Its own object rather than more
 /// properties on `Settings`, so the two halves of the app can change independently.
@@ -46,13 +47,18 @@ final class MeetingSettings {
     /// disk; the controller checks, so a stale toggle is harmless.
     var speakerSeparation: Bool { didSet { defaults.set(speakerSeparation, forKey: Keys.speakerSeparation) } }
 
+    var autoRecordKnownCalls: Bool { didSet { defaults.set(autoRecordKnownCalls, forKey: Keys.autoRecordKnownCalls) } }
+    var autoOpenMeetings: Bool { didSet { defaults.set(autoOpenMeetings, forKey: Keys.autoOpenMeetings) } }
+    var autoSummarize: Bool { didSet { defaults.set(autoSummarize, forKey: Keys.autoSummarize) } }
+    var defaultTemplate: SummaryTemplate { didSet { defaults.set(defaultTemplate.rawValue, forKey: Keys.defaultTemplate) } }
+
     /// Rule for an app, falling back to the registry default: known meeting apps and
     /// browsers ask; anything unknown asks quietly (handled by the detector, not here).
     func rule(for bundleID: String) -> MeetingAppRule {
         appRules[bundleID] ?? .ask
     }
 
-    func setRule(_ rule: MeetingAppRule, for bundleID: String) {
+    func setRule(_ rule: MeetingAppRule?, for bundleID: String) {
         var updated = appRules
         updated[bundleID] = rule
         appRules = updated
@@ -71,6 +77,10 @@ final class MeetingSettings {
         static let showLiveTranscript = "meeting.showLiveTranscript"
         static let soundEnabled = "meeting.soundEnabled"
         static let speakerSeparation = "meeting.speakerSeparation"
+        static let autoRecordKnownCalls = "meeting.autoRecordKnownCalls"
+        static let autoOpenMeetings = "meeting.autoOpenMeetings"
+        static let autoSummarize = "meeting.autoSummarize"
+        static let defaultTemplate = "meeting.defaultTemplate"
     }
 
     private init() {
@@ -89,5 +99,9 @@ final class MeetingSettings {
         showLiveTranscript = defaults.object(forKey: Keys.showLiveTranscript) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         speakerSeparation = defaults.object(forKey: Keys.speakerSeparation) as? Bool ?? true
+        autoRecordKnownCalls = defaults.object(forKey: Keys.autoRecordKnownCalls) as? Bool ?? true
+        autoOpenMeetings = defaults.object(forKey: Keys.autoOpenMeetings) as? Bool ?? true
+        autoSummarize = defaults.object(forKey: Keys.autoSummarize) as? Bool ?? true
+        defaultTemplate = SummaryTemplate(rawValue: defaults.string(forKey: Keys.defaultTemplate) ?? "") ?? .meeting
     }
 }

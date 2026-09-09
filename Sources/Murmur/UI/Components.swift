@@ -83,6 +83,7 @@ struct Segmented<Value: Hashable>: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(3)

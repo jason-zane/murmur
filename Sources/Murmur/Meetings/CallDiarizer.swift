@@ -52,7 +52,14 @@ actor CallDiarizer {
     /// Feeds call audio. Returns the new `coveredThrough` when a chunk was completed,
     /// nil otherwise, so the caller only wakes when there is something to label.
     func feed(_ chunk: AudioChunk) -> TimeInterval? {
-        guard isReady, chunk.buffer.frameLength > 0 else { return nil }
+        guard chunk.buffer.frameLength > 0 else { return nil }
+        guard isReady else {
+            // Models may still be preparing while transcription is already live. Keep
+            // the audio timeline honest; early speech simply has no inferred speaker.
+            bufferStart += Double(chunk.buffer.frameLength) / chunk.buffer.format.sampleRate
+            coveredThrough = bufferStart
+            return coveredThrough
+        }
         let samples: [Float]
         do { samples = try converter.resampleBuffer(chunk.buffer) } catch {
             Log.speech.error("diarizer: conversion failed — \(error.localizedDescription)")

@@ -60,6 +60,7 @@ actor ParakeetMeetingTranscriber: MeetingTranscriber {
         let samples: [Float]
         do { samples = try converter.resampleBuffer(chunk.buffer) } catch {
             Log.speech.error("Parakeet meeting: conversion failed — \(error.localizedDescription)")
+            events?.yield(.failed(source, error.localizedDescription))
             return
         }
         guard !samples.isEmpty else { return }
@@ -126,6 +127,7 @@ actor ParakeetMeetingTranscriber: MeetingTranscriber {
             events?.yield(.final(TranscriptSegment(start: offset + start, end: offset + end, source: source, text: text)))
         } catch {
             Log.speech.error("Parakeet meeting window failed: \(error.localizedDescription)")
+            events?.yield(.failed(source, error.localizedDescription))
         }
     }
 }
