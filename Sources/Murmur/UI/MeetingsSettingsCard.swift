@@ -13,6 +13,7 @@ struct MeetingsSettingsCards: View {
     @State private var claudeMessage: String?
     @State private var didCopySnippet = false
     @State private var audioGranted = SystemAudioCapture.isKnownGranted
+    @State private var models = ModelLibrary.shared
     @State private var isAskingAudio = false
 
     var body: some View {
@@ -21,6 +22,7 @@ struct MeetingsSettingsCards: View {
             calendarCard
             rulesCard
             engineCard
+            modelsCard
             claudeCard
             audioCard
         }
@@ -188,6 +190,30 @@ struct MeetingsSettingsCards: View {
               + "text arrives a sentence or two behind."
             : "Parakeet isn't downloaded. Meetings will use Apple until it is — download it from "
               + "the menu bar item."
+    }
+
+    // MARK: - Models
+
+    private var modelsCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: DS.Space.md) {
+                SectionLabel(text: "On-device models")
+                Hint("Optional, and only ever fetched when you press Download. They live in "
+                     + "~/Library/Application Support/FluidAudio and run on the Neural Engine.")
+                ForEach(ModelKind.allCases) { kind in
+                    Divider().padding(.vertical, DS.Space.xs)
+                    ModelRow(kind: kind, library: models, onChanged: {
+                        parakeetOnDisk = ParakeetModels.isDownloaded
+                    })
+                }
+                if ModelKind.speakers.isDownloaded {
+                    Divider().padding(.vertical, DS.Space.xs)
+                    SettingToggleRow(title: "Tell speakers apart on the call side", isOn: $settings.speakerSeparation)
+                    Hint("Lines from the call are labelled Speaker 1, Speaker 2… as they arrive; "
+                         + "rename them in the meeting afterwards. Your side is always You.")
+                }
+            }
+        }
     }
 
     // MARK: - Claude
@@ -381,5 +407,57 @@ enum ClaudeDesktopIntegration {
         try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: configURL, options: .atomic)
+    }
+}
+
+private struct ModelRow: View {
+    let kind: ModelKind
+    let library: ModelLibrary
+    let onChanged: () -> Void
+
+    @State private var onDisk = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DS.Space.md) {
+            StatusDot(color: onDisk ? DS.Color.success : DS.Color.textTertiary, isLit: true, size: 7)
+                .padding(.top, 6)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: DS.Space.sm) {
+                    Text(kind.title)
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.Color.text)
+                    Readout(kind.sizeHint, color: DS.Color.textTertiary)
+                }
+                Hint(kind.detail)
+                if let progress = library.progress[kind] {
+                    ProgressView(value: progress)
+                        .controlSize(.small)
+                        .tint(DS.Color.accent)
+                        .frame(maxWidth: 260)
+                        .padding(.top, 2)
+                }
+                if let error = library.errors[kind] {
+                    Text(error)
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Color.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+            if onDisk {
+                Chip(text: "Installed", tint: DS.Color.success, filled: true)
+            } else if library.isDownloading(kind) {
+                ActionButton(title: "Downloading…", emphasis: .quiet) {}.disabled(true)
+            } else {
+                ActionButton(title: "Download", emphasis: .normal) { library.download(kind) }
+            }
+        }
+        .onAppear { onDisk = kind.isDownloaded }
+        .onChange(of: library.progress[kind]) { _, progress in
+            if progress == nil {
+                onDisk = kind.isDownloaded
+                onChanged()
+            }
+        }
     }
 }

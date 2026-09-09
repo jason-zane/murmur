@@ -40,6 +40,13 @@ let package = Package(
             path: "Sources/MurmurMCP",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Developer tool: pre-seed or inspect the on-device models from a terminal.
+        .executableTarget(
+            name: "murmur-models",
+            dependencies: [.product(name: "FluidAudio", package: "FluidAudio")],
+            path: "Sources/MurmurModels",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "MurmurDictionaryTests",
             dependencies: ["MurmurDictionary"],

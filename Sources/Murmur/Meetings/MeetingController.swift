@@ -63,6 +63,11 @@ final class MeetingController {
     private let system = SystemAudioCapture()
     private var micTranscriber: (any MeetingTranscriber)?
     private var callTranscriber: (any MeetingTranscriber)?
+    /// Present only when speaker separation is on and its models are on disk.
+    private var diarizer: CallDiarizer?
+    /// Call-side segments finalised by the transcriber but not yet covered by diarization.
+    /// They are already in `liveSegments`; they reach disk once labelled (or at the end).
+    private var pendingCall: [TranscriptSegment] = []
     private var micContinuation: AsyncStream<AudioChunk>.Continuation?
     private var callContinuation: AsyncStream<AudioChunk>.Continuation?
     private var feedTasks: [Task<Void, Never>] = []
@@ -132,6 +137,18 @@ final class MeetingController {
                 micTranscriber = micT
                 callTranscriber = callT
 
+                // Speaker separation is optional and must never stop a meeting from starting.
+                if MeetingSettings.shared.speakerSeparation, ModelKind.speakers.isDownloaded {
+                    let d = CallDiarizer()
+                    do {
+                        try await d.prepare()
+                        diarizer = d
+                    } catch {
+                        Log.speech.error("speaker separation unavailable: \(error.localizedDescription)")
+                    }
+                }
+                let diarizer = self.diarizer
+
                 let micEvents = try await micT.start(source: .you, offset: 0)
                 let callEvents = try await callT.start(source: .call, offset: 0)
 
@@ -147,7 +164,14 @@ final class MeetingController {
 
                 feedTasks = [
                     Task.detached(priority: .userInitiated) { for await chunk in micStream { await micT.feed(chunk) } },
-                    Task.detached(priority: .userInitiated) { for await chunk in callStream { await callT.feed(chunk) } },
+                    Task.detached(priority: .userInitiated) { [weak self] in
+                        for await chunk in callStream {
+                            await callT.feed(chunk)
+                            if let diarizer, await diarizer.feed(chunk) != nil {
+                                await self?.labelPending(force: false)
+                            }
+                        }
+                    },
                 ]
                 consumeTasks = [
                     Task { @MainActor [weak self] in for await event in micEvents { self?.handle(event) } },
@@ -247,6 +271,8 @@ final class MeetingController {
         let micT = micTranscriber, callT = callTranscriber
         micTranscriber = nil
         callTranscriber = nil
+        diarizer = nil
+        pendingCall = []
         Task { await micT?.finish(); await callT?.finish() }
         if let session, liveSegments.isEmpty {
             try? store.delete(id: session.id)
@@ -270,6 +296,8 @@ final class MeetingController {
             await micT?.finish()
             await callT?.finish()
             for task in consumes { await task.value }
+            await self?.diarizer?.flush()
+            await self?.labelPending(force: true)
             self?.finishDone = true
         }
 
@@ -312,6 +340,8 @@ final class MeetingController {
         session = nil
         startedAt = nil
         stoppedAt = nil
+        diarizer = nil
+        pendingCall = []
         livePartial = ""
         state = .idle
     }
@@ -338,11 +368,40 @@ final class MeetingController {
         case .final(let segment):
             liveSegments.append(segment)
             livePartial = ""
-            if let session {
-                do { try store.append([segment], to: session.id) }
-                catch { Log.app.error("transcript append failed: \(error.localizedDescription)") }
+            if segment.source == .call, diarizer != nil {
+                // Held until diarization has covered it; labelled and written then.
+                pendingCall.append(segment)
+                Task { await labelPending(force: false) }
+            } else {
+                persist(segment)
             }
         }
+    }
+
+    private func persist(_ segment: TranscriptSegment) {
+        guard let session else { return }
+        do { try store.append([segment], to: session.id) }
+        catch { Log.app.error("transcript append failed: \(error.localizedDescription)") }
+    }
+
+    /// Stamps speakers onto call segments that diarization has now covered, and writes
+    /// them. With `force`, everything pending goes out with the best label available.
+    private func labelPending(force: Bool) async {
+        guard let diarizer, !pendingCall.isEmpty else { return }
+        let covered = await diarizer.coveredThrough
+        var remaining: [TranscriptSegment] = []
+        for var segment in pendingCall {
+            guard force || segment.end <= covered else {
+                remaining.append(segment)
+                continue
+            }
+            segment.speaker = await diarizer.speaker(for: segment.start, to: segment.end)
+            if let index = liveSegments.firstIndex(where: { $0.id == segment.id }) {
+                liveSegments[index] = segment
+            }
+            persist(segment)
+        }
+        pendingCall = remaining
     }
 
     private func startClock() {

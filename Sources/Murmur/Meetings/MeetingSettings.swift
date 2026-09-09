@@ -42,6 +42,10 @@ final class MeetingSettings {
     /// Play a sound when a meeting recording starts and stops.
     var soundEnabled: Bool { didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) } }
 
+    /// Label call-side lines by speaker. Only takes effect once the speaker models are on
+    /// disk; the controller checks, so a stale toggle is harmless.
+    var speakerSeparation: Bool { didSet { defaults.set(speakerSeparation, forKey: Keys.speakerSeparation) } }
+
     /// Rule for an app, falling back to the registry default: known meeting apps and
     /// browsers ask; anything unknown asks quietly (handled by the detector, not here).
     func rule(for bundleID: String) -> MeetingAppRule {
@@ -66,6 +70,7 @@ final class MeetingSettings {
         static let engine = "meeting.engine"
         static let showLiveTranscript = "meeting.showLiveTranscript"
         static let soundEnabled = "meeting.soundEnabled"
+        static let speakerSeparation = "meeting.speakerSeparation"
     }
 
     private init() {
@@ -83,5 +88,6 @@ final class MeetingSettings {
         engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
         showLiveTranscript = defaults.object(forKey: Keys.showLiveTranscript) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        speakerSeparation = defaults.object(forKey: Keys.speakerSeparation) as? Bool ?? true
     }
 }

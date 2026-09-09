@@ -1,5 +1,6 @@
 EXEC     := Murmur
 MCP      := murmur-mcp
+MODELS   := murmur-models
 CONFIG   := debug
 
 ## Build products live OUTSIDE this directory, for the same reason the .app does.
@@ -100,3 +101,11 @@ install: app
 
 clean:
 	@rm -rf .build "$(STAGE)" "$(SCRATCH)"
+
+## Pre-seed the optional on-device models from a terminal (the app can do the same from
+## Settings). `make models` fetches everything; `make models WHICH=speakers` one of them.
+WHICH ?= all
+.PHONY: models
+models:
+	swift build --scratch-path $(SCRATCH) --product $(MODELS)
+	$(SCRATCH)/$(CONFIG)/$(MODELS) download $(WHICH)

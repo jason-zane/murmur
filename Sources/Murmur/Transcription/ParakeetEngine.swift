@@ -126,7 +126,7 @@ actor ParakeetModels {
     var isLoaded: Bool { loaded != nil }
 
     /// Loads once; concurrent callers await the same task rather than racing to download.
-    func manager() async throws -> AsrManager {
+    func manager(progress: ProgressHandler? = nil) async throws -> AsrManager {
         if let loaded { return loaded }
         if let loadTask { return try await loadTask.value }
 
@@ -138,7 +138,7 @@ actor ParakeetModels {
                 : "downloading models (~470 MB, one time)"
             Log.speech.info("Parakeet: \(stage, privacy: .public)")
             let started = Date()
-            let models = try await AsrModels.downloadAndLoad(version: .v3, encoderPrecision: .int8)
+            let models = try await AsrModels.downloadAndLoad(version: .v3, encoderPrecision: .int8, progressHandler: progress)
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             Log.speech.info("Parakeet: ready in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")
