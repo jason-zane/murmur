@@ -79,7 +79,7 @@ struct NotepadView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            header
+            if controller.state == .idle { idleHeader } else { header }
             StreamMeters(
                 you: controller.youLevel,
                 call: controller.callLevel,
@@ -111,6 +111,22 @@ struct NotepadView: View {
     }
 
     // MARK: - Pieces
+
+    /// The notepad opened with nothing running: say so, and offer to start.
+    private var idleHeader: some View {
+        HStack(alignment: .top, spacing: DS.Space.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Not recording")
+                    .font(DS.Font.headline)
+                    .foregroundStyle(DS.Color.textSecondary)
+                Readout("Waiting for a call, or press Record", color: DS.Color.textTertiary)
+            }
+            Spacer(minLength: 0)
+            ActionButton(title: "Record", emphasis: .prominent) {
+                (NSApp.delegate as? AppDelegate)?.toggleMeeting()
+            }
+        }
+    }
 
     private var header: some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
