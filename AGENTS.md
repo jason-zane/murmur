@@ -118,17 +118,19 @@ item to a build artifact.
 material token. **Views must not contain literal values.** If a component needs a number
 that isn't a token, add the token rather than inlining it.
 
-The direction is 1980s field recorders — Sony TC-D5, Marantz PMD, Nakamichi, Braun. Silver
-face in light appearance, black face in dark. Two rules that are not negotiable:
+The direction is **quiet, modern, native** — system materials, generous whitespace, one
+accent, depth from soft shadow and hairline separators. Not negotiable:
 
-- **Red means recording.** Nothing else in the app is red.
-- **Amber and green are instrumentation only** — level meters, never UI chrome.
+- **Red means recording.** Nothing else in the app is red. Speaker colours deliberately stay
+  far from it.
+- **One accent** (indigo) for interaction. Speaker colours and the meter's amber/green are
+  instrumentation, never chrome.
+- **Numbers are readouts**: `DS.Font.readout` + `.monospacedDigit()`, via the `Readout` view.
 
-Explicitly ruled out: neon, vaporwave, synthwave, purple/pink gradients, glowing text,
-chrome lettering, grid horizons. There are **no gradients anywhere**; depth comes from flat
-panels, hairline bevels and procedurally-drawn brushed grain.
-
----
+An earlier draft described a 1980s field-recorder look — silver faces, brushed grain, bevels,
+"no gradients anywhere". That direction was abandoned before the current code was written and
+the description survived in these docs for a while. If you meet a reference to it, it is
+stale: the token file's own header comment is the authority.
 
 ## Regex, if you touch the dictionary
 

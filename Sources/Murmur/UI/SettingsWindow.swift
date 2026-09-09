@@ -151,6 +151,8 @@ struct SettingsWindow: View {
                     }
                 }
 
+                MeetingsSettingsCards()
+
                 Card {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
                         SectionLabel(text: "Cleanup")
@@ -228,7 +230,7 @@ struct SettingsWindow: View {
             .padding(DS.Space.xl)
         }
         .background(DS.Color.window)
-        .frame(width: 580, height: 700)
+        .frame(width: 580, height: 760)
     }
 
     // MARK: - Recording a trigger

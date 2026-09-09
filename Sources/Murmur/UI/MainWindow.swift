@@ -4,15 +4,23 @@ import SwiftUI
 
 struct MainWindow: View {
     @Bindable var controller: DictationController
+    let meetings: MeetingController
 
-    @State private var section: Section = .transcriptions
+    @State private var section: Section = .meetings
 
     enum Section: String, CaseIterable, Identifiable {
+        case meetings
         case transcriptions
         case dictionary
 
         var id: String { rawValue }
-        var title: String { self == .transcriptions ? "Transcriptions" : "Dictionary" }
+        var title: String {
+            switch self {
+            case .meetings: "Meetings"
+            case .transcriptions: "Dictation"
+            case .dictionary: "Dictionary"
+            }
+        }
     }
 
     var body: some View {
@@ -21,26 +29,35 @@ struct MainWindow: View {
 
             Divider()
 
-            VStack(spacing: DS.Space.lg) {
+            VStack(spacing: 0) {
                 Segmented(
                     options: Section.allCases.map { ($0, $0.title) },
                     selection: $section
                 )
-                .frame(width: 280)
+                .frame(width: 340)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, DS.Space.md)
 
                 Group {
                     switch section {
-                    case .transcriptions: TranscriptionList()
-                    case .dictionary: DictionaryPanel()
+                    case .meetings:
+                        LibraryView(controller: meetings) {
+                            (NSApp.delegate as? AppDelegate)?.toggleMeeting()
+                        }
+                    case .transcriptions:
+                        TranscriptionList().padding([.horizontal, .bottom], DS.Space.xl)
+                    case .dictionary:
+                        DictionaryPanel().padding([.horizontal, .bottom], DS.Space.xl)
                     }
                 }
                 .frame(maxHeight: .infinity)
             }
-            .padding(DS.Space.xl)
         }
         .background(DS.Color.window)
-        .frame(minWidth: 720, minHeight: 540)
+        .frame(minWidth: 820, minHeight: 560)
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { _ in
+            section = .meetings
+        }
     }
 }
 

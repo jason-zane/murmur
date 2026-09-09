@@ -152,3 +152,43 @@ private extension NSColor {
         )
     }
 }
+
+// MARK: - Meetings
+
+/// Additions for meetings. Same rules: one accent, red means recording. Two amendments,
+/// both documented here so they are decisions rather than exceptions:
+///
+/// - **Speaker colours are instrumentation**, like the level meter's amber and green — they
+///   label who is talking and appear nowhere else. You are always the accent. Everyone else
+///   cycles the remaining three, all kept well away from red.
+/// - **Every number is a readout.** Durations, timestamps, counts and confidences are set in
+///   tabular monospace, always. It is the one place the instrument idea survives, and it
+///   survives as typography rather than chrome.
+extension DS.Color {
+    /// Index 0 is you. Others are assigned in order of first appearance.
+    static let speaker: [SwiftUI.Color] = [
+        accent,
+        adaptive(light: 0x2F7D95, dark: 0x5FB3CC),
+        adaptive(light: 0x7A5EA7, dark: 0xB294D6),
+        adaptive(light: 0x5E7343, dark: 0x97B36C),
+    ]
+
+    static func speaker(_ index: Int) -> SwiftUI.Color {
+        speaker[max(0, index) % speaker.count]
+    }
+}
+
+extension DS.Font {
+    /// Timestamps, durations, counts. Always paired with `.monospacedDigit()`.
+    static let readout = SwiftUI.Font.system(size: 11, weight: .medium, design: .monospaced)
+    static let readoutLarge = SwiftUI.Font.system(size: 22, weight: .medium, design: .monospaced)
+    /// Session titles in the Library and the notepad.
+    static let sessionTitle = SwiftUI.Font.system(size: 19, weight: .semibold)
+    /// The notepad's bullets — a touch larger than body, because it's the thing you're doing.
+    static let note = SwiftUI.Font.system(size: 14, weight: .regular)
+}
+
+extension DS.Space {
+    /// Width of the labelled meter's label column, so the two bars align.
+    static let meterLabel: CGFloat = 34
+}

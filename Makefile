@@ -1,4 +1,5 @@
 EXEC     := Murmur
+MCP      := murmur-mcp
 CONFIG   := debug
 
 ## Build products live OUTSIDE this directory, for the same reason the .app does.
@@ -9,6 +10,7 @@ CONFIG   := debug
 ## 0% CPU. Moving the scratch path to ~/Library/Caches (never synced) removes the race.
 SCRATCH  := $(HOME)/Library/Caches/MurmurBuild/scratch
 BUILD    := $(SCRATCH)/$(CONFIG)/$(EXEC)
+MCPBUILD := $(SCRATCH)/$(CONFIG)/$(MCP)
 
 ## The bundle is assembled and signed OUTSIDE this directory on purpose.
 ##
@@ -63,6 +65,11 @@ app: build
 	@rm -rf "$(BUNDLE)"
 	@mkdir -p "$(CONTENTS)/MacOS" "$(CONTENTS)/Resources"
 	@cp $(BUILD) "$(CONTENTS)/MacOS/$(EXEC)"
+	@# The MCP server ships inside the bundle so Claude Desktop has one stable path to
+	@# spawn: /Applications/Murmur.app/Contents/MacOS/murmur-mcp. It is signed on its own
+	@# first — codesign does not descend into MacOS/ for helper executables.
+	@cp $(MCPBUILD) "$(CONTENTS)/MacOS/$(MCP)"
+	@codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$(CONTENTS)/MacOS/$(MCP)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"

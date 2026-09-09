@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import MurmurSessions
 import SwiftUI
 
 @main
@@ -10,7 +11,7 @@ struct MurmurApp: App {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
         // panel, and letting ⌘N spawn a second copy of a tape deck makes no sense.
         Window("Murmur", id: "main") {
-            MainWindow(controller: delegate.controller)
+            MainWindow(controller: delegate.controller, meetings: delegate.meetings)
         }
         .defaultSize(width: 860, height: 620)
         .windowResizability(.contentMinSize)
@@ -31,9 +32,10 @@ struct MurmurApp: App {
 
         // Secondary now: status and the hotkey while you're working in another app.
         MenuBarExtra {
-            MenuContent(controller: delegate.controller)
+            MenuContent(controller: delegate.controller, meetings: delegate.meetings,
+                        detector: delegate.detector, delegate: delegate)
         } label: {
-            StatusLabel(controller: delegate.controller)
+            StatusLabel(controller: delegate.controller, meetings: delegate.meetings)
         }
 
         Window("Engine comparison", id: "comparison") {
@@ -47,7 +49,11 @@ struct MurmurApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = DictationController()
+    let meetings = MeetingController()
+    let detector = MeetingDetector()
     private var hud: HUDPanel?
+    private var notepad: NotepadWindow?
+    private var offerStrip: OfferStrip?
     private var stateObservation: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -57,6 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
 
         hud = HUDPanel(controller: controller)
+        notepad = NotepadWindow(controller: meetings)
+        offerStrip = OfferStrip(detector: detector) { [weak self] candidate in
+            self?.startMeeting(from: candidate)
+        }
+        wireMeetings()
 
         if !controller.activate() {
             Permissions.promptForAccessibility()
@@ -90,7 +101,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observeState()
+        observeMeetingState()
         Log.app.info("Murmur ready — hold \(Settings.shared.triggerSummary) to dictate")
+    }
+
+    // MARK: - Meetings
+
+    private func wireMeetings() {
+        detector.onDecision = { [weak self] decision in
+            guard let self else { return }
+            switch decision {
+            case .autoStart(let candidate):
+                self.startMeeting(from: candidate)
+            case .offer(_, let quiet):
+                if !quiet { self.offerStrip?.present() }
+            }
+        }
+        detector.onCallEnded = { [weak self] in
+            self?.meetings.stop()
+        }
+        detector.start()
+    }
+
+    /// From a detection — the candidate's app and calendar event name the session.
+    func startMeeting(from candidate: MeetingCandidate) {
+        offerStrip?.dismiss()
+        detector.dismissOffer()
+        meetings.start(.init(
+            title: candidate.calendarEvent?.title,
+            app: candidate.label,
+            bundleID: candidate.bundleID,
+            calendarEvent: candidate.calendarEvent
+        ))
+        notepad?.present(activate: false)
+    }
+
+    /// From the Record button or menu — whatever the calendar knows, and nothing else.
+    func toggleMeeting() {
+        if meetings.state.isActive {
+            meetings.stop()
+        } else {
+            offerStrip?.dismiss()
+            detector.dismissOffer()
+            let event = MeetingSettings.shared.calendarEnabled ? CalendarService.shared.bestMatch() : nil
+            let candidate = detector.candidate
+            meetings.start(.init(
+                title: event?.title,
+                app: candidate?.label,
+                bundleID: candidate?.bundleID,
+                calendarEvent: event
+            ))
+            notepad?.present(activate: true)
+        }
+    }
+
+    func showNotepad() {
+        notepad?.present(activate: true)
+    }
+
+    private func observeMeetingState() {
+        withObservationTracking {
+            _ = meetings.state
+            _ = meetings.lastFinishedSessionID
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                switch self.meetings.state {
+                case .recording:
+                    self.detector.recordingBundleID = self.meetings.session?.bundleID ?? "manual"
+                case .idle:
+                    self.detector.recordingBundleID = nil
+                    if let finished = self.meetings.lastFinishedSessionID, self.notepad?.isVisible == true {
+                        // Leave the notepad up for a beat so "Saved" registers, then hand off
+                        // to the Library with the new session selected.
+                        try? await Task.sleep(for: .milliseconds(900))
+                        self.notepad?.dismiss()
+                        NotificationCenter.default.post(name: .murmurShowSession, object: finished)
+                    }
+                default:
+                    break
+                }
+                self.observeMeetingState()
+            }
+        }
     }
 
     /// `murmur://clear` and `murmur://show`, used by the legacy HTML dashboard and
@@ -109,6 +202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // mouse-button utility — and for exercising the start/stop path without a
                 // physical key.
                 controller.toggleRecording()
+            case "meeting":
+                toggleMeeting()
+            case "notes":
+                showNotepad()
             case "paste":
                 controller.pasteLastTranscription()
             case "reset":
@@ -139,6 +236,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let isOpen = NSApp.windows.contains { $0.title == "Engine comparison" && $0.isVisible }
         UserDefaults.standard.set(isOpen, forKey: "comparisonWindowOpen")
         controller.deactivate()
+        detector.stop()
+        if meetings.state.isActive { meetings.stop() }
     }
 
     /// Shows and hides the HUD in step with the controller's state.
@@ -171,7 +270,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 private struct MenuContent: View {
     @Bindable var controller: DictationController
+    let meetings: MeetingController
+    let detector: MeetingDetector
+    unowned let delegate: AppDelegate
     @State private var settings = Settings.shared
+
+    private var recordMeetingTitle: String {
+        if let candidate = detector.candidate { return "Record \(candidate.callNoun)…" }
+        return "Record meeting"
+    }
     @Environment(\.openWindow) private var openWindow
     @State private var isPreloadingParakeet = false
     @State private var parakeetOnDisk = ParakeetModels.isDownloaded
@@ -197,6 +304,18 @@ private struct MenuContent: View {
     }
 
     var body: some View {
+        if meetings.state.isActive {
+            Button("Stop meeting  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Show notes") { delegate.showNotepad() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+        } else {
+            Button(recordMeetingTitle) { delegate.toggleMeeting() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+        }
+
+        Divider()
+
         Text("Hold \(settings.triggerSummary) to dictate")
 
         SettingsLink { Text("Settings…") }
@@ -274,13 +393,26 @@ private struct MenuContent: View {
 /// forward it to `openSettings`, the only sanctioned way to open the Settings scene.
 private struct StatusLabel: View {
     @Bindable var controller: DictationController
+    let meetings: MeetingController
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Image(systemName: controller.state.isActive ? "waveform.circle.fill" : "waveform")
-            .onReceive(NotificationCenter.default.publisher(for: .murmurOpenSettings)) { _ in
-                openSettings()
+        Group {
+            if meetings.state.isActive {
+                // The one state that must never be ambiguous: an app that can hear a meeting
+                // owes the user an unmistakable sign that it is on.
+                HStack(spacing: 4) {
+                    Image(systemName: "record.circle.fill")
+                    Text(TimeFormat.clock(meetings.elapsed))
+                        .monospacedDigit()
+                }
+            } else {
+                Image(systemName: controller.state.isActive ? "waveform.circle.fill" : "waveform")
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurOpenSettings)) { _ in
+            openSettings()
+        }
     }
 }
 

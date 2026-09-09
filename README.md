@@ -149,12 +149,24 @@ injects nothing — two transcripts would fight over one text field.
 `Sources/Murmur/UI/DesignSystem.swift` defines every colour, size, radius, duration and
 material token. Views must not contain literal values.
 
-The direction is 1980s field recorders — Sony TC-D5, Marantz PMD, Nakamichi, Braun. Silver
-face in light appearance, black face in dark. Red means recording and nothing else is red;
-amber and green are instrumentation only. No gradients — depth comes from flat panels,
-hairline bevels and procedurally-drawn brushed grain.
+The direction is quiet, modern, native: the app should look like it belongs on macOS in 2026.
+System materials, generous whitespace, one accent, and depth from soft shadow and hairline
+separators rather than bevels or ornament. Three rules keep it coherent:
 
----
+- **One accent.** Indigo carries interaction — selection, focus, the live waveform. **Red
+  means recording and nothing else** is red.
+- **Semantic colours where macOS provides them.** `.primary`, `separatorColor` and the material
+  backgrounds adapt to appearance, accent tint and increased contrast for free.
+- **Motion is spring, not linear.** Interface elements have mass; nothing cuts.
+
+Two amendments for meetings, both documented in the token file:
+
+- **Speaker colours are instrumentation.** A four-value scale labels who is talking and
+  appears nowhere else. You are always the accent; nobody is ever red.
+- **Every number is a readout.** Durations, timestamps, counts and confidences are tabular
+  monospace, always. The twin *You / Call* meter is the recognisable mark of the meeting
+  side — it appears wherever audio is live, because it is the proof that both streams are
+  being heard.
 
 ## Not built
 

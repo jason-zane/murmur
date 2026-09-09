@@ -47,5 +47,13 @@
 	<string>Murmur listens while you hold the push-to-talk key so it can turn your speech into text.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Murmur transcribes your speech on-device to insert text where you're typing.</string>
+	<!-- Meeting capture: a Core Audio process tap hears the far side of a call. This is the
+	     "Audio Recording" grant, separate from the microphone. -->
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Murmur listens to the audio of a call so it can transcribe the other side of the conversation, on this Mac only.</string>
+	<!-- Meeting detection: names sessions after the calendar event and seeds attendees.
+	     Read-only; the Mac's own Calendar app does the syncing. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Murmur reads your calendar to name meetings and know who is in them. Nothing is written back.</string>
 </dict>
 </plist>
