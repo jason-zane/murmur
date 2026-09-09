@@ -15,28 +15,15 @@ struct LibraryView: View {
     private var store: SessionStore { controller.store }
 
     var body: some View {
-        NavigationSplitView {
+        // A plain split, not NavigationSplitView: that one installs a window toolbar with a
+        // sidebar toggle that cannot be removed from inside a tabbed content view.
+        HStack(spacing: 0) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
-        } detail: {
-            if let id = selection, let session = sessions.first(where: { $0.id == id }) {
-                SessionDetailView(session: session, store: store, onChanged: reload, onDeleted: {
-                    selection = nil
-                    reload()
-                })
-                .id(id)
-            } else {
-                EmptyState(
-                    icon: "waveform.and.mic",
-                    label: sessions.isEmpty ? "No meetings yet" : "Select a meeting",
-                    detail: sessions.isEmpty
-                        ? "Murmur listens for calls in Zoom, Meet, Teams and the rest — or press Record."
-                        : "Notes, your bullets and the transcript live here."
-                )
-            }
+                .frame(width: 300)
+            Divider()
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
         .onAppear(perform: reload)
         .onChange(of: controller.lastFinishedSessionID) { _, id in
             reload()
@@ -47,6 +34,25 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { note in
             reload()
             if let id = note.object as? String { selection = id }
+        }
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        if let id = selection, let session = sessions.first(where: { $0.id == id }) {
+            SessionDetailView(session: session, store: store, onChanged: reload, onDeleted: {
+                selection = nil
+                reload()
+            })
+            .id(id)
+        } else {
+            EmptyState(
+                icon: "waveform.and.mic",
+                label: sessions.isEmpty ? "No meetings yet" : "Select a meeting",
+                detail: sessions.isEmpty
+                    ? "Murmur listens for calls in Zoom, Meet, Teams and the rest — or press Record."
+                    : "Notes, your bullets and the transcript live here."
+            )
         }
     }
 
