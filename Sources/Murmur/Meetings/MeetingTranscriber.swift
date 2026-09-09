@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import MurmurSessions
 import Speech
+import Synchronization
 
 /// What a meeting transcriber emits: live partial text for the notepad's optional live
 /// view, and finalised segments with positions in the meeting for the store.
@@ -97,20 +98,61 @@ actor AppleMeetingTranscriber: MeetingTranscriber {
     func finish() async {
         input?.finish()
         input = nil
+        let began = ContinuousClock.now
+        let analyzer = self.analyzer
         if didReceiveAudio {
-            do { try await analyzer?.finalizeAndFinishThroughEndOfInput() }
-            catch {
-                Log.speech.error("meeting transcriber finalize failed: \(error.localizedDescription)")
-                await analyzer?.cancelAndFinishNow()
+            // Finalising flushes the last words; it is normally sub-second, but an analyzer
+            // that never sees end-of-input can sit forever. Bound it, then cut it.
+            let finalised = await Self.within(.seconds(10)) {
+                do { try await analyzer?.finalizeAndFinishThroughEndOfInput() }
+                catch { Log.speech.error("meeting transcriber finalize failed: \(error.localizedDescription)") }
+            }
+            if !finalised {
+                Log.speech.error("meeting transcriber (\(self.source.rawValue, privacy: .public)) finalize timed out; cancelling")
+                _ = await Self.within(.seconds(3)) { await analyzer?.cancelAndFinishNow() }
             }
         } else {
-            await analyzer?.cancelAndFinishNow()
+            // An analyzer that was started but never fed can refuse to cancel promptly.
+            // Nothing is lost by walking away from it.
+            let cancelled = await Self.within(.seconds(3)) { await analyzer?.cancelAndFinishNow() }
+            if !cancelled {
+                Log.speech.error("meeting transcriber (\(self.source.rawValue, privacy: .public)) would not cancel; abandoning it")
+            }
         }
-        await resultsTask?.value
-        analyzer = nil
+        // The results stream ends with the analyzer. Give it a moment, then stop waiting.
+        let results = resultsTask
+        let drained = await Self.within(.seconds(3)) { await results?.value }
+        if !drained { results?.cancel() }
+        let took = ContinuousClock.now - began
+        Log.speech.info("meeting transcriber (Apple) finished for \(self.source.rawValue, privacy: .public) in \(took.components.seconds).\(took.components.attoseconds / 100_000_000_000_000_000)s")
+        self.analyzer = nil
         transcriber = nil
         resultsTask = nil
         closeEvents()
+    }
+
+    /// Runs `work` with a ceiling. Returns false when the ceiling was hit first — and, unlike
+    /// a task group, does not then wait for the work: a task group joins every child before
+    /// it returns, which is precisely the hang this exists to escape. The abandoned work
+    /// finishes (or doesn't) on its own.
+    private static func within(_ limit: Duration, _ work: @escaping @Sendable () async -> Void) async -> Bool {
+        let once = Once()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            Task { await work(); if once.claim() { continuation.resume(returning: true) } }
+            Task { try? await Task.sleep(for: limit); if once.claim() { continuation.resume(returning: false) } }
+        }
+    }
+
+    /// First caller wins.
+    private final class Once: Sendable {
+        private let done = Mutex(false)
+        func claim() -> Bool {
+            done.withLock { taken in
+                if taken { return false }
+                taken = true
+                return true
+            }
+        }
     }
 
     private func closeEvents() {

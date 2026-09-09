@@ -71,10 +71,11 @@ final class MeetingController {
     private var bulletSaveTask: Task<Void, Never>?
     private var finishDone = false
     private var startedAt: Date?
+    private var stoppedAt: Date?
     private var systemAudioActive = false
 
     /// Ceiling on the finish path. An engine that never returns must not hold the session.
-    private static let finishDeadline: Duration = .seconds(45)
+    private static let finishDeadline: Duration = .seconds(20)
 
     init() {
         let recovered = store.recoverInterrupted()
@@ -159,22 +160,42 @@ final class MeetingController {
                     onLevel: { [weak self] level in Task { @MainActor in self?.youLevel = level } }
                 )
 
-                do {
-                    try system.start(
-                        outputFormat: callFormat,
-                        onBuffer: { callCont.yield($0) },
-                        onLevel: { [weak self] level in Task { @MainActor in self?.callLevel = level } }
-                    )
+                // The mic is live; the session can be considered started from here even if
+                // the tap takes a moment (or a consent dialog) to come up.
+                startedAt = now
+                state = .recording
+
+                // Off the main actor on purpose. Creating a process tap blocks its calling
+                // thread until the Audio Recording consent dialog is answered on first use,
+                // and a blocked main thread is a frozen app.
+                let system = self.system
+                let tapResult: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+                    do {
+                        try system.start(
+                            outputFormat: callFormat,
+                            onBuffer: { callCont.yield($0) },
+                            onLevel: { [weak self] level in Task { @MainActor in self?.callLevel = level } }
+                        )
+                        return .success(())
+                    } catch {
+                        return .failure(error)
+                    }
+                }.value
+                switch tapResult {
+                case .success:
                     systemAudioActive = true
-                } catch {
+                case .failure(let error):
                     // Your side still records. Say so, loudly enough to be fixed.
                     systemAudioActive = false
                     warning = "Recording your side only — \(error.localizedDescription)"
                     Log.audio.error("system audio unavailable: \(error.localizedDescription)")
                 }
-
-                startedAt = now
-                state = .recording
+                // A stop that arrived while the tap was coming up (or while the consent
+                // dialog sat unanswered) is honoured now: the tap must not outlive the session.
+                guard self.state == .recording else {
+                    system.stop()
+                    return
+                }
                 startClock()
                 if MeetingSettings.shared.soundEnabled { NSSound(named: "Tink")?.play() }
                 Log.app.info("meeting started · \(manifest.id, privacy: .public) · \(title, privacy: .public)")
@@ -194,6 +215,7 @@ final class MeetingController {
             return
         }
         state = .finalising
+        stoppedAt = Date()
         mic.stop()
         system.stop()
         youLevel = 0
@@ -276,8 +298,9 @@ final class MeetingController {
 
         let segments = store.transcript(for: manifest.id)
         manifest.state = .raw
-        manifest.endedAt = Date()
-        manifest.duration = startedAt.map { Date().timeIntervalSince($0) } ?? elapsed
+        let ended = stoppedAt ?? Date()
+        manifest.endedAt = ended
+        manifest.duration = startedAt.map { ended.timeIntervalSince($0) } ?? elapsed
         manifest.segmentCount = segments.count
         manifest.speakers = Array(Set(segments.compactMap(\.speaker))).sorted()
         try? store.save(manifest)
@@ -288,6 +311,7 @@ final class MeetingController {
 
         session = nil
         startedAt = nil
+        stoppedAt = nil
         livePartial = ""
         state = .idle
     }

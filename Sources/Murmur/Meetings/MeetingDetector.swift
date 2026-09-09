@@ -218,6 +218,10 @@ final class MeetingDetector {
                     }
                 }
             } else {
+                // Unregistered: must be a windowed app the user can see. Background agents
+                // and Apple's own speech daemons open two-way audio without being a call.
+                guard running?.activationPolicy == .regular,
+                      !process.bundleID.hasPrefix("com.apple.") else { continue }
                 scored.append((MeetingCandidate(
                     bundleID: process.bundleID, pid: process.pid, label: fallbackName,
                     callNoun: "call in \(fallbackName)", isKnown: false, isBrowser: false, since: now

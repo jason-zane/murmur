@@ -36,6 +36,7 @@ struct LibraryView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar(removing: .sidebarToggle)
         .onAppear(perform: reload)
         .onChange(of: controller.lastFinishedSessionID) { _, id in
             reload()

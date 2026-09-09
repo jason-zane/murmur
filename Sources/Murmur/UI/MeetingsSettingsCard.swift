@@ -12,6 +12,8 @@ struct MeetingsSettingsCards: View {
     @State private var claudeConfigured = ClaudeDesktopIntegration.isConfigured
     @State private var claudeMessage: String?
     @State private var didCopySnippet = false
+    @State private var audioGranted = SystemAudioCapture.isKnownGranted
+    @State private var isAskingAudio = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
@@ -27,6 +29,7 @@ struct MeetingsSettingsCards: View {
             calendarDenied = CalendarService.shared.isDenied
             parakeetOnDisk = ParakeetModels.isDownloaded
             claudeConfigured = ClaudeDesktopIntegration.isConfigured
+            audioGranted = SystemAudioCapture.isKnownGranted
         }
     }
 
@@ -234,12 +237,26 @@ struct MeetingsSettingsCards: View {
                         Text("System audio")
                             .font(DS.Font.body)
                             .foregroundStyle(DS.Color.text)
-                        Hint("macOS asks the first time a meeting starts. If the call side of the "
-                             + "meter stays hollow, it was declined — turn it on here.")
+                        Hint(audioGranted
+                             ? "Granted. The call side of the meter is live during meetings."
+                             : "Needed to hear the other side of a call. If the call side of the "
+                               + "meter stays hollow during a meeting, it was declined — turn it on here.")
                     }
                     Spacer()
-                    ActionButton(title: "Open Settings…", emphasis: .normal) {
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!)
+                    if audioGranted {
+                        Chip(text: "Granted", tint: DS.Color.success, filled: true)
+                    } else {
+                        ActionButton(title: isAskingAudio ? "Asking…" : "Allow…", emphasis: .prominent) {
+                            guard !isAskingAudio else { return }
+                            isAskingAudio = true
+                            Task {
+                                audioGranted = await SystemAudioCapture.requestPermission()
+                                isAskingAudio = false
+                            }
+                        }
+                        ActionButton(title: "Open Settings…", emphasis: .quiet) {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!)
+                        }
                     }
                 }
                 Divider().padding(.vertical, DS.Space.xs)

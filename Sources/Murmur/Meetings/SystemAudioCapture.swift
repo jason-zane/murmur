@@ -37,6 +37,36 @@ final class SystemAudioCapture: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.jasonhunt.murmur.systemaudio", qos: .userInitiated)
 
+    /// Remembered after the first successful tap. There is no public API to *ask* TCC about
+    /// Audio Recording without triggering the prompt, so success is the only evidence.
+    static var isKnownGranted: Bool {
+        get { UserDefaults.standard.bool(forKey: "audioCapture.granted") }
+        set { UserDefaults.standard.set(newValue, forKey: "audioCapture.granted") }
+    }
+
+    /// Provokes the Audio Recording consent dialog by creating and destroying a throwaway
+    /// tap. **Never call this on the main thread**: `AudioHardwareCreateProcessTap` blocks
+    /// its caller until the dialog is answered, and a blocked main thread is a frozen app —
+    /// which is exactly how this was first discovered.
+    static func requestPermission() async -> Bool {
+        let granted = await Task.detached(priority: .userInitiated) { () -> Bool in
+            let description = CATapDescription(monoGlobalTapButExcludeProcesses: [])
+            description.uuid = UUID()
+            description.isPrivate = true
+            description.muteBehavior = .unmuted
+            var tap = AudioObjectID(kAudioObjectUnknown)
+            let status = AudioHardwareCreateProcessTap(description, &tap)
+            guard status == noErr, tap != kAudioObjectUnknown else {
+                Log.audio.error("audio recording permission: tap creation failed (\(status))")
+                return false
+            }
+            AudioHardwareDestroyProcessTap(tap)
+            return true
+        }.value
+        if granted { isKnownGranted = true }
+        return granted
+    }
+
     private var tapID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID: AudioDeviceID = AudioDeviceID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
@@ -135,6 +165,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         }
 
         isRunning = true
+        Self.isKnownGranted = true
         Log.audio.info("system audio capture started — tap \(format.sampleRate)Hz/\(format.channelCount)ch → \(outputFormat.sampleRate)Hz, output \(outputUID, privacy: .public)")
     }
 

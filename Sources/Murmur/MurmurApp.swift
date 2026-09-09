@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hud: HUDPanel?
     private var notepad: NotepadWindow?
     private var offerStrip: OfferStrip?
+    private var onboarding: OnboardingWindow?
     private var stateObservation: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -68,6 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startMeeting(from: candidate)
         }
         wireMeetings()
+
+        if !OnboardingWindow.isCompleted {
+            showOnboarding()
+        }
 
         if !controller.activate() {
             Permissions.promptForAccessibility()
@@ -159,6 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notepad?.present(activate: true)
     }
 
+    func showOnboarding() {
+        if onboarding == nil { onboarding = OnboardingWindow() }
+        onboarding?.present()
+    }
+
     private func observeMeetingState() {
         withObservationTracking {
             _ = meetings.state
@@ -206,6 +216,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleMeeting()
             case "notes":
                 showNotepad()
+            case "setup":
+                showOnboarding()
             case "paste":
                 controller.pasteLastTranscription()
             case "reset":
@@ -373,6 +385,8 @@ private struct MenuContent: View {
             Button(parakeetStatus) { preloadParakeet() }
                 .disabled(isPreloadingParakeet || parakeetOnDisk)
         }
+
+        Button("Permissions & setup…") { delegate.showOnboarding() }
 
         if !Permissions.hasAccessibility {
             Button("Grant Accessibility…") { Permissions.openAccessibilitySettings() }
