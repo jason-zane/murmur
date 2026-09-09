@@ -10,8 +10,9 @@ artifacts/
 output/playwright/
 .playwright-cli/
 
-# Local ASR model weights, downloaded by the app.
-models/
+# Local ASR model weights at the repo root. Anchoring keeps the app's Models source
+# directory visible to Git on case-insensitive macOS filesystems.
+/models/
 *.onnx
 *.nemo
 
