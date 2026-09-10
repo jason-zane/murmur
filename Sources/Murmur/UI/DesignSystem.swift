@@ -38,6 +38,7 @@ enum DS {
         static let success = adaptive(light: 0x2A9D5C, dark: 0x4CC38A)
         /// A dictionary entry that looks likely to over-match.
         static let warning = adaptive(light: 0xB2801A, dark: 0xE0B44A)
+        static let warningSoft = adaptive(light: 0xB2801A, dark: 0xE0B44A).opacity(0.14)
 
         // Text
         static let text = SwiftUI.Color.primary
@@ -137,11 +138,6 @@ enum DS {
         static let rulePicker: CGFloat = 240
         static let modelProgress: CGFloat = 260
         static let permissionDot: CGFloat = 7
-        static let notepadWidth: CGFloat = 380
-        static let notepadHeight: CGFloat = 440
-        static let notepadMinWidth: CGFloat = 320
-        static let notepadMinHeight: CGFloat = 300
-        static let notepadTopInset: CGFloat = 28
         static let tabPicker: CGFloat = 224
         static let sheetWidth: CGFloat = 620
         static let sheetHeight: CGFloat = 480
@@ -190,6 +186,36 @@ enum DS {
         static let visibleOpacity = 1.0
         static let exitDuration: Duration = .milliseconds(320)
         static let previewDuration: Duration = .seconds(12)
+    }
+
+    /// The "a call started" prompt near the top of the screen.
+    enum Offer {
+        /// Canvas, not pill — the panel is deliberately larger than the capsule inside it.
+        static let canvas = NSSize(width: 560, height: 72)
+        static let topInset: CGFloat = 10
+        static let markSize: CGFloat = 26
+        static let borderOpacity = 0.09
+        static let autoDismiss: Duration = .seconds(45)
+    }
+
+    /// The meeting notepad: a full-height rail down one edge of the screen.
+    enum Notepad {
+        static let width: CGFloat = 384
+        static let minWidth: CGFloat = 320
+        /// A rail, not a window. Past this it stops being a companion and starts competing
+        /// with the call it is meant to sit beside.
+        static let maxWidth: CGFloat = 560
+        static let minHeight: CGFloat = 420
+        /// Gap between the rail and the edges of the visible screen.
+        static let edgeInset: CGFloat = 12
+        /// Clears the traffic lights, which float over the content.
+        static let topInset: CGFloat = 30
+        static let dotSize: CGFloat = 7
+        /// Tint behind a warning or error, keyed to the colour of the notice itself.
+        static let noticeOpacity = 0.12
+        /// The recording wash at the top of the rail.
+        static let washHeight: CGFloat = 140
+        static let washOpacity = 0.55
     }
 
     // MARK: - Elevation

@@ -1,16 +1,19 @@
 import AppKit
 import SwiftUI
 
-/// "Recording? Start · Not now." A slim, non-activating strip that shows its evidence.
+/// The "a call started — want notes?" prompt, shown as a pill near the top of the screen.
 ///
-/// Same window discipline as the dictation HUD — it must not take focus from the call — but
-/// unlike the HUD it accepts clicks. A non-activating panel can do both: the buttons work
-/// and the app underneath stays frontmost.
+/// Like the HUD, this is a **transparent canvas larger than the pill inside it**, and
+/// nothing in it casts a SwiftUI shadow. A shadow under a `.regularMaterial` background
+/// cannot be masked to the capsule: the material is drawn by a backdrop layer with no alpha
+/// for SwiftUI to shape a shadow from, so the shadow falls back to the layer's *bounds* and
+/// paints a soft rectangle around the pill. Depth comes from the material and a hairline
+/// border instead — the same trade the HUD makes.
 @MainActor
 final class OfferStrip: NSPanel {
-    private static let canvas = NSSize(width: 520, height: 56)
-    private static let topInset: CGFloat = 12
-    private static let autoDismiss: Duration = .seconds(45)
+    private static let canvas = DS.Offer.canvas
+    private static let topInset = DS.Offer.topInset
+    private static let autoDismiss = DS.Offer.autoDismiss
 
     private var dismissTask: Task<Void, Never>?
 
@@ -28,8 +31,10 @@ final class OfferStrip: NSPanel {
         isMovableByWindowBackground = false
         isOpaque = false
         backgroundColor = .clear
+        // No window shadow either: it would trace the canvas, not the capsule.
         hasShadow = false
-        contentView = NSHostingView(rootView: OfferView(
+
+        let hosting = TransparentHostingView(rootView: OfferView(
             detector: detector,
             onStart: { [weak self] candidate in
                 self?.dismiss()
@@ -40,6 +45,10 @@ final class OfferStrip: NSPanel {
                 self?.dismiss()
             }
         ))
+        hosting.sizingOptions = []
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = NSColor.clear.cgColor
+        contentView = hosting
     }
 
     override var canBecomeKey: Bool { false }
@@ -64,7 +73,8 @@ final class OfferStrip: NSPanel {
     }
 
     private func reposition() {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+                ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let visible = screen.visibleFrame
         setFrameOrigin(NSPoint(
             x: visible.midX - Self.canvas.width / 2,
@@ -80,10 +90,9 @@ struct OfferView: View {
 
     var body: some View {
         HStack(spacing: DS.Space.md) {
-            StatusDot(color: DS.Color.accent, isLit: true, size: 8)
-
             if let candidate = detector.offered {
-                VStack(alignment: .leading, spacing: 1) {
+                mark
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     Text(headline(candidate))
                         .font(DS.Font.bodyEmphasis)
                         .foregroundStyle(DS.Color.text)
@@ -94,17 +103,33 @@ struct OfferView: View {
                 }
                 Spacer(minLength: DS.Space.sm)
                 ActionButton(title: "Not now", emphasis: .quiet, action: onDecline)
-                ActionButton(title: "Start", emphasis: .prominent) { onStart(candidate) }
+                ActionButton(title: "Take notes", emphasis: .prominent) { onStart(candidate) }
             }
         }
-        .padding(.leading, DS.Space.lg)
+        .padding(.leading, DS.Space.md)
         .padding(.trailing, DS.Space.sm)
         .padding(.vertical, DS.Space.sm)
         .background(.regularMaterial, in: .capsule)
-        .overlay { Capsule().strokeBorder(.primary.opacity(0.08), lineWidth: DS.Stroke.hairline) }
-        .elevation(DS.Shadow.floating)
+        .overlay {
+            Capsule().strokeBorder(.primary.opacity(DS.Offer.borderOpacity), lineWidth: DS.Stroke.hairline)
+        }
+        // Clip rather than shadow: everything the pill draws stays inside the capsule, so
+        // there is no rectangle of anything left over the desktop.
+        .clipShape(.capsule)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, DS.Space.sm)
+    }
+
+    /// A soft accent disc rather than a lamp: at notification size a glowing dot reads as
+    /// an artefact, and the waveform says what pressing Start would actually do.
+    private var mark: some View {
+        ZStack {
+            Circle().fill(DS.Color.accentSoft)
+            Image(systemName: "waveform")
+                .font(DS.Font.symbol)
+                .foregroundStyle(DS.Color.accent)
+        }
+        .frame(width: DS.Offer.markSize, height: DS.Offer.markSize)
     }
 
     private func headline(_ c: MeetingCandidate) -> String {

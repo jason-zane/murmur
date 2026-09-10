@@ -472,3 +472,15 @@ struct RemovableChip: View {
         .animation(DS.Motion.smooth, value: isHovering)
     }
 }
+
+// MARK: - Hosting
+
+/// An `NSHostingView` that never claims to be opaque.
+///
+/// The overlay panels are transparent canvases deliberately larger than the pill they
+/// contain. A stock hosting view reports itself opaque, and AppKit then fills the whole
+/// canvas with window background — a rectangle around a control that is supposed to be
+/// floating free over the desktop.
+final class TransparentHostingView<Content: View>: NSHostingView<Content> {
+    override var isOpaque: Bool { false }
+}
