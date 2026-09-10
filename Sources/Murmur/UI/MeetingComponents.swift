@@ -1,66 +1,70 @@
+import AppKit
 import SwiftUI
 
-/// Two thin bars, You and Call. The signature of the meeting side of the app: it appears
-/// wherever audio is live, because it is the proof-of-life the whole feature depends on. The
-/// failure it prevents is discovering after forty minutes that system audio was never heard.
-struct StreamMeters: View {
-    let you: Float
-    let call: Float
-    var isActive: Bool = true
-    var tint: Color = DS.Color.accent
-    /// When the call stream isn't being captured, its bar is drawn hollow and labelled.
-    var callUnavailable: Bool = false
+/// One line of proof that both sides of the call are being heard. The failure it prevents
+/// is discovering after forty minutes that the call was never captured — so when something
+/// is wrong the line says so, and when nothing is, it's a meter and nothing else.
+struct CaptureStatus: View {
+    let controller: MeetingController
+
+    private enum Situation { case idle, notCaptured, callSilent, settling, fine }
 
     var body: some View {
-        VStack(spacing: DS.Space.xs + 2) {
-            MeterRow(label: "You", level: you, isActive: isActive, tint: tint, unavailable: false)
-            MeterRow(label: "Call", level: call, isActive: isActive, tint: tint, unavailable: callUnavailable)
+        HStack(spacing: DS.Space.sm) {
+            RecordingDot(size: DS.Layout.statusDot)
+            LevelMeter(
+                level: max(controller.youLevel, controller.callLevel),
+                isActive: controller.isRecording,
+                tint: situation == .notCaptured ? DS.Color.warning : DS.Color.accent
+            )
+            .frame(width: DS.Layout.compactMeterWidth, height: DS.Layout.meterHeight)
+            if let text {
+                Text(text)
+                    .font(DS.Font.caption)
+                    .foregroundStyle(situation == .notCaptured ? DS.Color.warning : DS.Color.textTertiary)
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
+            Spacer(minLength: DS.Space.zero)
+            if situation == .notCaptured {
+                ActionButton(title: "Fix", emphasis: .quiet) { fix() }
+            }
+        }
+        .animation(DS.Motion.quick, value: text)
+    }
+
+    /// Reads `elapsed`, which ticks every second, so the timed states advance without a
+    /// timer of their own.
+    private var situation: Situation {
+        guard controller.isRecording else { return .idle }
+        if !controller.systemAudioActive { return .notCaptured }
+        if let since = controller.callSilentSince,
+           Date().timeIntervalSince(since) >= Self.seconds(DS.Timing.callSilence) {
+            return .callSilent
+        }
+        return controller.elapsed < Self.seconds(DS.Timing.captureHint) ? .settling : .fine
+    }
+
+    private var text: String? {
+        switch situation {
+        case .notCaptured: "Call audio isn't being captured"
+        case .callSilent: "No call audio yet"
+        case .settling: "Hearing you and the call"
+        case .idle, .fine: nil
         }
     }
 
-    private struct MeterRow: View {
-        let label: String
-        let level: Float
-        let isActive: Bool
-        let tint: Color
-        let unavailable: Bool
-
-        @State private var shown: CGFloat = 0
-
-        var body: some View {
-            HStack(spacing: DS.Space.sm) {
-                Text(label.uppercased())
-                    .font(DS.Font.readout)
-                    .tracking(0.6)
-                    .foregroundStyle(DS.Color.textTertiary)
-                    .frame(width: DS.Space.meterLabel, alignment: .leading)
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(DS.Color.selection)
-                        if unavailable {
-                            Capsule()
-                                .strokeBorder(DS.Color.warning.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                        } else {
-                            Capsule()
-                                .fill(tint)
-                                .frame(width: max(4, geo.size.width * shown))
-                        }
-                    }
-                }
-                .frame(height: 4)
-            }
-            .onChange(of: level, initial: true) { _, new in
-                // Fast attack, slow release — the way a real meter behaves.
-                let target = CGFloat(isActive ? max(0, min(1, new)) : 0)
-                withAnimation(target > shown ? DS.Motion.quick : .easeOut(duration: 0.35)) {
-                    shown = target
-                }
-            }
-            .onChange(of: isActive) { _, active in
-                if !active { withAnimation(.easeOut(duration: 0.35)) { shown = 0 } }
-            }
+    /// Ask for the Audio Recording grant; if it's still refused, open the pane it lives in.
+    private func fix() {
+        Task {
+            if await SystemAudioCapture.requestPermission() { return }
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!)
         }
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let parts = duration.components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
     }
 }
 
@@ -111,14 +115,45 @@ struct SpeakerChip: View {
 
 /// The solid red dot with a soft halo. The one thing in the app that is red.
 struct RecordingDot: View {
-    var size: CGFloat = 8
+    var size: CGFloat = DS.Layout.recordDot
 
     var body: some View {
         Circle()
             .fill(DS.Color.record)
             .frame(width: size, height: size)
             .background {
-                Circle().fill(DS.Color.recordSoft).frame(width: size * 2.2, height: size * 2.2)
+                Circle().fill(DS.Color.recordSoft).frame(width: size * DS.Layout.recordHalo, height: size * DS.Layout.recordHalo)
             }
+    }
+}
+
+/// The line under a note: what just happened, who wrote it, whether it reached the cloud.
+/// Says nothing at all when there is nothing to say.
+struct NoteStatusLine: View {
+    var transient: String?
+    var source: String?
+    var syncIssue: String?
+
+    var body: some View {
+        if transient != nil || source != nil || syncIssue != nil {
+            HStack(spacing: DS.Space.md) {
+                if let transient {
+                    Text(transient).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                        .transition(.opacity)
+                }
+                if let syncIssue {
+                    Label("This note hasn't synced yet", systemImage: "exclamationmark.circle")
+                        .font(DS.Font.caption).foregroundStyle(DS.Color.warning)
+                        .help(syncIssue)
+                }
+                Spacer(minLength: DS.Space.zero)
+                if let source {
+                    Text(source).font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary)
+                }
+            }
+            .padding(.horizontal, DS.Space.xl)
+            .padding(.vertical, DS.Space.md)
+            .animation(DS.Motion.quick, value: transient)
+        }
     }
 }

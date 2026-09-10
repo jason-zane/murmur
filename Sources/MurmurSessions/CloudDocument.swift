@@ -87,7 +87,7 @@ extension SessionStore {
             var conflictID: String?
             if preserveConflict, var conflict = existing {
                 conflict.session.id = MeetingSession.makeID()
-                conflict.session.title += " · offline copy"
+                conflict.session.title += " (copy from this Mac)"
                 let conflictDirectory = directory(for: conflict.session.id)
                 let conflictStaging = root.appendingPathComponent(".conflict-" + UUID().uuidString)
                 defer { try? fm.removeItem(at: conflictStaging) }

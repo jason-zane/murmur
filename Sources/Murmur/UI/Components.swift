@@ -86,7 +86,7 @@ struct Segmented<Value: Hashable>: View {
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .padding(3)
+        .padding(DS.Space.tight)
         .background(DS.Color.selection, in: .rect(cornerRadius: DS.Radius.md))
     }
 }
@@ -106,9 +106,9 @@ struct ActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: DS.Space.xs + 2) {
+            HStack(spacing: DS.Space.compact) {
                 if let systemImage {
-                    Image(systemName: systemImage).font(.system(size: 10, weight: .semibold))
+                    Image(systemName: systemImage).font(DS.Font.glyph)
                 }
                 Text(title).font(DS.Font.bodyEmphasis)
             }
@@ -159,9 +159,10 @@ struct RecordButton: View {
             HStack(spacing: DS.Space.sm) {
                 ZStack {
                     if isRecording {
-                        RoundedRectangle(cornerRadius: 2).frame(width: 9, height: 9)
+                        RoundedRectangle(cornerRadius: DS.Radius.xs)
+                            .frame(width: DS.Layout.stopGlyph, height: DS.Layout.stopGlyph)
                     } else {
-                        Circle().frame(width: 10, height: 10)
+                        Circle().frame(width: DS.Layout.recordGlyph, height: DS.Layout.recordGlyph)
                     }
                 }
                 .foregroundStyle(isRecording ? .white : DS.Color.record)
@@ -289,7 +290,7 @@ struct SearchField: View {
     var body: some View {
         HStack(spacing: DS.Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .medium))
+                .font(DS.Font.smallSymbol)
                 .foregroundStyle(DS.Color.textTertiary)
 
             TextField(placeholder, text: $text)
@@ -300,7 +301,7 @@ struct SearchField: View {
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(DS.Font.smallSymbol)
                         .foregroundStyle(DS.Color.textTertiary)
                 }
                 .buttonStyle(.plain)
@@ -311,7 +312,7 @@ struct SearchField: View {
         .background(DS.Color.selection.opacity(0.6), in: .rect(cornerRadius: DS.Radius.sm))
         .overlay {
             RoundedRectangle(cornerRadius: DS.Radius.sm)
-                .strokeBorder(isFocused ? DS.Color.accent : .clear, lineWidth: 1.5)
+                .strokeBorder(isFocused ? DS.Color.accent : .clear, lineWidth: DS.Stroke.focus)
         }
         .animation(DS.Motion.smooth, value: isFocused)
     }
@@ -338,22 +339,23 @@ struct LabelledField: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: DS.Radius.sm)
                         .strokeBorder(isFocused ? DS.Color.accent : DS.Color.separator,
-                                      lineWidth: isFocused ? 1.5 : DS.Stroke.hairline)
+                                      lineWidth: isFocused ? DS.Stroke.focus : DS.Stroke.hairline)
                 }
                 .animation(DS.Motion.smooth, value: isFocused)
         }
     }
 }
 
-struct EmptyState: View {
+struct EmptyState<Actions: View>: View {
     let icon: String
     let label: String
     let detail: String
+    @ViewBuilder var actions: Actions
 
     var body: some View {
         VStack(spacing: DS.Space.md) {
             Image(systemName: icon)
-                .font(.system(size: 26, weight: .light))
+                .font(DS.Font.largeSymbol)
                 .foregroundStyle(DS.Color.textTertiary)
             VStack(spacing: DS.Space.xs) {
                 Text(label)
@@ -362,10 +364,103 @@ struct EmptyState: View {
                 Text(detail)
                     .font(DS.Font.callout)
                     .foregroundStyle(DS.Color.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            actions
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(DS.Space.xxl)
+    }
+}
+
+extension EmptyState where Actions == EmptyView {
+    init(icon: String, label: String, detail: String) {
+        self.init(icon: icon, label: label, detail: detail) { EmptyView() }
+    }
+}
+
+/// One line of information inside a page — progress, a caveat, something that changed.
+/// `.info` sits on the accent wash; `.warning` on the warning wash with its own icon.
+struct InlineNotice<Actions: View>: View {
+    enum Tone { case info, warning }
+
+    var icon: String?
+    let text: String
+    var tone: Tone = .info
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DS.Space.md) {
+            Image(systemName: icon ?? (tone == .warning ? "exclamationmark.triangle.fill" : "info.circle"))
+                .foregroundStyle(tone == .warning ? DS.Color.warning : DS.Color.accent)
+                .font(DS.Font.symbol)
+            Text(text).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: DS.Space.sm)
+            actions
+        }
+        .padding(DS.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tone == .warning ? DS.Color.warningSoft : DS.Color.accentSoft,
+                    in: .rect(cornerRadius: DS.Radius.md))
+    }
+}
+
+extension InlineNotice where Actions == EmptyView {
+    init(icon: String? = nil, text: String, tone: Tone = .info) {
+        self.init(icon: icon, text: text, tone: tone) { EmptyView() }
+    }
+}
+
+// MARK: - Settings rows
+
+/// A labelled switch. The one toggle row in the app; every settings card uses it.
+struct ToggleRow: View {
+    let title: String
+    var hint: String?
+    @Binding var isOn: Bool
+    var isEnabled: Bool = true
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DS.Space.md) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(title)
+                    .font(DS.Font.body)
+                    .foregroundStyle(isEnabled ? DS.Color.text : DS.Color.textTertiary)
+                if let hint { Hint(hint) }
+            }
+            Spacer(minLength: DS.Space.md)
+            Toggle(title, isOn: $isOn)
+                .toggleStyle(.switch)
+                .tint(DS.Color.accent)
+                .labelsHidden()
+                .disabled(!isEnabled)
+        }
+    }
+}
+
+/// A labelled choice that opens a menu. Sizes itself to its widest option rather than to
+/// a fixed width, so the label column is never squeezed.
+struct PickerRow<Value: Hashable>: View {
+    let title: String
+    var hint: String?
+    @Binding var selection: Value
+    let options: [(value: Value, title: String)]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DS.Space.md) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(title).font(DS.Font.body).foregroundStyle(DS.Color.text)
+                if let hint { Hint(hint) }
+            }
+            Spacer(minLength: DS.Space.md)
+            Picker(title, selection: $selection) {
+                ForEach(options, id: \.value) { option in Text(option.title).tag(option.value) }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
     }
 }
 
@@ -391,48 +486,6 @@ struct Chip: View {
     }
 }
 
-/// A chip that toggles on and off, for choosing several options at once.
-struct SelectableChip: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: DS.Space.xs + 2) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(isSelected ? DS.Color.accent : DS.Color.textTertiary)
-                Text(title)
-                    .font(DS.Font.bodyEmphasis)
-                    .foregroundStyle(isSelected ? DS.Color.text : DS.Color.textSecondary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, DS.Space.md)
-            .padding(.vertical, DS.Space.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isSelected ? DS.Color.accentSoft : (isHovering ? DS.Color.hover : .clear),
-                in: .rect(cornerRadius: DS.Radius.sm)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: DS.Radius.sm)
-                    .strokeBorder(
-                        isSelected ? DS.Color.accent.opacity(0.5) : DS.Color.separator,
-                        lineWidth: DS.Stroke.hairline
-                    )
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .animation(DS.Motion.smooth, value: isSelected)
-        .animation(DS.Motion.smooth, value: isHovering)
-    }
-}
-
 /// A mapped trigger, with a remove control that appears on hover.
 struct RemovableChip: View {
     let title: String
@@ -449,7 +502,7 @@ struct RemovableChip: View {
             Spacer(minLength: 0)
             Button(action: onRemove) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(DS.Font.glyphSmall)
                     .foregroundStyle(DS.Color.textSecondary)
                     .padding(DS.Space.xs)
                     .contentShape(.rect)
@@ -457,7 +510,7 @@ struct RemovableChip: View {
             .buttonStyle(.plain)
             .disabled(!canRemove)
             .opacity(canRemove ? (isHovering ? 1 : 0.45) : 0.2)
-            .help(canRemove ? "Remove" : "At least one trigger is required")
+            .help(canRemove ? "Remove" : "At least one key is required")
         }
         .padding(.leading, DS.Space.md)
         .padding(.trailing, DS.Space.xs + 2)

@@ -24,3 +24,6 @@ node_modules/
 !.env.example
 *.tsbuildinfo
 supabase/.temp/
+
+# Release artefacts from `make dist`
+dist/

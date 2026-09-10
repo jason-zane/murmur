@@ -2,11 +2,14 @@ import AppKit
 import MurmurSessions
 import SwiftUI
 
-struct LibraryView: View {
+/// The Notes half of the sidebar: search, the pin filter, and every note by day.
+struct NotesSidebar: View {
     @Bindable var controller: MeetingController
     @Binding var selection: String?
-    let onStartMeeting: () -> Void
-    let onOpenNotepad: () -> Void
+    /// The search hit for the selected note, so the detail can open at the right moment.
+    @Binding var match: SessionMatch?
+    /// Bumped by the window when a note changed somewhere it can't observe.
+    let reloadToken: Int
     @State private var sessions: [MeetingSession] = []
     @State private var query = ""
     @State private var matches: [String: SessionMatch] = [:]
@@ -19,58 +22,13 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: DS.Space.zero) {
-            HStack(spacing: DS.Space.lg) {
-                WorkspaceHeading(title: "Meetings", subtitle: "Listen closely. Leave with useful notes.")
-                Spacer()
-                ActionButton(title: "New note", systemImage: "square.and.pencil", emphasis: .normal) { newNote() }
-                ActionButton(title: controller.state.isActive ? "Open notepad" : "Record meeting",
-                             systemImage: controller.state.isActive ? "note.text" : "mic",
-                             emphasis: .prominent) {
-                    if controller.state.isActive { onOpenNotepad() }
-                    else { onStartMeeting() }
-                }
-                .disabled(controller.state == .finalising || controller.state == .saveFailed)
-            }
-            .padding(DS.Space.xl)
-            if controller.state != .idle { recordingBanner }
-            if let message = error ?? controller.lastError {
-                InlineNotice(icon: "exclamationmark.triangle", text: message) {
-                    if controller.state == .saveFailed {
-                        ActionButton(title: "Retry save", emphasis: .normal) { controller.retrySave() }
-                    }
-                }.padding([.horizontal, .bottom], DS.Space.lg)
-            }
-            Divider()
-            HStack(spacing: DS.Space.zero) {
-                sidebar.frame(width: DS.Layout.libraryWidth)
-                Divider()
-                detail.frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .onAppear(perform: reload)
-        .onChange(of: controller.lastFinishedSessionID) { _, id in reload(); if let id { selection = id } }
-        .onChange(of: controller.state) { _, _ in reload() }
-        .onChange(of: selection) { _, _ in reload() }
-        .onReceive(NotificationCenter.default.publisher(for: .murmurNotesChanged)) { _ in reload() }
-        .onReceive(NotificationCenter.default.publisher(for: .murmurFind)) { _ in searchFocused = true }
-        .task {
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: DS.Timing.refresh) } catch { return }
-                reload()
-                if !query.isEmpty { await search(debounce: false) }
-            }
-        }
-        .task(id: query) { await search() }
-    }
-
-    private var sidebar: some View {
-        VStack(spacing: DS.Space.zero) {
             VStack(spacing: DS.Space.md) {
                 SearchField(text: $query, placeholder: "Search all notes")
                     .focused($searchFocused)
                 HStack(spacing: DS.Space.sm) {
-                    Button { selection = nil } label: { Label("Up next", systemImage: "calendar") }
-                        .font(DS.Font.callout).buttonStyle(.plain).foregroundStyle(DS.Color.textSecondary)
+                    Button { selection = nil } label: { Label("Home", systemImage: "house") }
+                        .font(DS.Font.callout).buttonStyle(.plain)
+                        .foregroundStyle(selection == nil ? DS.Color.accent : DS.Color.textSecondary)
                     Spacer()
                     Button { pinnedOnly.toggle() } label: {
                         Image(systemName: pinnedOnly ? "pin.fill" : "pin")
@@ -80,22 +38,25 @@ struct LibraryView: View {
                     if searching { ProgressView().controlSize(.mini) }
                     else { Readout(String(filtered.count), color: DS.Color.textTertiary) }
                 }
-            }.padding(DS.Space.lg)
+            }
+            .padding(.horizontal, DS.Space.lg)
+            .padding(.vertical, DS.Space.sm)
+            if let error {
+                InlineNotice(text: error, tone: .warning).padding(.horizontal, DS.Space.lg)
+            }
             if filtered.isEmpty {
-                VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    Text(query.isEmpty ? (pinnedOnly ? "No pinned notes" : "Your notes will live here")
-                         : "No matching notes").font(DS.Font.bodyEmphasis)
-                    Text(query.isEmpty ? "Record a meeting or start a note. Pin the ones you return to."
-                         : "Search titles, people, your notes or something that was said.")
-                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
-                    Spacer()
-                }.padding(DS.Space.lg).frame(maxWidth: .infinity, alignment: .leading)
+                EmptyState(
+                    icon: query.isEmpty ? "note.text" : "magnifyingglass",
+                    label: query.isEmpty ? (pinnedOnly ? "No pinned notes" : "Your notes will live here") : "No matching notes",
+                    detail: query.isEmpty ? "Record a meeting or write a note. Pin the ones you return to."
+                        : "Search titles, people, your notes or something that was said."
+                )
             } else {
                 List(selection: $selection) {
                     ForEach(groups, id: \.date) { group in
                         Section {
                             ForEach(group.sessions) { session in
-                                LibrarySessionRow(session: session, match: matches[session.id])
+                                NoteRow(session: session, match: matches[session.id])
                                     .tag(session.id)
                                     .listRowInsets(EdgeInsets(top: DS.Space.sm, leading: DS.Space.md,
                                                              bottom: DS.Space.sm, trailing: DS.Space.md))
@@ -113,39 +74,21 @@ struct LibraryView: View {
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
             }
-        }.background(DS.Color.window)
-    }
-
-    @ViewBuilder private var detail: some View {
-        if let id = selection, let session = sessions.first(where: { $0.id == id }) {
-            SessionDetailView(session: session, store: store, initialMatch: matches[id], onChanged: reload, onDeleted: {
-                selection = nil; reload()
-            }).id(id)
-        } else {
-            MeetingHomeView(onRecord: onStartMeeting, onNewNote: newNote)
         }
-    }
-
-    private var recordingBanner: some View {
-        HStack(spacing: DS.Space.md) {
-            if controller.isRecording { RecordingDot(size: DS.Layout.statusDot) }
-            else { ProgressView().controlSize(.small) }
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                Text(controller.session?.title ?? "Preparing your meeting…").font(DS.Font.bodyEmphasis).lineLimit(1)
-                Text(controller.isRecording ? "Recording on this Mac" : controller.state == .saveFailed ? "Save needs attention" : controller.state == .starting ? "Preparing on-device transcription…" : "Saving your conversation…")
-                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
-            }
-            Spacer()
-            Readout(TimeFormat.clock(controller.elapsed), color: DS.Color.text)
-            if controller.isRecording {
-                StreamMeters(you: controller.youLevel, call: controller.callLevel, callUnavailable: !controller.systemAudioActive)
-                    .frame(width: DS.Layout.meterWidth)
-                ActionButton(title: "Stop", systemImage: "stop.fill", emphasis: .normal) { controller.stop() }
+        .onAppear(perform: reload)
+        .onChange(of: controller.state) { _, _ in reload() }
+        .onChange(of: reloadToken) { _, _ in reload() }
+        .onChange(of: selection) { _, id in match = id.flatMap { matches[$0] } }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurNotesChanged)) { _ in reload() }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurFind)) { _ in searchFocused = true }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: DS.Timing.refresh) } catch { return }
+                reload()
+                if !query.isEmpty { await search(debounce: false) }
             }
         }
-        .padding(DS.Space.md)
-        .background(controller.isRecording ? DS.Color.recordSoft : DS.Color.hover, in: .rect(cornerRadius: DS.Radius.md))
-        .padding([.horizontal, .bottom], DS.Space.lg)
+        .task(id: query) { await search() }
     }
 
     private var filtered: [MeetingSession] {
@@ -178,10 +121,6 @@ struct LibraryView: View {
         matches = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0) })
         searching = false
     }
-    private func newNote() {
-        do { let note = try store.createNote(); query = ""; pinnedOnly = false; reload(); selection = note.id }
-        catch { self.error = error.localizedDescription }
-    }
     private func togglePin(_ session: MeetingSession) {
         do { try store.update(id: session.id) { $0.pinned = !session.isPinned }; reload() }
         catch { self.error = error.localizedDescription }
@@ -189,7 +128,7 @@ struct LibraryView: View {
     private func copy(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
 }
 
-private struct LibrarySessionRow: View {
+private struct NoteRow: View {
     let session: MeetingSession
     let match: SessionMatch?
     var body: some View {

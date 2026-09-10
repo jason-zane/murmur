@@ -115,7 +115,7 @@ enum PushToTalkTrigger: String, CaseIterable, Sendable, Identifiable, Hashable {
     var caveat: String? {
         switch self {
         case .fn:
-            "fn also triggers whatever \"Press fn key to\" is set to in System Settings ▸ Keyboard. Set that to \"Do Nothing\", or pick another trigger."
+            "fn also triggers whatever \"Press fn key to\" is set to in System Settings ▸ Keyboard. Set that to \"Do Nothing\", or pick another key."
         case .leftShift, .rightShift:
             "Shift is passed through to the app you're typing in, so anything you type while holding it will be capitalised."
         case .leftOption, .leftCommand, .leftControl:

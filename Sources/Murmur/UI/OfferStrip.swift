@@ -103,7 +103,7 @@ struct OfferView: View {
                 }
                 Spacer(minLength: DS.Space.sm)
                 ActionButton(title: "Not now", emphasis: .quiet, action: onDecline)
-                ActionButton(title: "Take notes", emphasis: .prominent) { onStart(candidate) }
+                ActionButton(title: "Record", emphasis: .prominent) { onStart(candidate) }
             }
         }
         .padding(.leading, DS.Space.md)

@@ -85,6 +85,11 @@ final class MeetingController {
     private var startedAt: Date?
     private var stoppedAt: Date?
     private(set) var systemAudioActive = false
+    /// When the call side last fell quiet, or nil while it is audible. Set here rather than
+    /// in a view so the notes window can be stateless about it.
+    private(set) var callSilentSince: Date?
+    /// Below this the call side counts as silent. Levels are normalised 0…1.
+    private static let audibleLevel: Float = 0.02
 
     /// Ceiling on the finish path. An engine that never returns must not hold the session.
     private static let finishDeadline: Duration = .seconds(20)
@@ -97,6 +102,15 @@ final class MeetingController {
     }
 
     var isRecording: Bool { state == .recording }
+
+    private func observeCallLevel(_ level: Float) {
+        callLevel = level
+        if level >= Self.audibleLevel {
+            callSilentSince = nil
+        } else if callSilentSince == nil {
+            callSilentSince = Date()
+        }
+    }
 
     // MARK: - Start
 
@@ -123,6 +137,7 @@ final class MeetingController {
         bullets = []
         youLevel = 0
         callLevel = 0
+        callSilentSince = nil
         elapsed = 0
 
         startTask = Task { @MainActor in
@@ -239,7 +254,7 @@ final class MeetingController {
                         try system.start(
                             outputFormat: callFormat,
                             onBuffer: { timeline.observe(.call); callCont.yield($0) },
-                            onLevel: { [weak self] level in Task { @MainActor in if self?.runID == runID { self?.callLevel = level } } }
+                            onLevel: { [weak self] level in Task { @MainActor in if self?.runID == runID { self?.observeCallLevel(level) } } }
                         )
                         return .success(())
                     } catch {
@@ -253,6 +268,7 @@ final class MeetingController {
                 switch tapResult {
                 case .success:
                     systemAudioActive = true
+                    callSilentSince = Date()
                 case .failure(let error):
                     // Your side still records. Say so, loudly enough to be fixed.
                     systemAudioActive = false

@@ -34,10 +34,13 @@ do $$ begin
   exception when insufficient_privilege then null;
   end;
   if has_table_privilege('authenticated','public.calendar_credentials','SELECT') then raise exception 'Calendar credential leak'; end if;
+  if has_table_privilege('authenticated','public.murmur_config','SELECT') then raise exception 'Deployment config leak'; end if;
 end $$;
 reset role;
-do $$ begin
-  if public.murmur_access_token_hook('{"claims":{"client_id":"third-party-test","aud":"authenticated"}}')->'claims'->>'aud' <> 'https://murmur-rho-pied.vercel.app/mcp' then
+do $$ declare audience text; begin
+  select value into audience from public.murmur_config where key = 'mcp_audience';
+  if audience is null or audience not like 'https://%/mcp' then raise exception 'MCP audience is not configured'; end if;
+  if public.murmur_access_token_hook('{"claims":{"client_id":"third-party-test","aud":"authenticated"}}')->'claims'->>'aud' <> audience then
     raise exception 'MCP audience is not bound';
   end if;
   if not has_table_privilege('service_role', 'public.first_party_clients', 'INSERT') or

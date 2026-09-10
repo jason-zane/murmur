@@ -27,11 +27,6 @@ struct MurmurApp: App {
                 Button("Find in notes") { NotificationCenter.default.post(name: .murmurFind, object: nil) }
                     .keyboardShortcut("f", modifiers: .command)
             }
-            CommandGroup(after: .appInfo) {
-                Button("Reveal Dictionary File") {
-                    NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
-                }
-            }
         }
 
         // Fully qualified: this app has its own `Settings` type, which otherwise shadows
@@ -39,6 +34,8 @@ struct MurmurApp: App {
         SwiftUI.Settings {
             SettingsWindow(controller: delegate.controller, onPreviewBar: delegate.previewDictationBar)
         }
+        .defaultSize(width: DS.Layout.settingsWidth, height: DS.Layout.settingsHeight)
+        .windowResizability(.contentMinSize)
 
         // Secondary now: status and the hotkey while you're working in another app.
         MenuBarExtra {
@@ -48,6 +45,9 @@ struct MurmurApp: App {
             StatusLabel(controller: delegate.controller, meetings: delegate.meetings)
         }
 
+        // The benchmark lab. The scene has to exist unconditionally (SceneBuilder can't
+        // type-check an `if` here), but nothing reaches it without the developer switch:
+        // the Developer menu, the `murmur://show` host and the launch-time restore are gated.
         Window("Engine comparison", id: "comparison") {
             ComparisonWindow(controller: delegate.controller)
         }
@@ -80,15 +80,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         offerStrip = OfferStrip(detector: detector) { [weak self] candidate in
             self?.startMeeting(from: candidate)
         }
-        if PreviewEnvironment.isActive { return }
+        if PreviewEnvironment.isActive {
+            if let action = PreviewEnvironment.launchAction {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(800))
+                    if action.hasPrefix("settings") {
+                        NotificationCenter.default.post(name: .murmurOpenSettings, object: nil)
+                    } else if action == "onboarding" {
+                        showOnboarding()
+                    } else if action.hasPrefix("session:") {
+                        NotificationCenter.default.post(name: .murmurShowSession, object: String(action.dropFirst("session:".count)))
+                    }
+                }
+            }
+            return
+        }
         wireMeetings()
         MeetingSchedule.shared.start()
         CloudSync.shared.start()
+        UpdateCheck.shared.start()
 
         if !OnboardingWindow.isCompleted {
             showOnboarding()
         }
 
+        Permissions.rememberTrusted()
         if !controller.activate() {
             Permissions.promptForAccessibility()
             // The tap can only be created once the user grants Accessibility, and there's
@@ -96,8 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             retryActivation()
         }
 
-        // Write the dashboard up front so the menu item always opens something, even
-        // before the first dictation.
+        // Developer mode keeps an HTML dashboard beside the run log; otherwise this removes
+        // one an earlier build may have left behind.
         RunLog.regenerate()
 
         // Parakeet's models take ~20s to load from disk, and that cost lands on whichever
@@ -113,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Every `make install` relaunches the app and drops its windows. Restoring the
         // window when it was open last time keeps it from vanishing on each rebuild.
-        if UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
+        if Settings.shared.developerMode, UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(400))
                 Self.showComparisonWindow()
@@ -122,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         observeState()
         observeMeetingState()
+        if Settings.shared.developerMode { Log.app.info("developer mode on") }
         Log.app.info("Murmur ready — hold \(Settings.shared.triggerSummary) to dictate")
     }
 
@@ -218,15 +235,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// `murmur://clear` and `murmur://show`, used by the legacy HTML dashboard and
-    /// as a scriptable way to raise the window.
+    /// `murmur://toggle`, `murmur://meeting`, `murmur://notes` and friends. `clear` and
+    /// `show` belong to the developer dashboard and do nothing without the switch.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.scheme == "murmur" {
             switch url.host {
-            case "clear":
+            case "clear" where Settings.shared.developerMode:
                 RunLog.clear()
                 RunStore.shared.reload()
-            case "show":
+            case "show" where Settings.shared.developerMode:
                 Self.showComparisonWindow()
             case "toggle":
                 // Scriptable equivalent of pressing the trigger. Useful for binding Murmur
@@ -244,12 +261,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     NotificationCenter.default.post(name: .murmurShowSession, object: id)
                 }
             case "connections", "cloud":
-                NotificationCenter.default.post(name: .murmurShowConnections, object: nil)
                 NSApp.activate(ignoringOtherApps: true)
+                NotificationCenter.default.post(name: .murmurOpenSettings, object: "connections")
             case "setup":
                 showOnboarding()
             case "paste":
-                controller.pasteLastTranscription()
+                controller.pasteLastDictation()
             case "reset":
                 controller.forceReset()
             case "settings":
@@ -319,6 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             while !Permissions.hasAccessibility {
                 try? await Task.sleep(for: .seconds(1))
             }
+            Permissions.rememberTrusted()
             controller.activate()
             Log.app.info("Accessibility granted — hotkey armed")
         }
@@ -331,38 +349,19 @@ private struct MenuContent: View {
     let detector: MeetingDetector
     unowned let delegate: AppDelegate
     @State private var settings = Settings.shared
+    @State private var updates = UpdateCheck.shared
+    @Environment(\.openWindow) private var openWindow
 
     private var recordMeetingTitle: String {
         if let candidate = detector.candidate { return "Record \(candidate.callNoun)…" }
         return "Record meeting"
     }
-    @Environment(\.openWindow) private var openWindow
-    @State private var isPreloadingParakeet = false
-    @State private var parakeetOnDisk = ParakeetModels.isDownloaded
 
-    private var parakeetStatus: String {
-        if isPreloadingParakeet { return "Loading Parakeet models…" }
-        // Reflects what's actually on disk, not just what this menu instance has done.
-        return parakeetOnDisk ? "Parakeet models installed ✓" : "Download Parakeet models…"
-    }
-
-    private func preloadParakeet() {
-        guard !isPreloadingParakeet else { return }
-        isPreloadingParakeet = true
-        Task {
-            do {
-                _ = try await ParakeetModels.shared.manager()
-                parakeetOnDisk = ParakeetModels.isDownloaded
-            } catch {
-                Log.speech.error("Parakeet preload failed: \(error.localizedDescription)")
-            }
-            isPreloadingParakeet = false
-        }
-    }
-
+    /// Short on purpose. Everything that is a setting lives in Settings; the menu holds the
+    /// things you reach for from another app.
     var body: some View {
         if meetings.state.isActive {
-            Button("Stop meeting  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
+            Button("Stop recording  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             Button("Show notes") { delegate.showNotepad() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -373,71 +372,40 @@ private struct MenuContent: View {
 
         Divider()
 
+        Button("Paste last dictation") { controller.pasteLastDictation() }
         Text("Hold \(settings.triggerSummary) to dictate")
 
-        SettingsLink { Text("Settings…") }
-            .keyboardShortcut(",", modifiers: .command)
+        Divider()
+
+        if !Permissions.hasAccessibility || !Permissions.hasMicrophone {
+            Button("Permissions needed…") { delegate.showOnboarding() }
+        }
+
+        if let release = updates.available {
+            Button("Update available · \(release.version)") { updates.open(release) }
+        }
 
         Button("Open Voice Notes") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
 
-        if controller.state.isActive {
-            Button("Reset stuck recording") { controller.forceReset() }
-        }
+        SettingsLink { Text("Settings…") }
+            .keyboardShortcut(",", modifiers: .command)
 
-        Divider()
-
-        Button("Paste last transcription") { controller.pasteLastTranscription() }
-
-        Toggle("Compare mode (both engines)", isOn: $settings.compareMode)
-
-        if !settings.compareMode {
-            Picker("Engine", selection: $settings.engine) {
-                ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
-                    Text(choice.displayName).tag(choice)
+        if settings.developerMode {
+            Menu("Developer") {
+                Toggle("Compare mode (both engines)", isOn: $settings.compareMode)
+                Button("Engine comparison") {
+                    RunStore.shared.reload()
+                    openWindow(id: "comparison")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .keyboardShortcut("d")
+                if controller.state.isActive {
+                    Button("Reset stuck dictation") { controller.forceReset() }
                 }
             }
-        }
-
-        Toggle("Clean up text", isOn: $settings.cleanupEnabled)
-
-        if settings.cleanupEnabled {
-            Toggle("Smart cleanup (on-device AI)", isOn: $settings.smartCleanup)
-                .disabled(!FoundationModelFormatter.isAvailable)
-            if let reason = FoundationModelFormatter.unavailableReason {
-                Text(reason).font(.caption)
-            }
-        }
-
-        Toggle("Sound", isOn: $settings.soundEnabled)
-
-        Toggle("Start at login", isOn: $settings.launchAtLogin)
-
-        Divider()
-
-        Button("Show comparison window") {
-            RunStore.shared.reload()
-            openWindow(id: "comparison")
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        .keyboardShortcut("d")
-
-        // Downloading ~470 MB on the first hold would look like a hang, so offer to do it
-        // deliberately instead.
-        if settings.engine == .parakeet {
-            Button(parakeetStatus) { preloadParakeet() }
-                .disabled(isPreloadingParakeet || parakeetOnDisk)
-        }
-
-        Button("Permissions & setup…") { delegate.showOnboarding() }
-
-        if !Permissions.hasAccessibility {
-            Button("Grant Accessibility…") { Permissions.openAccessibilitySettings() }
-        }
-        if !Permissions.hasMicrophone {
-            Button("Grant Microphone…") { Permissions.openMicrophoneSettings() }
         }
 
         Button("Quit Voice Notes") { NSApp.terminate(nil) }
@@ -474,7 +442,6 @@ private struct StatusLabel: View {
             openSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { _ in openWindow(id: "main") }
-        .onReceive(NotificationCenter.default.publisher(for: .murmurShowConnections)) { _ in openWindow(id: "main") }
     }
 }
 

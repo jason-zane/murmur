@@ -16,14 +16,20 @@
 	<string>com.jasonhunt.murmur</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- Placeholders. `make app` stamps the version from the git tag, the build number
+	     from the commit count, and VoiceNotesSiteURL from SITE_URL. -->
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.0</string>
+	<string>0.5.0</string>
 	<key>CFBundleVersion</key>
-	<string>4</string>
+	<string>5</string>
+	<!-- The hosted backend the app signs in to. Self-hosters build with their own. -->
+	<key>VoiceNotesSiteURL</key>
+	<string>https://murmur-rho-pied.vercel.app</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<!-- Lets the dashboard's Clear button call back into the app. A file:// page can't
-	     write files or talk to a process, but it can follow a custom-scheme link. -->
+	<!-- murmur://toggle, murmur://meeting, murmur://notes, murmur://sessions/<id>,
+	     murmur://settings … — a scriptable way in from Shortcuts, a Stream Deck or a
+	     mouse-button utility, and the OAuth callback (murmur://oauth/callback). -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

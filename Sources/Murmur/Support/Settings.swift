@@ -7,8 +7,8 @@ enum SpeechEngineChoice: String, CaseIterable, Sendable {
 
     var displayName: String {
         switch self {
-        case .apple: "Apple (streaming)"
-        case .parakeet: "Parakeet (batch)"
+        case .apple: "Apple"
+        case .parakeet: "Parakeet"
         }
     }
 
@@ -35,7 +35,7 @@ enum ActivationMode: String, CaseIterable, Sendable {
     var detail: String {
         switch self {
         case .hold:
-            "Hold the trigger to dictate. Releasing it finishes."
+            "Hold the key to dictate. Releasing it finishes."
         case .toggle:
             "Tap to start, tap again to stop. Holding behaves the same as tapping."
         case .hybrid:
@@ -98,6 +98,11 @@ final class Settings {
         didSet { defaults.set(compareMode, forKey: Keys.compareMode) }
     }
 
+    /// The benchmark lab — engine comparison, compare mode, the Wispr Flow reader, the
+    /// HTML dashboard. Read once at launch; there is deliberately no switch in the UI.
+    /// `defaults write com.jasonhunt.murmur developerMode -bool true` turns it on.
+    let developerMode: Bool
+
     var cleanupEnabled: Bool {
         didSet { defaults.set(cleanupEnabled, forKey: Keys.cleanupEnabled) }
     }
@@ -118,6 +123,10 @@ final class Settings {
         didSet { defaults.set(dictationBarPosition.rawValue, forKey: Keys.dictationBarPosition) }
     }
 
+    var checkForUpdates: Bool {
+        didSet { defaults.set(checkForUpdates, forKey: Keys.checkForUpdates) }
+    }
+
     var launchAtLogin: Bool {
         didSet {
             guard launchAtLogin != oldValue else { return }
@@ -130,7 +139,7 @@ final class Settings {
     var triggerSummary: String {
         let names = triggers.map(\.displayName).sorted()
         switch names.count {
-        case 0: return "no trigger"
+        case 0: return "no key"
         case 1: return names[0]
         case 2: return "\(names[0]) or \(names[1])"
         default: return names.dropLast().joined(separator: ", ") + " or " + names[names.count - 1]
@@ -154,6 +163,8 @@ final class Settings {
         static let engine = "engine"
         static let smartCleanup = "smartCleanup"
         static let compareMode = "compareMode"
+        static let developerMode = "developerMode"
+        static let checkForUpdates = "checkForUpdates"
         static let showLiveDictationText = "showLiveDictationText"
         static let dictationBarPosition = "dictationBarPosition"
         // Legacy single-key setting, read once to carry an existing choice forward.
@@ -197,11 +208,15 @@ final class Settings {
         // than raw ASR. It degrades to RuleBasedFormatter where Foundation Models isn't
         // available, so defaulting it on is safe.
         smartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? true
-        compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
+        developerMode = defaults.bool(forKey: Keys.developerMode)
+        // Compare mode stops dictation typing into other apps. Nobody should lose that
+        // silently because a switch they never see is off.
+        compareMode = developerMode && (defaults.object(forKey: Keys.compareMode) as? Bool ?? false)
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         showLiveDictationText = defaults.object(forKey: Keys.showLiveDictationText) as? Bool ?? true
         dictationBarPosition = HUDPosition(rawValue: defaults.string(forKey: Keys.dictationBarPosition) ?? "")
             ?? .bottom
+        checkForUpdates = defaults.object(forKey: Keys.checkForUpdates) as? Bool ?? true
         launchAtLogin = LoginItem.state.isOn
     }
 }

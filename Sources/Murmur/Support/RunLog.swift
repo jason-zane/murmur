@@ -1,5 +1,6 @@
 import MurmurDictionary
 import Foundation
+import Observation
 
 /// One completed dictation.
 struct DictationRun: Codable, Sendable, Identifiable {
@@ -118,7 +119,13 @@ enum RunLog {
         }
     }
 
+    /// The HTML dashboard is a developer tool. With the switch off nothing is written, and
+    /// a page left behind by an earlier build is removed so it can't go stale on disk.
     static func regenerate() {
+        guard Settings.shared.developerMode else {
+            try? FileManager.default.removeItem(at: dashboardURL)
+            return
+        }
         let runs = load()
         try? DashboardHTML.render(
             runs: runs,
@@ -165,5 +172,33 @@ enum RunLog {
 
         regenerate()
         RunStore.shared.reload()
+    }
+}
+
+/// Live-updating view of the run log, shared by the dictation history and the comparison
+/// window. Lives here rather than with the window so the history never depends on a
+/// developer-only file.
+@MainActor
+@Observable
+final class RunStore {
+    static let shared = RunStore()
+
+    private(set) var runs: [DictationRun] = []
+
+    private init() { reload() }
+
+    func reload() {
+        runs = RunLog.load()
+    }
+
+    /// Recordings grouped by comparison, newest first.
+    var comparisons: [[DictationRun]] {
+        Dictionary(grouping: runs.filter { $0.group != nil }, by: { $0.group! })
+            .values
+            .sorted { ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast) }
+    }
+
+    var singles: [DictationRun] {
+        runs.filter { $0.group == nil }.reversed()
     }
 }

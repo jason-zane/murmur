@@ -2,7 +2,9 @@ import AppKit
 import MurmurSessions
 import SwiftUI
 
-struct MeetingHomeView: View {
+/// What you see with no note selected: today, what's coming up, and — only until they're
+/// granted — the permissions a first call needs.
+struct HomeView: View {
     let onRecord: () -> Void
     let onNewNote: () -> Void
     @State private var schedule = MeetingSchedule.shared
@@ -10,57 +12,26 @@ struct MeetingHomeView: View {
     @State private var requesting = false
     @State private var audioGranted = SystemAudioCapture.isKnownGranted
     @State private var microphoneGranted = Permissions.hasMicrophone
-    @State private var audioRequesting = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.xxl) {
-                VStack(alignment: .leading, spacing: DS.Space.lg) {
-                    Readout(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)), color: DS.Color.textTertiary)
-                    HStack(spacing: DS.Space.lg) {
-                        VStack(alignment: .leading, spacing: DS.Space.zero) {
-                            Text("Room for the").font(DS.Font.heroTitle).foregroundStyle(DS.Color.conversationInk)
-                            Text("conversation.").font(DS.Font.heroEmphasis).foregroundStyle(DS.Color.accent)
-                            Text("Bring your attention. Keep every good idea.")
-                                .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                                .padding(.top, DS.Space.lg)
-                        }
-                        Spacer(minLength: DS.Space.zero)
-                        Image(systemName: "waveform").font(DS.Font.heroSymbol)
-                            .foregroundStyle(DS.Color.conversationWave)
-                            .rotationEffect(.degrees(DS.Layout.heroTilt))
-                            .frame(width: DS.Layout.heroSymbol)
-                            .accessibilityHidden(true)
-                    }
-                    .padding(DS.Space.xl)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DS.Color.conversationSurface, in: .rect(cornerRadius: DS.Radius.lg))
-                    HStack(spacing: DS.Space.md) {
-                        ActionButton(title: "Record a conversation", systemImage: "mic", emphasis: .prominent, action: onRecord)
-                        ActionButton(title: "Start a note", systemImage: "square.and.pencil", emphasis: .quiet, action: onNewNote)
-                    }
-                }
+                Readout(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)), color: DS.Color.textTertiary)
                 agenda
-                if !microphoneGranted || !audioGranted { audioSetup }
-                VStack(alignment: .leading, spacing: DS.Space.md) {
-                    Label("Made for the way you meet", systemImage: "waveform.and.mic")
-                        .font(DS.Font.headline).foregroundStyle(DS.Color.text)
-                    Text("When a call starts in Google Meet, Zoom or Teams, Voice Notes can capture both sides. Add your own notes along the way, then turn the conversation into a summary.")
-                        .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                        .lineSpacing(DS.Layout.proseLineSpacing)
-                    HStack(spacing: DS.Space.md) {
-                        Label("On-device transcription", systemImage: "laptopcomputer")
-                        Label("No meeting bot", systemImage: "person.crop.circle")
-                    }.font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary)
-                }
-                .padding(.top, DS.Space.sm)
+                if !microphoneGranted || !audioGranted { setup }
+                Hint("Voice Notes offers to record when a call starts in Meet, Zoom or Teams. Change this in Settings ▸ Meetings.")
             }
             .padding(DS.Space.page)
             .frame(maxWidth: DS.Layout.homeWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(DS.Color.surface)
-        .onAppear { schedule.refresh(); microphoneGranted = Permissions.hasMicrophone; audioGranted = SystemAudioCapture.isKnownGranted }
+        .onAppear { schedule.refresh(); refreshPermissions() }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: DS.Timing.refresh) } catch { return }
+                refreshPermissions()
+            }
+        }
     }
 
     private var agenda: some View {
@@ -92,15 +63,17 @@ struct MeetingHomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(DS.Color.window, in: .rect(cornerRadius: DS.Radius.lg))
             } else if schedule.events.isEmpty {
-                VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    Text("A little breathing room.").font(DS.Font.headline)
-                    Text("No meetings in the next day. You can still record a conversation or start a note.")
-                        .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                EmptyState(
+                    icon: "calendar",
+                    label: "Nothing scheduled",
+                    detail: "No meetings in the next day. Record a meeting or write a note any time."
+                ) {
                     HStack(spacing: DS.Space.sm) {
-                        ActionButton(title: "Record a conversation", systemImage: "mic", emphasis: .normal, action: onRecord)
-                        ActionButton(title: "Start a note", emphasis: .quiet, action: onNewNote)
-                    }.padding(.top, DS.Space.sm)
-                }.padding(.vertical, DS.Space.md)
+                        ActionButton(title: "Record meeting", systemImage: "mic", emphasis: .normal, action: onRecord)
+                        ActionButton(title: "New note", emphasis: .quiet, action: onNewNote)
+                    }
+                }
+                .frame(maxHeight: DS.Layout.editorHeight)
             } else {
                 VStack(spacing: DS.Space.zero) {
                     ForEach(schedule.events.prefix(6), id: \.occurrenceID) { event in
@@ -115,35 +88,40 @@ struct MeetingHomeView: View {
         }
     }
 
-    private var audioSetup: some View {
+    private var setup: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Text("Before your first call").font(DS.Font.headline)
             if !microphoneGranted {
-                HStack(spacing: DS.Space.md) {
-                    Label("Hear your voice", systemImage: "mic").font(DS.Font.body)
-                    Spacer()
-                    ActionButton(title: "Allow microphone", emphasis: .normal) {
-                        Task { microphoneGranted = await Permissions.requestMicrophone(); if !microphoneGranted { Permissions.openMicrophoneSettings() } }
+                PermissionRow(
+                    title: "Microphone",
+                    detail: "Your side of every call and dictation.",
+                    isGranted: microphoneGranted,
+                    grantTitle: "Allow…"
+                ) {
+                    Task {
+                        microphoneGranted = await Permissions.requestMicrophone()
+                        if !microphoneGranted { Permissions.openMicrophoneSettings() }
                     }
                 }
             }
             if !audioGranted {
-                HStack(spacing: DS.Space.md) {
-                    VStack(alignment: .leading, spacing: DS.Space.xs) {
-                        Label("Hear everyone else", systemImage: "speaker.wave.2").font(DS.Font.body)
-                        Text("Allow system audio to capture the other side of the call.")
-                            .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
-                    }
-                    Spacer()
-                    ActionButton(title: audioRequesting ? "Requesting…" : "Allow call audio", emphasis: .normal) {
-                        audioRequesting = true
-                        Task { audioGranted = await SystemAudioCapture.requestPermission(); audioRequesting = false }
-                    }.disabled(audioRequesting)
+                PermissionRow(
+                    title: "Audio recording",
+                    detail: "The other side of the call — what your Mac is playing.",
+                    isGranted: audioGranted,
+                    grantTitle: "Allow…"
+                ) {
+                    Task { audioGranted = await SystemAudioCapture.requestPermission() }
                 }
             }
         }
         .padding(DS.Space.lg)
         .background(DS.Color.window, in: .rect(cornerRadius: DS.Radius.md))
+    }
+
+    private func refreshPermissions() {
+        microphoneGranted = Permissions.hasMicrophone
+        audioGranted = SystemAudioCapture.isKnownGranted
     }
 
     private func connectCalendar() {

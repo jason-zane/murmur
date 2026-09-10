@@ -10,6 +10,8 @@
   --accent-hover: #4237c6;
   --tint: #edebfa;
   --soft: #f3f1fa;
+  --danger: #b3413a;
+  --danger-soft: #f6e4e2;
   --radius: 18px;
   --shadow: 0 12px 42px #3731480a;
   font-family:
@@ -199,6 +201,13 @@ h3 {
 .button.small {
   font-size: 0.76rem;
   padding: 8px 12px;
+}
+.button.danger {
+  color: var(--danger);
+  border-color: var(--danger-soft);
+}
+.button.danger:hover {
+  background: var(--danger-soft);
 }
 .button.wide {
   width: 100%;
@@ -1090,6 +1099,30 @@ h3 {
 }
 .settings-data > .text-link {
   margin-top: 18px;
+}
+.delete-account {
+  display: grid;
+  gap: 8px;
+  max-width: 380px;
+  margin-top: 18px;
+}
+.delete-account label {
+  font-size: 0.73rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.delete-account input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 0.83rem;
+}
+.delete-account .button {
+  justify-self: start;
+  margin-top: 6px;
 }
 .connection-account {
   display: flex;

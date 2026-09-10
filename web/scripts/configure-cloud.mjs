@@ -4,8 +4,20 @@ import { readFile, writeFile, chmod } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import { findDesktopClient } from "./oauth-clients.mjs";
 process.loadEnvFile(".env.local");
-const project = "olxjfdsslbpdvywsnzrc";
-const origin = "https://murmur-rho-pied.vercel.app";
+// Which deployment this configures comes from the environment, so a self-hosted copy
+// runs the same script: the project ref is parsed from the Supabase URL unless given.
+const supabaseURL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const project =
+  process.env.SUPABASE_PROJECT_REF ||
+  supabaseURL.match(/^https:\/\/([a-z0-9]+)\.supabase\.co$/)?.[1] ||
+  "";
+const origin = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+if (!project || supabaseURL !== `https://${project}.supabase.co`)
+  throw new Error(
+    "NEXT_PUBLIC_SUPABASE_URL must be https://<ref>.supabase.co and agree with SUPABASE_PROJECT_REF when that is set.",
+  );
+if (!/^https:\/\/[^/]+$/.test(origin))
+  throw new Error("NEXT_PUBLIC_SITE_URL must be the deployment's https origin, without a path.");
 const managed = process.env.MURMUR_SUPABASE_MANAGEMENT_TOKEN;
 async function management(path, method = "GET", body) {
   if (!managed)
@@ -42,8 +54,6 @@ async function saveEnv(name, value) {
   await chmod(file, 0o600);
   process.env[name] = value;
 }
-if (process.env.NEXT_PUBLIC_SUPABASE_URL !== `https://${project}.supabase.co`)
-  throw new Error("This script only configures the dedicated Murmur project.");
 if (managed) {
   const existing = await management("config/auth");
   const redirects = new Set(
@@ -86,6 +96,11 @@ const client = createClient(
   process.env.SUPABASE_SECRET_KEY,
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
+// The audience the auth hook stamps on third-party OAuth tokens follows the site URL.
+const { error: audience } = await client
+  .from("murmur_config")
+  .upsert({ key: "mcp_audience", value: `${origin}/mcp`, updated_at: new Date().toISOString() });
+if (audience) throw audience;
 let desktop = await findDesktopClient(client.auth.admin.oauth);
 if (!desktop) {
   const result = await client.auth.admin.oauth.createClient({

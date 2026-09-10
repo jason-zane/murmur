@@ -1,36 +1,7 @@
 import SwiftUI
 
-/// Live-updating store behind the comparison window.
-///
-/// The window replaced a generated HTML file opened in the browser. That approach needed a
-/// `file://` URL, spawned a fresh tab on every open, and left stale tabs showing old data
-/// with no way to tell which was current. A window owned by the app has none of those
-/// problems: one instance, always live, nothing to refresh.
-@MainActor
-@Observable
-final class RunStore {
-    static let shared = RunStore()
-
-    private(set) var runs: [DictationRun] = []
-
-    private init() { reload() }
-
-    func reload() {
-        runs = RunLog.load()
-    }
-
-    /// Recordings grouped by comparison, newest first.
-    var comparisons: [[DictationRun]] {
-        Dictionary(grouping: runs.filter { $0.group != nil }, by: { $0.group! })
-            .values
-            .sorted { ($0.first?.date ?? .distantPast) > ($1.first?.date ?? .distantPast) }
-    }
-
-    var singles: [DictationRun] {
-        runs.filter { $0.group == nil }.reversed()
-    }
-}
-
+/// Developer-only: reachable through the hidden `developerMode` switch. Exempt from the
+/// design-token rule for that reason.
 struct ComparisonWindow: View {
     @Bindable var controller: DictationController
     @State private var store = RunStore.shared
@@ -219,7 +190,7 @@ private struct ComparisonCard: View {
 
             Divider()
             ForEach(Array(ranked.enumerated()), id: \.offset) { index, run in
-                EngineRow(run: run, rank: index + 1, showRank: runs.count > 1)
+                ComparisonEngineRow(run: run, rank: index + 1, showRank: runs.count > 1)
             }
         }
         .padding(16)
@@ -227,7 +198,7 @@ private struct ComparisonCard: View {
     }
 }
 
-private struct EngineRow: View {
+private struct ComparisonEngineRow: View {
     let run: DictationRun
     let rank: Int
     let showRank: Bool
@@ -251,7 +222,7 @@ private struct EngineRow: View {
             Text("\(run.realtimeFactor, format: .number.precision(.fractionLength(0)))× realtime · \(run.characters) chars")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text(run.text.isEmpty ? "(nothing recognized)" : run.text)
+            Text(run.text.isEmpty ? "(nothing recognised)" : run.text)
                 .font(.callout)
                 .foregroundStyle(run.text.isEmpty ? .secondary : .primary)
                 .textSelection(.enabled)

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CalendarDays, Cloud, Laptop, Link2, LogOut } from "lucide-react";
+import { ArrowUpRight, CalendarDays, Cloud, Laptop, Link2, LogOut, Trash2 } from "lucide-react";
 import { AccountIdentity } from "@/components/account-identity";
 import { Shell } from "@/components/shell";
 import { LocalTime } from "@/components/local-time";
@@ -14,6 +14,35 @@ export function AccountSettings({ email, calendar, calendarUnavailable }: {
 }) {
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  async function deleteAccount(e: React.FormEvent) {
+    e.preventDefault();
+    if (confirmEmail.trim().toLowerCase() !== email.toLowerCase()) {
+      setDeleteError("Type your email address exactly to confirm.");
+      return;
+    }
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const response = await fetch("/api/account", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: confirmEmail.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Couldn't delete the account. Please try again.");
+      }
+      await browserClient().auth.signOut({ scope: "local" });
+      location.href = "/login?error=Your%20account%20has%20been%20deleted.";
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Couldn't delete the account. Please try again.");
+      setDeleting(false);
+    }
+  }
 
   async function signOut() {
     setSigningOut(true);
@@ -43,7 +72,7 @@ export function AccountSettings({ email, calendar, calendarUnavailable }: {
             <Cloud size={18} />
             <div>
               <strong>Cloud library</strong>
-              <p>Notes synced from your Mac are available here. Check Settings → Account on your Mac for its latest sync status.</p>
+              <p>Notes synced from your Mac are available here. Settings ▸ Connections on your Mac shows its sync state.</p>
             </div>
             <Link href="/" className="text-link">Open your notes<ArrowUpRight size={14} /></Link>
           </div>
@@ -88,6 +117,25 @@ export function AccountSettings({ email, calendar, calendarUnavailable }: {
           <h2 id="data-heading">Your data</h2>
           <p>Audio stays on your Mac. Completed notes and transcripts sync privately to your account. You can keep recording and editing offline on your Mac.</p>
           <Link href="/privacy" className="text-link">Your data & privacy<ArrowUpRight size={14} /></Link>
+        </section>
+        <section className="settings-section settings-data" aria-labelledby="delete-heading">
+          <h2 id="delete-heading">Delete account</h2>
+          <p>Removes your account, every synced note and revision, your calendar connection and any connected apps. The notes on your Mac are untouched. This can't be undone.</p>
+          <form onSubmit={deleteAccount} className="delete-account">
+            <label htmlFor="confirm-email">Type {email} to confirm</label>
+            <input
+              id="confirm-email"
+              type="email"
+              autoComplete="off"
+              value={confirmEmail}
+              onChange={(e) => setConfirmEmail(e.target.value)}
+              placeholder={email}
+            />
+            <button className="button small danger" disabled={deleting || confirmEmail.trim().toLowerCase() !== email.toLowerCase()}>
+              <Trash2 size={16} />{deleting ? "Deleting…" : "Delete my account"}
+            </button>
+          </form>
+          {deleteError && <p className="notice" role="alert">{deleteError}</p>}
         </section>
       </div>
     </Shell>

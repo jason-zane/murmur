@@ -32,7 +32,23 @@ struct CloudHTTPError: LocalizedError {
 @MainActor @Observable
 final class CloudAccount: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = CloudAccount()
-    static let defaultSite = URL(string: "https://murmur-rho-pied.vercel.app")!
+    /// The hosted backend, stamped into Info.plist at build time (`make app SITE_URL=…`)
+    /// so a self-hosted deployment needs no source change. Stored credentials carry the
+    /// origin they were issued for; changing it means sign out, sign in.
+    static let defaultSite: URL = {
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "VoiceNotesSiteURL") as? String,
+           let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+           url.host != nil {
+            return url
+        }
+        return URL(string: "https://murmur-rho-pied.vercel.app")!
+    }()
+
+    /// https everywhere, except a developer's own machine.
+    static func isAcceptableOrigin(_ url: URL) -> Bool {
+        if url.scheme == "https" { return true }
+        return url.scheme == "http" && (url.host == "localhost" || url.host == "127.0.0.1")
+    }
     private(set) var credentials: CloudCredentials?
     private(set) var isSigningIn = false
     var message: String?
@@ -62,7 +78,7 @@ final class CloudAccount: NSObject, ASWebAuthenticationPresentationContextProvid
             let configData = try await Self.send(configRequest)
             let configuration = try JSONDecoder().decode(CloudConfiguration.self, from: configData)
             guard configuration.ready, !configuration.desktopClientID.isEmpty,
-                  configuration.siteURL.scheme == "https", configuration.supabaseURL.scheme == "https" else {
+                  Self.isAcceptableOrigin(configuration.siteURL), Self.isAcceptableOrigin(configuration.supabaseURL) else {
                 throw CloudHTTPError(status: 503, message: "Voice Notes cloud is still being connected. Your local notes are ready to use.")
             }
             let verifier = try Self.randomString(), state = try Self.randomString()

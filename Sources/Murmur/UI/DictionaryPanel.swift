@@ -40,7 +40,7 @@ struct DictionaryPanel: View {
                 .frame(maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: DS.Space.xs + 2) {
+                    LazyVStack(spacing: DS.Space.compact) {
                         ForEach(entries) { entry in
                             DictionaryRow(
                                 entry: entry,
@@ -86,10 +86,10 @@ private struct DictionaryRow: View {
 
     var body: some View {
         HStack(spacing: DS.Space.md) {
-            StatusDot(color: DS.Color.success, isLit: entry.isEnabled, size: 6)
+            StatusDot(color: DS.Color.success, isLit: entry.isEnabled, size: DS.Layout.statusDot)
 
             Chip(text: entry.kind == .correction ? "Fix" : "Term")
-                .frame(width: 46, alignment: .leading)
+                .frame(width: DS.Layout.kindChip, alignment: .leading)
 
             HStack(spacing: DS.Space.sm) {
                 if entry.kind == .correction {
@@ -97,7 +97,7 @@ private struct DictionaryRow: View {
                         .font(DS.Font.body)
                         .foregroundStyle(DS.Color.textSecondary)
                     Image(systemName: "arrow.right")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(DS.Font.glyphMicro)
                         .foregroundStyle(DS.Color.textTertiary)
                 }
 
@@ -114,7 +114,7 @@ private struct DictionaryRow: View {
                              emphasis: .quiet, action: onToggle)
                 Button(action: onDelete) {
                     Image(systemName: "trash")
-                        .font(.system(size: 11))
+                        .font(DS.Font.smallSymbol)
                         .foregroundStyle(DS.Color.textTertiary)
                         .padding(DS.Space.xs)
                         .contentShape(.rect)
@@ -125,7 +125,7 @@ private struct DictionaryRow: View {
         }
         .opacity(entry.isEnabled ? 1 : 0.5)
         .padding(.horizontal, DS.Space.md)
-        .padding(.vertical, DS.Space.sm + 2)
+        .padding(.vertical, DS.Space.md)
         .background(
             isHovering ? DS.Color.hover : DS.Color.surface,
             in: .rect(cornerRadius: DS.Radius.md)
@@ -195,18 +195,7 @@ private struct DictionaryEditor: View {
             }
 
             ForEach(warnings) { warning in
-                HStack(alignment: .top, spacing: DS.Space.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(DS.Color.warning)
-                    Text(warning.message)
-                        .font(DS.Font.callout)
-                        .foregroundStyle(DS.Color.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(DS.Space.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DS.Color.warning.opacity(0.10), in: .rect(cornerRadius: DS.Radius.sm))
+                InlineNotice(text: warning.message, tone: .warning)
             }
 
             HStack(spacing: DS.Space.sm) {
@@ -222,7 +211,7 @@ private struct DictionaryEditor: View {
             }
         }
         .padding(DS.Space.xl)
-        .frame(width: 480)
+        .frame(width: DS.Layout.sheetNarrow)
         .background(DS.Color.window)
     }
 }

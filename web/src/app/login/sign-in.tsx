@@ -11,7 +11,7 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
     next = safeNext(params.get("next"));
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
-    [mode, setMode] = useState<"login" | "signup" | "email">("login"),
+    [mode, setMode] = useState<"login" | "signup" | "email" | "reset">("login"),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(params.get("error") || "");
   async function submit(e: React.FormEvent) {
@@ -20,7 +20,13 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
     setMessage("");
     try {
       const client = browserClient();
-      if (mode === "email") {
+      if (mode === "reset") {
+        const { error } = await client.auth.resetPasswordForEmail(email, {
+          redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent("/auth/reset")}`,
+        });
+        if (error) throw error;
+        setMessage("Check your email for a link to choose a new password.");
+      } else if (mode === "email") {
         const { error } = await client.auth.signInWithOtp({
           email,
           options: {
@@ -122,9 +128,15 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
           <h2>
             {mode === "signup"
               ? "Make yourself at home."
-              : "Welcome to your space."}
+              : mode === "reset"
+                ? "Choose a new password."
+                : "Welcome back."}
           </h2>
-          <p>Sign in to find your notes and connect the apps you think with.</p>
+          <p>
+            {mode === "reset"
+              ? "Enter your email and we'll send a link to set a new password."
+              : "Sign in to find your notes and connect the apps you think with."}
+          </p>
           {!ready ? (
             <div className="notice">
               Your cloud workspace is being prepared. Recording and notes remain
@@ -161,7 +173,7 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                 />
-                {mode !== "email" && (
+                {mode !== "email" && mode !== "reset" && (
                   <>
                     <label htmlFor="password">Password</label>
                     <input
@@ -184,7 +196,9 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
                       ? "Create your account"
                       : mode === "email"
                         ? "Email me a sign-in link"
-                        : "Sign in"}
+                        : mode === "reset"
+                          ? "Email me a reset link"
+                          : "Sign in"}
                   <ArrowRight size={17} />
                 </button>
               </form>
@@ -203,6 +217,14 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
                 >
                   {mode === "email" ? "Use a password" : "Use a sign-in link"}
                 </button>
+                {mode === "login" && (
+                  <button onClick={() => setMode("reset")}>
+                    Forgot your password?
+                  </button>
+                )}
+                {mode === "reset" && (
+                  <button onClick={() => setMode("login")}>Back to sign in</button>
+                )}
               </div>
             </>
           )}

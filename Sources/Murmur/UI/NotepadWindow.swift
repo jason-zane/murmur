@@ -89,15 +89,10 @@ struct NotepadView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             header
-            if isActive {
-                StreamMeters(
-                    you: controller.youLevel,
-                    call: controller.callLevel,
-                    isActive: controller.isRecording,
-                    callUnavailable: !controller.systemAudioActive
-                )
-                .padding(DS.Space.md)
-                .background(DS.Color.hover, in: .rect(cornerRadius: DS.Radius.md))
+            if controller.isRecording {
+                CaptureStatus(controller: controller)
+                    .padding(DS.Space.md)
+                    .background(DS.Color.hover, in: .rect(cornerRadius: DS.Radius.md))
             }
             notices
             if isActive {
@@ -182,10 +177,10 @@ struct NotepadView: View {
             Hint("Preparing on-device transcription…")
         }
         if let warning = controller.warning {
-            Notice(text: warning, tint: DS.Color.warning)
+            InlineNotice(text: warning, tone: .warning)
         }
         if let error = controller.lastError {
-            Notice(text: error, tint: DS.Color.warning)
+            InlineNotice(text: error, tone: .warning)
         }
     }
 
@@ -383,27 +378,6 @@ private struct StatePill: View {
         case .recording: DS.Color.recordSoft
         case .saveFailed: DS.Color.warningSoft
         }
-    }
-}
-
-/// A warning or error that shouldn't read as body text.
-private struct Notice: View {
-    let text: String
-    let tint: Color
-
-    var body: some View {
-        HStack(alignment: .top, spacing: DS.Space.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(DS.Font.smallSymbol)
-                .foregroundStyle(tint)
-            Text(text)
-                .font(DS.Font.caption)
-                .foregroundStyle(DS.Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(DS.Space.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(DS.Notepad.noticeOpacity), in: .rect(cornerRadius: DS.Radius.sm))
     }
 }
 

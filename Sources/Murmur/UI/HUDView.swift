@@ -110,10 +110,10 @@ struct HUDView: View {
         switch controller.state {
         case .error(let message): return message
         case .listening:
-            return settings.showLiveDictationText && !controller.transcript.isEmpty ? controller.transcript : nil
+            return settings.showLiveDictationText && !controller.transcript.isEmpty ? controller.transcript : controller.notice
         case .finishing:
             return settings.showLiveDictationText && !controller.transcript.isEmpty ? controller.transcript : "Transcribing…"
-        case .starting: return "Preparing microphone…"
+        case .starting: return controller.notice ?? "Preparing microphone…"
         case .idle: return nil
         }
     }
