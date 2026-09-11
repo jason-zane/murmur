@@ -7,4 +7,7 @@ enum WorkspaceTokens {
     static let pageInset: CGFloat = 32
     static let workspaceTitle: CGFloat = 24
     static let controlRadius: CGFloat = 8
+    static let navigationRowHeight: CGFloat = 36
+    static let navigationFontSize: CGFloat = 13
+    static let brandSize: CGFloat = 16
 }

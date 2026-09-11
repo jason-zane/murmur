@@ -1,4 +1,5 @@
 "use client";
+import { DateField } from "./date-field";
 import { useId } from "react";
 import { Plus, X, Copy } from "lucide-react";
 type Range = { start: string; end: string };
@@ -185,15 +186,14 @@ export function AvailabilityFields({
       <h3>Date exceptions</h3>
       {value.date_overrides.map((o, i) => (
         <div className="hours-row" key={i}>
-          <input
-            type="date"
-            aria-label="Exception date"
+          <DateField
+            label="Exception date"
             value={o.date}
-            onChange={(e) =>
+            onChange={(date) =>
               onChange({
                 ...value,
                 date_overrides: value.date_overrides.map((r, j) =>
-                  j === i ? { ...r, date: e.target.value } : r,
+                  j === i ? { ...r, date } : r,
                 ),
               })
             }

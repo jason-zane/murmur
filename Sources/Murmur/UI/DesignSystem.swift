@@ -66,6 +66,7 @@ enum DS {
     /// SF Pro throughout. Rounded is used only inside the HUD, where the capsule shape and
     /// small size want softer letterforms.
     enum Font {
+        static let navigation = SwiftUI.Font.system(size: WorkspaceTokens.navigationFontSize, weight: .regular)
         static let title = SwiftUI.Font.system(size: WorkspaceTokens.workspaceTitle, weight: .semibold)
         static let headline = SwiftUI.Font.system(size: 14, weight: .semibold)
         static let body = SwiftUI.Font.system(size: 13, weight: .regular)
@@ -121,6 +122,12 @@ enum DS {
 
     enum Layout {
         static let navigationWidth = WorkspaceTokens.navigationWidth
+        static let navigationRowHeight = WorkspaceTokens.navigationRowHeight
+        static let calendarViewPickerWidth: CGFloat = 300
+        static let calendarSearchWidth: CGFloat = 280
+        static let calendarMonthCellHeight: CGFloat = 132
+        static let calendarMonthPreviewCount = 3
+        static let calendarTimeWidth: CGFloat = 112
         static let calendarDayWidth: CGFloat = 180
         static let meetingDetailWidth: CGFloat = 480
         static let calendarAccent: CGFloat = 3

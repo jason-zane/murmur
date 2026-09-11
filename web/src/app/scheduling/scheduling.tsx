@@ -1,4 +1,5 @@
 "use client";
+import { DateField } from "@/components/date-field";
 import { AvailabilityProfiles } from "@/components/availability-profiles";
 import {
   AvailabilityFields,
@@ -633,13 +634,12 @@ export function Scheduling({
           <div className="overrides">
             {profile.date_overrides.map((o, i) => (
               <div className="hours-row" key={`${o.date}-${i}`}>
-                <input
-                  type="date"
+                <DateField
                   value={o.date}
-                  aria-label="Date"
-                  onChange={(e) => {
+                  label="Exception date"
+                  onChange={(date) => {
                     const next = [...profile.date_overrides];
-                    next[i] = { ...o, date: e.target.value };
+                    next[i] = { ...o, date };
                     setProfile({ ...profile, date_overrides: next });
                   }}
                 />

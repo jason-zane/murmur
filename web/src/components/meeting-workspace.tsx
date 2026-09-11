@@ -1,4 +1,5 @@
 "use client";
+import { DateField } from "./date-field";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -101,13 +102,16 @@ export function MeetingWorkspace({
     }
     void load();
   }, []);
-  const days = useMemo(
-    () =>
-      Array.from({ length: home || view === "Day" ? 1 : 7 }, (_, i) =>
-        addDays(date, i),
-      ),
-    [date, view, home],
-  );
+  const days = useMemo(() => {
+    const first = new Date(date.getFullYear(), date.getMonth(), 1);
+    const start = !home && view === "Month" ? addDays(first, -((first.getDay() + 6) % 7)) : date;
+    return Array.from({ length: home || view === "Day" ? 1 : view === "Month" ? 42 : 7 }, (_, i) => addDays(start, i));
+  }, [date, view, home]);
+  function shiftDate(direction: number) {
+    setDate(!home && view === "Month"
+      ? new Date(date.getFullYear(), date.getMonth() + direction, 1)
+      : addDays(date, direction * (home || view === "Day" ? 1 : 7)));
+  }
   const filtered = events.filter(
     (e) =>
       e.title.toLowerCase().includes(query.toLowerCase()) &&
@@ -195,7 +199,7 @@ export function MeetingWorkspace({
                 className="icon-button"
                 aria-label="Previous period"
                 onClick={() =>
-                  setDate(addDays(date, home || view === "Day" ? -1 : -7))
+                  shiftDate(-1)
                 }
               >
                 <ChevronLeft size={18} />
@@ -210,21 +214,18 @@ export function MeetingWorkspace({
                 className="icon-button"
                 aria-label="Next period"
                 onClick={() =>
-                  setDate(addDays(date, home || view === "Day" ? 1 : 7))
+                  shiftDate(1)
                 }
               >
                 <ChevronRight size={18} />
               </button>
             </div>
-            <h2>
-              {date.toLocaleDateString(undefined, {
-                month: "long",
-                year: "numeric",
-              })}
-            </h2>
+            <DateField value={dayKey(date)} label="Go to date" onChange={(value) => {
+              if (value) setDate(new Date(`${value}T12:00:00`));
+            }} />
             {!home && (
               <div className="tabs" aria-label="Calendar view">
-                {["Agenda", "Day", "Week"].map((v) => (
+                {["Agenda", "Day", "Week", "Month"].map((v) => (
                   <button
                     key={v}
                     aria-pressed={view === v}
@@ -294,42 +295,48 @@ export function MeetingWorkspace({
               </Link>
             </div>
           )}
+          {!home && view === "Month" && <h2 className="month-heading">{date.toLocaleDateString("en-AU", { month: "long", year: "numeric" })}</h2>}
           <div
             className={
-              view === "Week" && !home ? "calendar-week" : "calendar-agenda"
+              !home && view === "Month" ? "calendar-month" : view === "Week" && !home ? "calendar-week" : "calendar-agenda"
             }
           >
+            {!home && view === "Month" && ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day => <div className="month-weekday" key={day}>{day}</div>)}
+            {!busy && connected && !home && view === "Agenda" && !days.some(day => filtered.some(event => dayKey(new Date(event.starts_at)) === dayKey(day))) && (
+              <p className="calendar-free">{query ? "No matching meetings. Try a different search." : "No meetings this week. Choose another date to see your meetings."}</p>
+            )}
             {days.map((d) => {
               const es = filtered.filter(
                 (e) => dayKey(new Date(e.starts_at)) === dayKey(d),
               );
+              if (!home && view === "Agenda" && !es.length) return null;
               return (
-                <section className="calendar-day" key={dayKey(d)}>
-                  <h3>
+                <section className={"calendar-day" + (!home && view === "Month" && d.getMonth() !== date.getMonth() ? " outside-month" : "")} key={dayKey(d)}>
+                  {!home && view === "Month" ? <button className={"month-date" + (dayKey(d) === dayKey(new Date()) ? " today" : "")} aria-label={d.toLocaleDateString("en-AU", {weekday: "long", day: "numeric", month: "long"})} onClick={() => {setDate(d); setView("Day");}}>{d.getDate()}</button> : <h3>
                     {d.toLocaleDateString(undefined, {
                       weekday: "short",
                       day: "numeric",
                       month: "short",
                     })}
-                  </h3>
+                  </h3>}
                   {es.length ? (
-                    es.map((e) => (
+                    (!home && view === "Month" ? es.slice(0, 3) : es).map((e) => (
                       <button
                         className="meeting-card"
                         key={`${e.id}-${e.starts_at}`}
                         onClick={() => setSelected(e)}
                       >
                         <span className="meeting-time">
-                          {time(e.starts_at)}–{time(e.ends_at)}
+                          {time(e.starts_at)}{view !== "Month" || home ? `–${time(e.ends_at)}` : ""}
                         </span>
                         <strong>{e.title}</strong>
-                        <span>
+                        <span className="meeting-context">
                           {e.booking
                             ? `${e.booking.guest_name} · Booked`
                             : e.attendees
                                 .slice(0, 2)
                                 .map((a) => a.name)
-                                .join(", ") || "Calendar meeting"}
+                                .join(", ")}
                         </span>
                         {noteFor(e) && (
                           <span className="accent">Note ready</span>
@@ -337,8 +344,9 @@ export function MeetingWorkspace({
                       </button>
                     ))
                   ) : (
-                    <p className="calendar-free">No meetings</p>
+                    view !== "Month" || home ? <p className="calendar-free">No meetings</p> : null
                   )}
+                  {!home && view === "Month" && es.length > 3 && <button className="month-more" onClick={() => { setDate(d); setView("Day"); }}>+{es.length - 3} more</button>}
                 </section>
               );
             })}

@@ -189,7 +189,7 @@ struct HomeView: View {
 // MARK: - Model
 
 /// What happened, or is due, on each day of the visible month.
-private struct MonthActivity: Equatable {
+struct MonthActivity: Equatable {
     var events: [Date: [CalendarEvent]] = [:]
     var notes: [Date: [MeetingSession]] = [:]
 
@@ -203,7 +203,7 @@ private struct MonthActivity: Equatable {
 
     /// The day's events, each paired with the note recorded for it, followed by notes that
     /// weren't tied to any event — a call that wasn't in the calendar, a personal note.
-    func entries(on day: Date) -> [DayEntry] {
+    fileprivate func entries(on day: Date) -> [DayEntry] {
         let dayEvents = events[day] ?? []
         let dayNotes = notes[day] ?? []
         var linked: Set<String> = []
@@ -278,7 +278,7 @@ private struct DayRow: View {
 
 // MARK: - Month grid
 
-private struct MonthCalendar: View {
+struct MonthCalendar: View {
     @Binding var month: Date
     @Binding var selected: Date
     let activity: MonthActivity

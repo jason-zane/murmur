@@ -139,12 +139,12 @@ struct NavRow: View {
         Button(action: action) {
             HStack(spacing: DS.Space.sm) {
                 Image(systemName: systemImage).font(DS.Font.symbol).frame(width: DS.Layout.symbolColumn)
-                Text(title).font(DS.Font.callout)
+                Text(title).font(DS.Font.navigation)
                 Spacer(minLength: DS.Space.zero)
             }
             .foregroundStyle(isSelected ? DS.Color.accent : DS.Color.textSecondary)
             .padding(.horizontal, DS.Space.sm)
-            .padding(.vertical, DS.Space.sm)
+            .frame(height: DS.Layout.navigationRowHeight)
             .background(isSelected ? DS.Color.accentSoft : isHovering ? DS.Color.hover : .clear, in: .rect(cornerRadius: DS.Radius.md))
             .contentShape(.rect)
         }

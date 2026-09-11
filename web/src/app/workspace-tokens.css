@@ -6,4 +6,7 @@
   --workspace-page-inset: 32px;
   --workspace-workspace-title: 24px;
   --workspace-control-radius: 8px;
+  --workspace-navigation-row-height: 36px;
+  --workspace-navigation-font-size: 13px;
+  --workspace-brand-size: 16px;
 }

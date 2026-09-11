@@ -25,7 +25,7 @@ struct MainWindow: View {
         NavigationSplitView {
             sidebar
                 .navigationSplitViewColumnWidth(
-                    min: DS.Layout.navigationWidth, ideal: DS.Layout.navigationWidth, max: DS.Layout.sidebarMinWidth
+                    min: DS.Layout.navigationWidth, ideal: DS.Layout.navigationWidth, max: DS.Layout.navigationWidth
                 )
         } detail: {
             GeometryReader { geometry in
@@ -79,16 +79,17 @@ struct MainWindow: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button { SettingsRouter.shared.open(.general) } label: {
-                Image(systemName: "gearshape")
-            }
-            .help("Settings  ⌘,")
-            ActionButton(title: "New note", systemImage: "square.and.pencil", emphasis: .normal) { newNote() }
+        ToolbarItem(placement: .primaryAction) {
+            Button("New note", systemImage: "square.and.pencil") { newNote() }
+                .labelStyle(.titleAndIcon)
+                .help("Create a new note")
+        }
+        ToolbarItem(placement: .primaryAction) {
             if meetings.state.isActive {
-                ActionButton(title: "Show notes", systemImage: "note.text", emphasis: .prominent, action: onShowNotepad)
+                Button("Show notes", systemImage: "note.text", action: onShowNotepad).labelStyle(.titleAndIcon)
             } else {
-                ActionButton(title: "Record meeting", systemImage: "mic", emphasis: .prominent, action: onToggleMeeting)
+                Button("Record meeting", systemImage: "mic", action: onToggleMeeting)
+                    .labelStyle(.titleAndIcon)
                     .disabled(meetings.state != .idle)
             }
         }
@@ -150,15 +151,6 @@ struct MainWindow: View {
                     .font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary)
             }
             Spacer(minLength: DS.Space.zero)
-            Button { SettingsRouter.shared.open(.general) } label: {
-                Image(systemName: "gearshape")
-                    .font(DS.Font.symbol)
-                    .foregroundStyle(DS.Color.textSecondary)
-                    .frame(width: DS.Layout.brandMark, height: DS.Layout.brandMark)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .help("Settings  ⌘,")
         }
         .padding(.horizontal, DS.Space.lg)
         .padding(.vertical, DS.Space.md)

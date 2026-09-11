@@ -2763,6 +2763,7 @@ select:focus-visible {
   --paper: #fafafa;
   --surface: #fff;
   --sidebar: #f3f3f5;
+  --soft: #f0f0f2;
   --line: #e4e4e9;
   --accent: var(--workspace-accent-light);
   --accent-hover: #4338ca;
@@ -3101,6 +3102,7 @@ select:focus-visible {
     --tint: #303049;
     --danger: #b0b0bc;
     --danger-soft: #303036;
+    --soft: #2b2b30;
   }
 }
 @media (max-width: 1100px) {
@@ -3283,3 +3285,78 @@ select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .shell .meeting-card { transition: none; }
 }
+
+.date-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.date-field input[type="date"] {
+  width: 130px;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.date-field:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.shell .sidebar { padding: 16px 12px; }
+.shell .sidebar > .brand { margin: 0 4px 20px; }
+.shell .nav { min-height: 36px; padding: 8px; font-size: 13px; gap: 8px; }
+.shell .nav svg { width: 16px; height: 16px; }
+.shell .sidebar-bottom nav { margin-bottom: 12px; }
+.shell .account { border-top: 1px solid var(--line); }
+
+/* Calendar entries are rows, not promotional cards. */
+.shell .meeting-card {
+  grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 4px;
+  padding: 14px 8px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+.shell .meeting-card:hover { background: var(--soft); }
+.shell .meeting-card strong { font-size: 14px; font-weight: 500; }
+.shell .meeting-context, .shell .meeting-card > .accent { grid-column: 2; }
+.shell .meeting-context:empty { display: none; }
+.shell .calendar-week .meeting-card { display: flex; flex-direction: column; padding: 12px 4px; }
+.shell .calendar-day > h3 { font-weight: 500; }
+.shell .nav { min-height: var(--workspace-navigation-row-height); font-size: var(--workspace-navigation-font-size); }
+.shell .sidebar > .brand { font-size: var(--workspace-brand-size); letter-spacing: 0; gap: 8px; }
+.shell .sidebar .brand-mark { width: 30px; height: 30px; border-radius: 10px; background: var(--tint); color: var(--accent); box-shadow: none; }
+.shell .sidebar .brand-mark svg { stroke: currentColor; }
+@media (max-width: 600px) {
+  .shell .meeting-card { grid-template-columns: 88px minmax(0, 1fr); column-gap: 12px; }
+}
+.calendar-month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(100px, 1fr));
+  overflow-x: auto;
+  border-left: 1px solid var(--line);
+}
+.month-weekday { padding: 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.calendar-month .calendar-day { min-height: 132px; padding: 8px; border-top: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.month-date, .month-more { border: 0; background: transparent; color: var(--ink); padding: 4px; font-size: 12px; }
+.month-date.today { background: var(--soft); border-radius: 4px; font-weight: 600; }
+.outside-month .month-date { color: var(--faint); }
+.shell .calendar-month .meeting-card { display: flex; flex-direction: row; gap: 5px; border: 0; padding: 5px 0; align-items: baseline; }
+.shell .calendar-month .meeting-card strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell .calendar-month .meeting-time { font-size: 11px; white-space: nowrap; }
+.shell .calendar-month .meeting-context, .shell .calendar-month .meeting-card > .accent { display: none; }
+.calendar-month .month-more { color: var(--muted); text-align: left; }
+
+.month-heading { margin-bottom: 16px; }
