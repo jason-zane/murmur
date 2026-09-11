@@ -46,7 +46,7 @@ written before the meeting, and its notes use the meeting type's template. Conne
 apps can list booking links and bookings and suggest free times; they cannot book, move or
 cancel anything.
 
-## Synchronization contract
+## Synchronisation contract
 
 Completed sessions sync as a versioned document: manifest, transcript, timestamped bullets
 and current Markdown. A server transaction compares the expected version before writing
@@ -59,34 +59,11 @@ before accepting the cloud document. An editor draft is private recovery state a
 uploaded. Local removal is not a cloud deletion: deletion must be explicit in the cloud
 library. This prevents an offline or disconnected Mac from silently deleting shared data.
 
-Each note syncs independently. A rejected document remains local and appears under
-Connections → Notes waiting to sync; it does not block other notes or the calendar.
+Each note syncs independently. A rejected document remains local and is listed under
+Settings ▸ Connections on the Mac; it does not block other notes or the calendar.
 An upload rejected because another device saved first fetches the latest document and
 preserves both versions in the same pass. Edits made while an upload is in flight remain
 eligible for the next pass. Sign-out invalidates pending responses, including manual sync
 tasks. Cached agenda data is bound to the same account as the local library.
 
-## Development
-
-`cd web && npm ci && npm run dev`. Copy `.env.example` to `.env.local` and populate it
-with the new Murmur project's values. `npm run check`, `npm test` and `npm run build`
-verify the web application. Database migrations live in `supabase/migrations/`.
-
-`npm run test:integration` requires Docker and the Supabase CLI. It starts a separate
-local `murmur` stack on ports 5632x, applies the migrations, runs every rollback SQL access
-fixture in `supabase/tests/`, the OAuth and sync tests using real tokens, and the booking
-flow against an in-memory Google Calendar. Fixtures are synthetic and removed by the
-tests. The runner leaves this stack available for development; `supabase stop` from the
-repository root stops only this project's stack. Local signing keys are generated into an
-ignored file and are never deployment credentials.
-
-Version conflicts use PostgreSQL error `PT409`, which PostgREST returns as HTTP 409 without
-transaction retry. Avoid `40001` for this logical condition: it denotes a serialization
-failure and can cause automatic retries instead of a prompt conflict response.
-
-Production needs a stable site URL in Vercel, Supabase's allowed redirects and the MCP
-resource audience. Google OAuth needs a Web application OAuth client with the Supabase
-Auth callback and Voice Notes Calendar callback registered in Google Cloud. Booking links
-and multiple calendars also need `calendar.calendarlist.readonly`, `calendar.events` and
-`calendar.freebusy` on the consent screen; these are sensitive scopes, so use beyond test
-users needs Google's verification.
+How to run and test the web app is in [DEVELOPMENT.md](DEVELOPMENT.md); how to deploy your own copy is in [SELF-HOSTING.md](SELF-HOSTING.md).

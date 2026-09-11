@@ -21,11 +21,11 @@ export default function Page() {
         </p>
         <h2>Your connected apps</h2>
         <p>
-          An AI app you authorize can read your synced library, upcoming
+          An AI app you authorise can read your synced library, upcoming
           calendar events, booking links and bookings, and can suggest free
           times. It cannot change anything. Text it requests is shared with
-          that provider. You
-          can revoke authorization in Connections; already-issued access tokens
+          that provider. You can revoke authorisation in Connections;
+          already-issued access tokens
           remain valid until they expire, for up to one hour.
         </p>
         <h2>Google Calendar</h2>
@@ -56,11 +56,11 @@ export default function Page() {
         </p>
         <h2>Removing data</h2>
         <p>
-          Deleting a local note does not delete its cloud copy. Account removal
-          currently requires the project owner to delete the account through
-          Supabase; that cascades to its notes, revisions, calendar events,
-          booking links, bookings and credentials. This is a personal deployment with no analytics or
-          advertising cookies.
+          Deleting a local note does not delete its cloud copy. You can delete
+          your whole account from Settings: that removes your synced notes and
+          revisions, calendar connections, booking links, bookings and connected
+          apps at once. The notes on your Mac stay where they are. There are no
+          analytics or advertising cookies.
         </p>
       </div>
       <Link className="text-link" href="/">

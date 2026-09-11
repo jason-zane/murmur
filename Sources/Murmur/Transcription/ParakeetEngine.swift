@@ -28,6 +28,9 @@ actor ParakeetEngine: TranscriptionEngine {
         let (stream, continuation) = AsyncThrowingStream<TranscriptionChunk, Error>.makeStream()
         self.continuation = continuation
 
+        // Never download from here: a 470 MB fetch behind a held key looks like a hang.
+        // Settings offers the download; `DictationController` uses Apple until it's done.
+        guard ParakeetModels.isDownloaded else { throw ParakeetEngineError.notDownloaded }
         // Force the (possibly very slow) first load to happen here rather than on release,
         // so the user waits before speaking instead of losing an utterance to a timeout.
         _ = try await ParakeetModels.shared.manager()
@@ -161,6 +164,16 @@ actor ParakeetModels {
             // engine for the rest of the session.
             loadTask = nil
             throw error
+        }
+    }
+}
+
+enum ParakeetEngineError: LocalizedError {
+    case notDownloaded
+
+    var errorDescription: String? {
+        switch self {
+        case .notDownloaded: "Parakeet isn't downloaded. Download it in Settings ▸ Dictation."
         }
     }
 }

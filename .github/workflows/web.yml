@@ -30,3 +30,4 @@ jobs:
       - run: npx next typegen
       - run: npm run check
       - run: npm test
+      - run: npm run build

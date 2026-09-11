@@ -26,9 +26,6 @@ enum DS {
         static let accent = adaptive(light: 0x4F46E5, dark: 0x8B8BF5)
         /// Accent at rest — chips, subtle fills, hover states on tinted controls.
         static let accentSoft = adaptive(light: 0x4F46E5, dark: 0x8B8BF5).opacity(0.12)
-        static let conversationSurface = adaptive(light: 0xEFEDF7, dark: 0x302D40)
-        static let conversationInk = adaptive(light: 0x4B435F, dark: 0xDEDAEB)
-        static let conversationWave = adaptive(light: 0xB7AFD3, dark: 0x756999)
 
         /// Recording. Nothing else in the app is red.
         static let record = adaptive(light: 0xE5484D, dark: 0xFF6369)
@@ -36,8 +33,10 @@ enum DS {
 
         /// A correction fired, an entry is enabled — confirmation, not decoration.
         static let success = adaptive(light: 0x2A9D5C, dark: 0x4CC38A)
+        static let successSoft = adaptive(light: 0x2A9D5C, dark: 0x4CC38A).opacity(0.10)
         /// A dictionary entry that looks likely to over-match.
         static let warning = adaptive(light: 0xB2801A, dark: 0xE0B44A)
+        static let warningSoft = adaptive(light: 0xB2801A, dark: 0xE0B44A).opacity(0.14)
 
         // Text
         static let text = SwiftUI.Color.primary
@@ -77,9 +76,13 @@ enum DS {
 
         /// Timings and counters. Monospaced digits so numbers don't jitter as they tick.
         static let mono = SwiftUI.Font.system(size: 11, weight: .medium, design: .monospaced)
-        static let monoLarge = SwiftUI.Font.system(size: 15, weight: .medium, design: .monospaced)
 
         static let hud = SwiftUI.Font.system(size: 12.5, weight: .medium, design: .rounded)
+
+        /// Glyphs inside controls, smallest last: a button's leading icon, a chip's ✕, an arrow between two words.
+        static let glyph = SwiftUI.Font.system(size: 10, weight: .semibold)
+        static let glyphSmall = SwiftUI.Font.system(size: 9, weight: .bold)
+        static let glyphMicro = SwiftUI.Font.system(size: 7, weight: .bold)
     }
 
     // MARK: - Metrics
@@ -96,21 +99,24 @@ enum DS {
         static let xl: CGFloat = 24
         static let xxl: CGFloat = 32
         static let page: CGFloat = 36
-        static let xxxl: CGFloat = 48
     }
 
     enum Radius {
         static let sm: CGFloat = 6
         static let md: CGFloat = 10
         static let lg: CGFloat = 14
-        static let xl: CGFloat = 20
-        /// Capsules resolve their own radius from height; this is just "very round".
-        static let pill: CGFloat = 999
+        /// The stop square inside a record button.
+        static let xs: CGFloat = 2
+    }
+
+    enum Opacity {
+        /// The accent ring around a control that is waiting for input.
+        static let focusRing = 0.5
     }
 
     enum Stroke {
         static let hairline: CGFloat = 1
-        static let focus: CGFloat = 2
+        static let focus: CGFloat = 1.5
     }
 
     enum Layout {
@@ -118,40 +124,45 @@ enum DS {
         static let windowHeight: CGFloat = 780
         static let minWindowWidth: CGFloat = 1_040
         static let minWindowHeight: CGFloat = 620
-        static let navigationWidth: CGFloat = 176
-        static let libraryWidth: CGFloat = 282
         static let documentWidth: CGFloat = 760
         static let homeWidth: CGFloat = 640
-        static let heroSymbol: CGFloat = 94
-        static let heroTilt: Double = -10
-        static let controlHeight: CGFloat = 32
-        static let navRowHeight: CGFloat = 36
         static let symbolColumn: CGFloat = 20
         static let brandMark: CGFloat = 30
-        static let emptySymbol: CGFloat = 40
         static let statusDot: CGFloat = 6
         static let transcriptTime: CGFloat = 48
         static let editorHeight: CGFloat = 360
-        static let templatePicker: CGFloat = 120
-        static let smallPicker: CGFloat = 90
-        static let rulePicker: CGFloat = 240
         static let modelProgress: CGFloat = 260
         static let permissionDot: CGFloat = 7
-        static let notepadWidth: CGFloat = 380
-        static let notepadHeight: CGFloat = 440
-        static let notepadMinWidth: CGFloat = 320
-        static let notepadMinHeight: CGFloat = 300
-        static let notepadTopInset: CGFloat = 28
-        static let tabPicker: CGFloat = 224
         static let sheetWidth: CGFloat = 620
         static let sheetHeight: CGFloat = 480
         static let settingsWidth: CGFloat = 620
+        static let settingsMinHeight: CGFloat = 640
         static let settingsHeight: CGFloat = 760
-        static let meterWidth: CGFloat = 100
+        /// One sidebar for notes and dictations; the detail takes the rest.
+        static let sidebarWidth: CGFloat = 280
+        static let sidebarMinWidth: CGFloat = 240
+        static let sidebarMaxWidth: CGFloat = 360
+        /// A small popover, like the speaker rename.
+        static let popoverWidth: CGFloat = 224
+        /// Minimum width of a push-to-talk key chip in the settings grid.
+        static let chipColumn: CGFloat = 140
         static let meterHeight: CGFloat = 20
         static let compactMeterWidth: CGFloat = 40
-        static let strokeDash: [CGFloat] = [4, 4]
         static let proseLineSpacing: CGFloat = 5
+        static let meterBar: CGFloat = 4
+        static let recordGlyph: CGFloat = 10
+        static let stopGlyph: CGFloat = 9
+        static let recordHalo: CGFloat = 2.2
+        static let recordDot: CGFloat = 8
+        static let stepBadge: CGFloat = 26
+        static let kindChip: CGFloat = 46
+        static let sheetNarrow: CGFloat = 480
+        /// Home: the day column beside the month grid.
+        static let homeWideWidth: CGFloat = 1_120
+        static let monthGridWidth: CGFloat = 280
+        static let calendarCell: CGFloat = 32
+        static let calendarDot: CGFloat = 5
+        static let onboardingSize = NSSize(width: 540, height: 620)
     }
 
     enum Timing {
@@ -159,11 +170,23 @@ enum DS {
         static let searchDebounce: Duration = .milliseconds(180)
         static let autosave: Duration = .milliseconds(800)
         static let refresh: Duration = .seconds(3)
+        static let permissionPoll: Duration = .seconds(1)
+        static let captureTimeout: Duration = .seconds(15)
+        /// How long the call side may stay silent while you are audibly speaking before the notes window says so.
+        static let callSilence: Duration = .seconds(20)
+        /// How long "Hearing you and the call" stays up after a recording starts.
+        static let captureHint: Duration = .seconds(3)
+        /// A note changed on disk; wait this long for more edits before syncing.
+        static let syncDebounce: Duration = .seconds(5)
+    }
+
+    enum Meetings {
+        /// How long a call must run before the offer appears. Seconds.
+        static let offerDelayRange: ClosedRange<TimeInterval> = 3...60
     }
 
     enum Account {
         static let avatarSize: CGFloat = 44
-        static let sidebarEmailLines = 1
     }
 
     enum HUD {
@@ -192,6 +215,34 @@ enum DS {
         static let previewDuration: Duration = .seconds(12)
     }
 
+    /// The "a call started" prompt near the top of the screen.
+    enum Offer {
+        /// Canvas, not pill — the panel is deliberately larger than the capsule inside it.
+        static let canvas = NSSize(width: 560, height: 72)
+        static let topInset: CGFloat = 10
+        static let markSize: CGFloat = 26
+        static let borderOpacity = 0.09
+        static let autoDismiss: Duration = .seconds(45)
+    }
+
+    /// The meeting notepad: a full-height rail down one edge of the screen.
+    enum Notepad {
+        static let width: CGFloat = 384
+        static let minWidth: CGFloat = 320
+        /// A rail, not a window. Past this it stops being a companion and starts competing
+        /// with the call it is meant to sit beside.
+        static let maxWidth: CGFloat = 560
+        static let minHeight: CGFloat = 420
+        /// Gap between the rail and the edges of the visible screen.
+        static let edgeInset: CGFloat = 12
+        /// Clears the traffic lights, which float over the content.
+        static let topInset: CGFloat = 30
+        static let dotSize: CGFloat = 7
+        /// The recording wash at the top of the rail.
+        static let washHeight: CGFloat = 140
+        static let washOpacity = 0.55
+    }
+
     // MARK: - Elevation
 
     enum Shadow {
@@ -200,7 +251,6 @@ enum DS {
         /// Controls and rows that lift on hover.
         static let lifted = Spec(color: .black.opacity(0.10), radius: 8, y: 3)
         /// Floating meeting prompts. The dictation bar deliberately has no shadow.
-        static let floating = Spec(color: .black.opacity(0.22), radius: 20, y: 8)
         struct Spec {
             let color: SwiftUI.Color
             let radius: CGFloat
@@ -284,9 +334,6 @@ extension DS.Space {
 extension DS.Font {
     static let brand = SwiftUI.Font.system(size: 16, weight: .semibold, design: .rounded)
     static let pageTitle = SwiftUI.Font.system(size: 24, weight: .semibold)
-    static let heroTitle = SwiftUI.Font.system(size: 36, weight: .medium)
-    static let heroEmphasis = SwiftUI.Font.system(size: 38, weight: .regular, design: .serif).italic()
-    static let heroSymbol = SwiftUI.Font.system(size: 82, weight: .ultraLight)
     static let documentTitle = SwiftUI.Font.system(size: 28, weight: .semibold)
     static let documentBody = SwiftUI.Font.system(size: 15, weight: .regular)
     static let documentHeading = SwiftUI.Font.system(size: 16, weight: .semibold)

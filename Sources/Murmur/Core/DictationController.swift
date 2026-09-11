@@ -15,9 +15,11 @@ import Synchronization
 @MainActor
 func engineForCurrentSetting() -> any TranscriptionEngine {
     // Always invoked from `beginDictation`, which runs on the main actor.
+    // Parakeet only when its models are on disk; otherwise Apple, which needs nothing
+    // downloaded. The setting is honoured, not trusted.
     switch Settings.shared.engine {
     case .apple: AppleSpeechEngine()
-    case .parakeet: ParakeetEngine()
+    case .parakeet: ParakeetModels.isDownloaded ? ParakeetEngine() : AppleSpeechEngine()
     }
 }
 
@@ -83,6 +85,10 @@ final class DictationController {
     private var holdStarted: Date?
     private var releasedAt: Date?
     private var engineName = ""
+    /// One line for the dictation bar before any words arrive — why this dictation is
+    /// not quite what the settings say. Shown once per launch, then dropped.
+    private(set) var notice: String?
+    private var warnedParakeetMissing = false
 
     /// Compare mode only: the recording, kept so every engine sees identical audio.
     private var recorded: [AudioChunk] = []
@@ -171,7 +177,7 @@ final class DictationController {
     func reloadPasteShortcut() -> Bool {
         pasteShortcut.shortcut = Settings.shared.pasteShortcut
         pasteShortcut.isEnabled = Settings.shared.pasteShortcutEnabled
-        pasteShortcut.onTrigger = { [weak self] in self?.pasteLastTranscription() }
+        pasteShortcut.onTrigger = { [weak self] in self?.pasteLastDictation() }
         return pasteShortcut.reload()
     }
 
@@ -179,7 +185,7 @@ final class DictationController {
     ///
     /// Reads the log rather than the in-memory store, because the store is only refreshed
     /// when a window is open and this fires from a global shortcut with no window involved.
-    func pasteLastTranscription() {
+    func pasteLastDictation() {
         guard let last = RunLog.load().last(where: {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) else {
@@ -296,7 +302,14 @@ final class DictationController {
         holdStarted = Date()
         isComparing = Settings.shared.compareMode
         recorded.removeAll(keepingCapacity: true)
-        engineName = isComparing ? "Comparing…" : Settings.shared.engine.displayName
+        let choice = Settings.shared.engine
+        let fellBack = choice == .parakeet && !ParakeetModels.isDownloaded
+        engineName = isComparing ? "Comparing…" : (fellBack ? SpeechEngineChoice.apple : choice).displayName
+        notice = nil
+        if fellBack, !warnedParakeetMissing {
+            warnedParakeetMissing = true
+            notice = "Parakeet isn't downloaded — using Apple"
+        }
 
         let engine = makeEngine()
         self.engine = engine

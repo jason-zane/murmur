@@ -16,7 +16,7 @@ struct CloudSyncWorkflowTests {
 
         await sync.sync()
         #expect(sync.requiresSignIn && sync.needsAttention)
-        #expect(sync.status == "Sign in again to sync")
+        #expect(sync.state == .signInRequired)
         #expect(fixture.store.note(for: "kept-locally") == "Saved before reconnecting")
 
         remote.beforeRequest = nil
@@ -43,6 +43,7 @@ struct CloudSyncWorkflowTests {
         #expect(sync.calendarConnected && sync.meetings.count == 1)
         #expect(sync.calendarEmail == "fixture@example.invalid")
         #expect(sync.needsAttention && sync.lastSyncedAt == nil)
+        #expect(sync.state == .attention(1))
 
         remote.rejected = [:]
         await sync.sync()
@@ -51,6 +52,7 @@ struct CloudSyncWorkflowTests {
         #expect(remote.uploads.filter { $0 == "b-ready" }.count == 1)
         #expect(sync.issues.isEmpty && !sync.needsAttention)
         #expect(sync.lastSyncedAt != nil)
+        #expect(sync.state == .upToDate(sync.lastSyncedAt))
     }
 
     @Test func uploadRaceRecoversBothDocumentsInTheSamePass() async throws {
@@ -77,7 +79,7 @@ struct CloudSyncWorkflowTests {
         #expect(fixture.store.note(for: "shared-note") == "Saved on another device")
         #expect(fixture.store.transcript(for: "shared-note").first?.text == "The corrected source.")
         let copy = try #require(fixture.store.listSessions().first { $0.id != "shared-note" })
-        #expect(copy.title.hasSuffix("offline copy"))
+        #expect(copy.title.hasSuffix("(copy from this Mac)"))
         #expect(fixture.store.note(for: copy.id) == "My offline edit")
         #expect(fixture.store.noteRevisions(for: "shared-note").contains { $0.text == "My offline edit" })
         #expect(remote.rows["shared-note"]?.version == 2)
@@ -124,6 +126,7 @@ struct CloudSyncWorkflowTests {
         #expect(sync.calendarEmail == nil && sync.calendarError == nil)
         #expect(sync.message == nil && sync.lastSyncedAt == nil && !sync.needsAttention)
         #expect(!sync.isSyncing)
+        #expect(sync.state == .off)
     }
 
     @Test func stoppingManualSyncInvalidatesItsResponseEvenBeforeCredentialsAreRemoved() async throws {
@@ -176,6 +179,7 @@ struct CloudSyncWorkflowTests {
 
         #expect(restarted.meetings.count == 1 && restarted.calendarConnected)
         #expect(restarted.needsAttention && restarted.message?.contains("offline") == true)
+        #expect(restarted.state == .offline)
         #expect(fixture.store.note(for: "offline-note") == "Saved here")
         remote.userID = "another-account"
         remote.paths = []
@@ -183,6 +187,7 @@ struct CloudSyncWorkflowTests {
         await anotherAccount.sync()
         #expect(anotherAccount.meetings.isEmpty && !anotherAccount.calendarConnected)
         #expect(anotherAccount.message?.contains("different Voice Notes account") == true)
+        #expect(anotherAccount.state == .signInRequired)
         #expect(remote.paths.isEmpty)
     }
 

@@ -47,7 +47,7 @@ final class HUDPanel: NSPanel {
         // backing around the transparent canvas.
         hasShadow = false
 
-        let hosting = TransparentHUDHostingView(rootView: HUDView(controller: controller))
+        let hosting = TransparentHostingView(rootView: HUDView(controller: controller))
         hosting.sizingOptions = []
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = NSColor.clear.cgColor
@@ -129,7 +129,7 @@ final class HUDPanel: NSPanel {
 
     private func setPreview(_ value: Bool) {
         isPreviewing = value
-        (contentView as? TransparentHUDHostingView)?.rootView = HUDView(
+        (contentView as? TransparentHostingView<HUDView>)?.rootView = HUDView(
             controller: controller, isPreview: value,
             onDismissPreview: { [weak self] in self?.dismiss() }
         )
@@ -146,8 +146,4 @@ final class HUDPanel: NSPanel {
             }
         }
     }
-}
-
-private final class TransparentHUDHostingView: NSHostingView<HUDView> {
-    override var isOpaque: Bool { false }
 }

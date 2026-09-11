@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MurmurSessions
 import Observation
@@ -56,6 +57,47 @@ struct CloudSyncIssue: Identifiable {
     let message: String
 }
 
+/// What the account is doing, for the few places that show it. Signed out is `.off`, and
+/// `.off` has no label on purpose: nothing about sync appears until there is an account.
+enum SyncState: Equatable {
+    case off
+    case syncing
+    case upToDate(Date?)
+    case offline
+    case attention(Int)
+    case signInRequired
+
+    var label: String? {
+        switch self {
+        case .off: nil
+        case .syncing: "Syncing…"
+        case .upToDate(let date):
+            date.map { "Synced " + $0.formatted(.relative(presentation: .named)) } ?? "Up to date"
+        case .offline: "Offline · syncs when you’re back"
+        case .attention(let count): count == 1 ? "1 note didn’t sync" : "\(count) notes didn’t sync"
+        case .signInRequired: "Sign in again to keep syncing"
+        }
+    }
+
+    var symbol: String? {
+        switch self {
+        case .off, .upToDate: nil
+        case .syncing: "arrow.triangle.2.circlepath"
+        case .offline: "wifi.slash"
+        case .attention: "exclamationmark.circle"
+        case .signInRequired: "person.crop.circle.badge.exclamationmark"
+        }
+    }
+
+    /// Something the user can act on, as opposed to something that resolves itself.
+    var isProblem: Bool {
+        switch self {
+        case .attention, .signInRequired: true
+        default: false
+        }
+    }
+}
+
 @MainActor @Observable
 final class CloudSync {
     static let shared = CloudSync()
@@ -65,6 +107,7 @@ final class CloudSync {
     private(set) var needsAttention = false
     private(set) var requiresSignIn = false
     private(set) var conflictCount = 0
+    private(set) var isOffline = false
     private(set) var issues: [CloudSyncIssue] = []
     private(set) var meetings: [CloudMeeting] = []
     private(set) var calendarConnected = false
@@ -78,14 +121,21 @@ final class CloudSync {
     private let busyTimes: @MainActor () -> [DateInterval]?
     private var index: SyncIndex?
     private let indexURL: URL
+    private var observers: [any NSObjectProtocol] = []
+    private var nudge: Task<Void, Never>?
 
-    var status: String {
-        if transport.userID == nil { return "On this Mac" }
-        if isSyncing { return "Syncing your notes…" }
-        if requiresSignIn { return "Sign in again to sync" }
-        if needsAttention { return "Saved on this Mac" }
-        if let lastSyncedAt { return "Synced " + lastSyncedAt.formatted(.relative(presentation: .named)) }
-        return "Ready to sync"
+    var state: SyncState {
+        if transport.userID == nil { return .off }
+        if isSyncing { return .syncing }
+        if requiresSignIn { return .signInRequired }
+        if !issues.isEmpty { return .attention(issues.count) }
+        if isOffline { return .offline }
+        return .upToDate(lastSyncedAt)
+    }
+
+    /// The last pass's problem with one note, if it had one.
+    func issue(for id: String) -> CloudSyncIssue? {
+        issues.first { $0.id == id }
     }
 
     init(store: SessionStore = SessionStore(), transport: (any CloudSyncTransport)? = nil,
@@ -101,6 +151,8 @@ final class CloudSync {
         if let data = try? Data(contentsOf: indexURL) { index = try? JSONDecoder().decode(SyncIndex.self, from: data) }
     }
 
+    /// The 30-second loop is the backstop. Coming back to the app and saving a note each
+    /// run a pass sooner, which is what made a "Sync now" button unnecessary.
     func start() {
         guard loop == nil, !PreviewEnvironment.isActive else { return }
         loop = Task { [weak self] in
@@ -109,12 +161,31 @@ final class CloudSync {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                Task { @MainActor in await CloudSync.shared.sync() }
+            },
+            // Downloads post this too; while a pass is running the change is ours.
+            center.addObserver(forName: .murmurNotesChanged, object: nil, queue: .main) { _ in
+                Task { @MainActor in
+                    let sync = CloudSync.shared
+                    guard !sync.isSyncing else { return }
+                    sync.scheduleNudge()
+                }
+            },
+        ]
     }
 
     func stop() {
         generation = UUID()
         loop?.cancel()
         loop = nil
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        nudge?.cancel()
+        nudge = nil
+        isOffline = false
         message = nil
         needsAttention = false
         requiresSignIn = false
@@ -128,10 +199,19 @@ final class CloudSync {
         agendaChanged()
     }
 
+    private func scheduleNudge() {
+        nudge?.cancel()
+        nudge = Task { [weak self] in
+            do { try await Task.sleep(for: DS.Timing.syncDebounce) } catch { return }
+            await self?.sync()
+        }
+    }
+
     func sync() async {
         guard !isSyncing, let userID = transport.userID, !PreviewEnvironment.isActive else { return }
         guard index == nil || index?.userID == userID else {
             needsAttention = true
+            requiresSignIn = true
             message = "This Mac’s library is linked to a different Voice Notes account. Sign in to that account to continue syncing. Your notes stay on this Mac."
             return
         }
@@ -186,13 +266,14 @@ final class CloudSync {
             }
             try persistIndex()
             requiresSignIn = false
+            isOffline = false
             if issues.isEmpty { lastSyncedAt = Date() }
             needsAttention = !issues.isEmpty || calendarWarning != nil
             var messages: [String] = []
             if !issues.isEmpty {
                 messages.append(issues.count == 1 ? "One note is waiting to sync. Other notes are up to date." : "\(issues.count) notes are waiting to sync. Other notes are up to date.")
             }
-            if conflictCount > 0 { messages.append("Both versions were kept for \(conflictCount) changed notes. Look for “offline copy” in your library.") }
+            if conflictCount > 0 { messages.append("Both versions were kept for \(conflictCount) changed notes. Look for “copy from this Mac” in your library.") }
             if let calendarWarning { messages.append(calendarWarning) }
             message = messages.isEmpty ? nil : messages.joined(separator: "\n")
         } catch {
@@ -201,11 +282,12 @@ final class CloudSync {
             guard generation == run.generation, transport.userID == run.userID, !Task.isCancelled else { return }
             if error is CancellationError { return }
             needsAttention = true
+            isOffline = Self.isOffline(error)
             if let error = error as? CloudHTTPError, error.status == 401 {
                 requiresSignIn = true
-                message = "Your cloud connection needs a new sign-in. Use Sign in again in Settings → Account. Your notes are saved on this Mac."
-            } else if Self.isOffline(error) {
-                message = "You’re offline. Keep working — your saved notes will sync when the connection returns."
+                message = "Your account needs a new sign-in. Use Sign in again in Settings ▸ Account."
+            } else if isOffline {
+                message = "You’re offline. Keep working — your notes will sync when the connection returns."
             } else { message = error.localizedDescription }
         }
     }

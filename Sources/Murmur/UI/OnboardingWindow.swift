@@ -2,17 +2,15 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-/// First run: the permissions, each proven rather than claimed.
+/// First run, in four short pages: the two permissions dictation needs, the two a meeting
+/// needs, a few extras, and the one thing to remember.
 ///
 /// TCC lies in one specific way this app has met before — the Accessibility toggle can read
 /// as on while the app is untrusted, because the stored grant is keyed to a code signature
 /// that no longer matches. So every row here reports what the system *actually* answers
-/// right now, re-checked every second, and the wedged case gets the real fix rather than a
-/// switch that won't help.
+/// right now, re-checked every second, and the wedged case gets the real fix.
 @MainActor
 final class OnboardingWindow: NSWindow {
-    private static let size = NSSize(width: 540, height: 700)
-
     static var isCompleted: Bool {
         get { UserDefaults.standard.bool(forKey: "onboarding.completed") }
         set { UserDefaults.standard.set(newValue, forKey: "onboarding.completed") }
@@ -20,7 +18,7 @@ final class OnboardingWindow: NSWindow {
 
     init() {
         super.init(
-            contentRect: NSRect(origin: .zero, size: Self.size),
+            contentRect: NSRect(origin: .zero, size: DS.Layout.onboardingSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -47,6 +45,29 @@ final class OnboardingWindow: NSWindow {
 struct OnboardingView: View {
     let onDone: () -> Void
 
+    enum Page: Int, CaseIterable {
+        case dictate, meetings, extras, done
+
+        var title: String {
+            switch self {
+            case .dictate: "Dictate anywhere"
+            case .meetings: "Record meetings"
+            case .extras: "A few extras"
+            case .done: "That's it"
+            }
+        }
+
+        var lead: String {
+            switch self {
+            case .dictate: "Two permissions make dictation work. Each row shows what macOS reports right now."
+            case .meetings: "Two more let Voice Notes hear a call and name it. Both are optional."
+            case .extras: "Everything here can be changed later in Settings."
+            case .done: "Voice Notes lives in the menu bar."
+            }
+        }
+    }
+
+    @State private var page: Page = .dictate
     @State private var accessibility = Permissions.hasAccessibility
     @State private var microphone = Permissions.hasMicrophone
     @State private var microphoneDenied = AVCaptureDevice.authorizationStatus(for: .audio) == .denied
@@ -55,125 +76,223 @@ struct OnboardingView: View {
     @State private var audioCapture = SystemAudioCapture.isKnownGranted
     @State private var isAskingAudio = false
     @State private var didCopyReset = false
+    @State private var claudeConfigured = ClaudeDesktopIntegration.isConfigured
+    @State private var claudeMessage: String?
+    @State private var settings = Settings.shared
+    @State private var account = CloudAccount.shared
 
     private var essentialsGranted: Bool { accessibility && microphone }
+    private var isInApplications: Bool { Bundle.main.bundleURL.path.hasPrefix("/Applications/") }
+    private var hasClaudeDesktop: Bool {
+        FileManager.default.fileExists(atPath: ClaudeDesktopIntegration.configURL.deletingLastPathComponent().path)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
+            if !isInApplications {
+                InlineNotice(text: "Move Voice Notes to Applications first — start at login and the Claude connection point at the app's location.", tone: .warning) {
+                    ActionButton(title: "Show in Finder", emphasis: .quiet) {
+                        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+                    }
+                }
+            }
             VStack(alignment: .leading, spacing: DS.Space.sm) {
-                Text("Voice Notes")
+                Readout("Step \(page.rawValue + 1) of \(Page.allCases.count)", color: DS.Color.textTertiary)
+                Text(page.title)
                     .font(DS.Font.sessionTitle)
                     .foregroundStyle(DS.Color.text)
-                Text("Dictation and meeting notes, all on this Mac. Three permissions make it work; "
-                     + "each one below shows what macOS actually reports right now.")
+                Text(page.lead)
                     .font(DS.Font.body)
                     .foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(spacing: DS.Space.md) {
-                PermissionStep(
-                    number: 1,
-                    title: "Accessibility",
-                    detail: "Sees the key you hold to dictate, inserts text where you're typing, and reads a browser window's title to tell a Meet call from a YouTube tab.",
-                    granted: accessibility,
-                    denied: false,
-                    grantTitle: "Open System Settings",
-                    grant: {
-                        Permissions.promptForAccessibility()
-                        Permissions.openAccessibilitySettings()
-                    }
-                )
-                if !accessibility {
-                    wedgedHint
-                }
-                PermissionStep(
-                    number: 2,
-                    title: "Microphone",
-                    detail: "Your side of every dictation and every call.",
-                    granted: microphone,
-                    denied: microphoneDenied,
-                    grantTitle: microphoneDenied ? "Open System Settings" : "Allow",
-                    grant: {
-                        if microphoneDenied { Permissions.openMicrophoneSettings() }
-                        else { Task { microphone = await Permissions.requestMicrophone() } }
-                    }
-                )
-                PermissionStep(
-                    number: 3,
-                    title: "Audio recording",
-                    detail: "Hears the other side of a call — the audio your Mac is playing — so both halves of a meeting are transcribed. Separate from the microphone.",
-                    granted: audioCapture,
-                    denied: false,
-                    grantTitle: isAskingAudio ? "Asking…" : "Allow",
-                    grant: {
-                        guard !isAskingAudio else { return }
-                        isAskingAudio = true
-                        Task {
-                            audioCapture = await SystemAudioCapture.requestPermission()
-                            isAskingAudio = false
-                        }
-                    }
-                )
-                PermissionStep(
-                    number: 4,
-                    title: "Calendars",
-                    detail: "Names meetings after the event and knows who's in them. Read-only, and optional — without it, sessions are named by app and time.",
-                    granted: calendar,
-                    denied: calendarDenied,
-                    grantTitle: calendarDenied ? "Open System Settings" : "Allow",
-                    grant: {
-                        if calendarDenied { CalendarService.openSettings() }
-                        else { Task { calendar = await CalendarService.shared.requestAccess() } }
-                    }
-                )
-            }
-
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                HStack(spacing: DS.Space.sm) {
-                    Image(systemName: "lock")
-                        .font(.system(size: 12))
-                        .foregroundStyle(DS.Color.textSecondary)
-                    Text("Audio is discarded once it's transcribed. Only text is kept, in ~/Library/Application Support/Murmur.")
-                        .font(DS.Font.callout)
-                        .foregroundStyle(DS.Color.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            Group {
+                switch page {
+                case .dictate: dictate
+                case .meetings: meetings
+                case .extras: extras
+                case .done: done
                 }
             }
+            .transition(.opacity)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: DS.Space.zero)
 
-            HStack {
-                Hint(essentialsGranted ? "Ready. Hold \(Settings.shared.triggerSummary) anywhere to dictate."
-                     : "Accessibility and Microphone are required; Calendars can wait.")
+            HStack(spacing: DS.Space.sm) {
+                if page != .dictate, page != .done {
+                    ActionButton(title: "Back", emphasis: .quiet) { move(-1) }
+                }
                 Spacer()
-                ActionButton(title: essentialsGranted ? "Done" : "Skip for now", emphasis: essentialsGranted ? .prominent : .quiet, action: onDone)
+                switch page {
+                case .dictate:
+                    if !essentialsGranted { ActionButton(title: "Skip for now", emphasis: .quiet) { move(1) } }
+                    ActionButton(title: "Continue", emphasis: .prominent) { move(1) }.disabled(!essentialsGranted)
+                case .meetings, .extras:
+                    ActionButton(title: "Continue", emphasis: .prominent) { move(1) }
+                case .done:
+                    ActionButton(title: "Done", emphasis: .prominent, action: onDone)
+                }
             }
         }
-        .padding(.top, DS.Space.xxl + 4)
+        .padding(.top, DS.Space.xxl + DS.Space.xs)
         .padding([.horizontal, .bottom], DS.Space.xxl)
-        .frame(width: 540, height: 700)
+        .frame(width: DS.Layout.onboardingSize.width, height: DS.Layout.onboardingSize.height)
         .background(DS.Color.window)
+        .animation(DS.Motion.quick, value: page)
         .task {
             while !Task.isCancelled {
                 accessibility = Permissions.hasAccessibility
+                Permissions.rememberTrusted()
                 microphone = Permissions.hasMicrophone
                 microphoneDenied = AVCaptureDevice.authorizationStatus(for: .audio) == .denied
                 calendar = CalendarService.shared.isAuthorized
                 calendarDenied = CalendarService.shared.isDenied
                 audioCapture = SystemAudioCapture.isKnownGranted
-                try? await Task.sleep(for: .seconds(1))
+                claudeConfigured = ClaudeDesktopIntegration.isConfigured
+                try? await Task.sleep(for: DS.Timing.permissionPoll)
             }
         }
     }
 
-    private var wedgedHint: some View {
-        VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Hint("If the Accessibility switch already shows Voice Notes as on but this row stays red, the "
-                 + "stored grant belongs to an older build. Don't toggle it — reset that one entry, "
-                 + "then quit System Settings entirely and re-add Voice Notes:")
+    private func move(_ delta: Int) {
+        if let next = Page(rawValue: page.rawValue + delta) { page = next }
+    }
+
+    // MARK: - Pages
+
+    private var dictate: some View {
+        VStack(spacing: DS.Space.md) {
+            PermissionRow(
+                title: "Accessibility",
+                detail: "Sees the key you hold, inserts text where you're typing, and reads a browser window's title to tell a Meet call from a YouTube tab.",
+                isGranted: accessibility,
+                grantTitle: "Open System Settings"
+            ) {
+                Permissions.promptForAccessibility()
+                Permissions.openAccessibilitySettings()
+            }
+            PermissionRow(
+                title: "Microphone",
+                detail: "Your side of every dictation and every call.",
+                isGranted: microphone,
+                grantTitle: microphoneDenied ? "Open System Settings" : "Allow"
+            ) {
+                if microphoneDenied { Permissions.openMicrophoneSettings() }
+                else { Task { microphone = await Permissions.requestMicrophone() } }
+            }
+            if Permissions.wasEverTrusted, !accessibility {
+                DisclosureGroup("Still not working?") {
+                    wedgedHint.padding(.top, DS.Space.sm)
+                }
+                .font(DS.Font.callout)
+            }
+        }
+    }
+
+    private var meetings: some View {
+        VStack(spacing: DS.Space.md) {
+            PermissionRow(
+                title: "Audio recording",
+                detail: "Hears the other side of a call — the audio your Mac is playing — so both halves are transcribed. Separate from the microphone.",
+                isGranted: audioCapture,
+                grantTitle: isAskingAudio ? "Asking…" : "Allow"
+            ) {
+                guard !isAskingAudio else { return }
+                isAskingAudio = true
+                Task {
+                    audioCapture = await SystemAudioCapture.requestPermission()
+                    isAskingAudio = false
+                }
+            }
+            PermissionRow(
+                title: "Calendars",
+                detail: "Names meetings after the event and knows who's in them. Read-only. Without it, notes are named by app and time.",
+                isGranted: calendar,
+                grantTitle: calendarDenied ? "Open System Settings" : "Allow"
+            ) {
+                if calendarDenied { CalendarService.openSettings() }
+                else { Task { calendar = await CalendarService.shared.requestAccess() } }
+            }
             HStack(spacing: DS.Space.sm) {
-                Text("tccutil reset Accessibility com.jasonhunt.murmur")
+                Image(systemName: "lock").font(DS.Font.smallSymbol).foregroundStyle(DS.Color.textSecondary)
+                Hint("Audio is discarded once it's transcribed. Only text is kept, on this Mac.")
+            }
+        }
+    }
+
+    private var extras: some View {
+        VStack(spacing: DS.Space.md) {
+            HStack(spacing: DS.Space.md) {
+                StatusDot(color: FoundationModelFormatter.isAvailable ? DS.Color.success : DS.Color.textTertiary, isLit: true, size: DS.Layout.permissionDot)
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text("Apple Intelligence").font(DS.Font.body).foregroundStyle(DS.Color.text)
+                    Hint(FoundationModelFormatter.unavailableReason ?? "Ready. Summaries and smart cleanup run on this Mac.")
+                }
+                Spacer()
+                if FoundationModelFormatter.isAvailable {
+                    Chip(text: "Ready", tint: DS.Color.success, filled: true)
+                } else {
+                    ActionButton(title: "Open System Settings", emphasis: .normal) {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!)
+                    }
+                }
+            }
+            ToggleRow(
+                title: "Start Voice Notes at login",
+                hint: "The push-to-talk key and call detection only work while it's running.",
+                isOn: $settings.launchAtLogin
+            )
+            if hasClaudeDesktop {
+                PermissionRow(
+                    title: "Claude Desktop",
+                    detail: claudeMessage ?? "Let Claude read your notes on this Mac. Nothing leaves the machine.",
+                    isGranted: claudeConfigured,
+                    grantTitle: "Connect"
+                ) {
+                    do {
+                        try ClaudeDesktopIntegration.configure()
+                        claudeConfigured = true
+                        claudeMessage = "Connected. Quit and reopen Claude Desktop to load it."
+                    } catch { claudeMessage = error.localizedDescription }
+                }
+            }
+            HStack(spacing: DS.Space.md) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text("Voice Notes account").font(DS.Font.body).foregroundStyle(DS.Color.text)
+                    Hint(account.isConnected ? "Signed in as " + account.email
+                         : "Optional. Notes on the web, Google Calendar, and ChatGPT or Claude from anywhere.")
+                }
+                Spacer()
+                if account.isConnected {
+                    Chip(text: "Signed in", tint: DS.Color.success, filled: true)
+                } else {
+                    ActionButton(title: account.isSigningIn ? "Signing in…" : "Sign in", emphasis: .quiet) {
+                        Task { await account.signIn() }
+                    }.disabled(account.isSigningIn)
+                }
+            }
+        }
+    }
+
+    private var done: some View {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            Text("Hold \(settings.triggerSummary) anywhere to dictate.")
+                .font(DS.Font.headline)
+                .foregroundStyle(DS.Color.text)
+            Hint("Voice Notes offers to record when a call starts in Meet, Zoom or Teams. "
+                 + "Your notes, the dictionary and every setting are in the menu bar under Settings.")
+        }
+    }
+
+    private var wedgedHint: some View {
+        let command = "tccutil reset Accessibility " + (Bundle.main.bundleIdentifier ?? "com.jasonhunt.murmur")
+        return VStack(alignment: .leading, spacing: DS.Space.sm) {
+            Hint("Accessibility was granted before, so the stored entry belongs to an older build. "
+                 + "Don't toggle it — reset that one entry, then quit System Settings entirely and "
+                 + "re-add Voice Notes:")
+            HStack(spacing: DS.Space.sm) {
+                Text(command)
                     .font(DS.Font.readout)
                     .foregroundStyle(DS.Color.text)
                     .padding(.horizontal, DS.Space.sm)
@@ -182,61 +301,11 @@ struct OnboardingView: View {
                     .overlay { RoundedRectangle(cornerRadius: DS.Radius.sm).strokeBorder(DS.Color.separator, lineWidth: DS.Stroke.hairline) }
                 ActionButton(title: didCopyReset ? "Copied" : "Copy", emphasis: .quiet) {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("tccutil reset Accessibility com.jasonhunt.murmur", forType: .string)
+                    NSPasteboard.general.setString(command, forType: .string)
                     didCopyReset = true
-                    Task { try? await Task.sleep(for: .seconds(1.4)); didCopyReset = false }
+                    Task { try? await Task.sleep(for: DS.Timing.feedback); didCopyReset = false }
                 }
             }
         }
-        .padding(.leading, DS.Space.xxl + DS.Space.sm)
-    }
-}
-
-private struct PermissionStep: View {
-    let number: Int
-    let title: String
-    let detail: String
-    let granted: Bool
-    let denied: Bool
-    let grantTitle: String
-    let grant: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: DS.Space.md) {
-            ZStack {
-                Circle()
-                    .fill(granted ? DS.Color.success : (denied ? DS.Color.warning : DS.Color.selection))
-                    .frame(width: 26, height: 26)
-                if granted {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                } else {
-                    Text("\(number)")
-                        .font(DS.Font.readout)
-                        .foregroundStyle(denied ? .white : DS.Color.textSecondary)
-                }
-            }
-            .animation(DS.Motion.quick, value: granted)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(DS.Font.headline)
-                    .foregroundStyle(DS.Color.text)
-                Text(detail)
-                    .font(DS.Font.callout)
-                    .foregroundStyle(DS.Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: DS.Space.md)
-            if granted {
-                Chip(text: "Granted", tint: DS.Color.success, filled: true)
-            } else {
-                ActionButton(title: grantTitle, emphasis: .normal, action: grant)
-            }
-        }
-        .padding(DS.Space.lg)
-        .background(DS.Color.surface, in: .rect(cornerRadius: DS.Radius.lg))
-        .overlay { RoundedRectangle(cornerRadius: DS.Radius.lg).strokeBorder(DS.Color.separator, lineWidth: DS.Stroke.hairline) }
     }
 }

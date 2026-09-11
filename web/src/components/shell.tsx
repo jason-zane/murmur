@@ -25,9 +25,6 @@ export function Shell({
     <div className="shell">
       <aside className="sidebar">
         <Brand />
-        <div className="workspace-name">
-          Your space<span>PERSONAL</span>
-        </div>
         <nav aria-label="Main navigation">
           <Link href="/" className={path === "/" ? "nav active" : "nav"}>
             <BookOpen size={18} />
@@ -55,7 +52,7 @@ export function Shell({
         {onNew && (
           <button className="new-note" onClick={onNew}>
             <Plus size={17} />
-            Start a note<span>＋</span>
+            New note<span>＋</span>
           </button>
         )}
         <div className="sidebar-bottom">

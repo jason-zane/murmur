@@ -12,6 +12,7 @@ const api = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 if (api !== "http://127.0.0.1:56321") throw new Error("Integration tests require isolated local Murmur.");
 const auth = { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false };
 const admin = createClient(api, process.env.SUPABASE_SECRET_KEY!, { auth });
+const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://murmur-rho-pied.vercel.app").replace(/\/$/, "");
 const makeClient = () => createClient(api, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, { auth });
 const users: string[] = [], clients: string[] = [];
 const document = newDocument("Private integration fixture");
@@ -20,7 +21,7 @@ let owner: SupabaseClient, ownerToken: string, otherToken: string;
 let desktop: OAuthClient, external: OAuthClient, desktopToken: string, externalToken: string, externalRefresh: string;
 
 function request(path: string, token: string, body?: unknown) {
-  return new Request(`https://murmur-rho-pied.vercel.app/${path}`, {
+  return new Request(`${site}/${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -96,7 +97,7 @@ describe("real local Auth, Postgres policies and MCP", () => {
     const ai = await bearerClient(externalToken).auth.getClaims(externalToken);
     expect(native.error).toBeNull(); expect(ai.error).toBeNull();
     expect(native.data?.claims.aud).toBe("authenticated");
-    expect(ai.data?.claims.aud).toBe("https://murmur-rho-pied.vercel.app/mcp");
+    expect(ai.data?.claims.aud).toBe(`${site}/mcp`);
     expect(ai.data?.claims.client_id).toBe(external.client_id);
   });
   it("lets the Mac save, retries idempotently and rejects stale overwrites", async () => {
@@ -141,6 +142,6 @@ describe("real local Auth, Postgres policies and MCP", () => {
     const token = await response.json();
     const verified = await bearerClient(token.access_token).auth.getClaims(token.access_token);
     expect(verified.error).toBeNull();
-    expect(verified.data?.claims.aud).toBe("https://murmur-rho-pied.vercel.app/mcp");
+    expect(verified.data?.claims.aud).toBe(`${site}/mcp`);
   });
 });

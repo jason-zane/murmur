@@ -8,7 +8,7 @@ Bundle identity, executable, local storage, URL scheme, MCP identifiers and host
 retain their existing `murmur` values. This is a display-name change, with no data or
 authentication migration. The [public working-name page](https://murmur-rho-pied.vercel.app/identity.html)
 replaces the earlier direction study; its source is `web/public/identity.html` and
-the matching local copy is [here](identity/index.html).
+the matching local copy is [here](../identity/index.html).
 
 The competitive findings and name explorations below are archived context. Dayriff,
 Sayborne and Saybourne are not current proposals. No new availability claim is made for

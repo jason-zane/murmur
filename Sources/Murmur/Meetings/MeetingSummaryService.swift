@@ -26,7 +26,7 @@ final class MeetingSummaryService {
         guard FoundationModelFormatter.isAvailable else { errors[id] = unavailableReason; return }
         errors[id] = nil
         drafts[id] = nil
-        progress[id] = "Waiting to summarize…"
+        progress[id] = "Waiting to summarise…"
         queue.append((id, template, store))
         startNext()
     }
@@ -86,7 +86,7 @@ final class MeetingSummaryService {
         var parts: [String] = [], actions: [SourceBackedAction] = [], questions: [SourceExcerpt] = []
         for (index, chunk) in chunks.enumerated() {
             try Task.checkCancellation()
-            await progress(chunks.count == 1 ? "Reading the conversation…" : "Reading part \(index + 1) of \(chunks.count)…")
+            await progress(chunks.count == 1 ? "Reading the transcript…" : "Reading part \(index + 1) of \(chunks.count)…")
             let fragment = try await extractSourceChunk(chunk)
             parts.append(fragment.facts)
             actions.append(contentsOf: fragment.actions)
@@ -229,7 +229,7 @@ final class MeetingSummaryService {
         var errorDescription: String? {
             switch self {
             case .noSource: "Add personal notes or record a meeting before making a summary."
-            case .tooLong: "This meeting is too large for the on-device model. Use Copy for AI or a connected app to summarize the complete source."
+            case .tooLong: "This meeting is too long for the on-device model. Use Copy for AI or a connected app to summarise the whole transcript."
             case .empty: "The model returned no notes. Your transcript is safe; try again."
             }
         }

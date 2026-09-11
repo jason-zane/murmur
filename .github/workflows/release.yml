@@ -1,0 +1,83 @@
+name: Release
+
+# Tag a commit `v0.5.0` and push the tag: this builds the app, packages a disk image and
+# attaches it to a GitHub release. The app's own update check reads that release.
+#
+# Signing: with SIGNING_CERTIFICATE_P12 (base64 of a .p12) and SIGNING_CERTIFICATE_PASSWORD
+# set as repository secrets, the bundle is signed with that identity — the same one every
+# time, which is what keeps the Accessibility grant across updates. Without them the build
+# is ad-hoc signed and the release notes say so.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish the disk image
+    runs-on: macos-26
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select the newest Xcode
+        run: |
+          latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $latest"
+          sudo xcode-select -s "$latest/Contents/Developer"
+
+      - name: Import the signing certificate
+        if: ${{ env.CERT != '' }}
+        env:
+          CERT: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security list-keychain -d user -s "$keychain" login.keychain-db
+          echo "SIGNED=1" >> "$GITHUB_ENV"
+
+      - name: Build the disk image
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          make dist VERSION="$version" BUILD_NUMBER="${{ github.run_number }}"
+          make doctor || true
+          ls -la dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists (published by hand); leaving its assets alone."
+            exit 0
+          fi
+          if [ "${SIGNED:-0}" = "1" ]; then
+            signing="Signed with the project's Apple Development certificate. Not notarised — see the install notes."
+          else
+            signing="Ad-hoc signed: macOS will reset the Accessibility permission after each update. Not notarised — see the install notes."
+          fi
+          cat > notes.md <<EOF
+          ## Voice Notes $version
+
+          Download the disk image, drag Voice Notes to Applications, then right-click ▸ Open.
+          If macOS refuses, open System Settings ▸ Privacy & Security and choose **Open Anyway**.
+          Full instructions: https://github.com/${{ github.repository }}/blob/master/docs/INSTALL.md
+
+          $signing
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/VoiceNotes-"$version".dmg --title "Voice Notes $version" --notes-file notes.md

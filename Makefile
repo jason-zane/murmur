@@ -1,31 +1,28 @@
 EXEC     := Murmur
 MCP      := murmur-mcp
 MODELS   := murmur-models
-CONFIG   := debug
+CONFIG   ?= debug
 LAUNCH   ?= 1
 TEST_ARGS ?=
 
-## Build products live OUTSIDE this directory, for the same reason the .app does.
-##
-## ~/Desktop is iCloud/file-provider synced, and the provider mutates files inside
-## .build while the compiler is using them — producing "input file was modified during
-## the build" on random object files, and occasionally a wedged swift-frontend stuck at
-## 0% CPU. Moving the scratch path to ~/Library/Caches (never synced) removes the race.
+## What the app reports about itself. Tagged commits give "0.5.0"; anything else gives
+## the short hash, which the update check treats as "not a release" and leaves alone.
+VERSION      ?= $(shell git describe --tags --match 'v*' --always --dirty 2>/dev/null | sed -E 's/^v//')
+BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
+## The hosted backend the app signs in to. Self-hosters point this at their own deployment.
+SITE_URL     ?= https://murmur-rho-pied.vercel.app
+
+## Build products live OUTSIDE this directory. Checkouts under a file-provider-synced
+## folder (Desktop, Documents, iCloud Drive) get their files mutated and xattr-stamped
+## while the compiler and codesign are using them; ~/Library/Caches is never synced.
 SCRATCH  := $(HOME)/Library/Caches/MurmurBuild/scratch
 BUILD    := $(SCRATCH)/$(CONFIG)/$(EXEC)
 MCPBUILD := $(SCRATCH)/$(CONFIG)/$(MCP)
-
-## The bundle is assembled and signed OUTSIDE this directory on purpose.
-##
-## This tree lives under ~/Desktop, which is iCloud/file-provider synced. The provider
-## stamps com.apple.FinderInfo onto files inside an .app faster than we can strip them,
-## and codesign hard-refuses anything carrying them ("resource fork, Finder information,
-## or similar detritus not allowed"). `xattr -cr` immediately before signing is not enough
-## — the provider re-stamps in between. Staging in ~/Library/Caches sidesteps it entirely.
 STAGE    := $(HOME)/Library/Caches/MurmurBuild
 APPNAME  := Murmur.app
 BUNDLE   := $(STAGE)/$(APPNAME)
 CONTENTS := $(BUNDLE)/Contents
+DIST     := dist
 
 ## TCC keys the Accessibility grant to the code *signature*, not the path. An ad-hoc
 ## signature is regenerated on every build, so the rebuilt binary no longer satisfies the
@@ -48,7 +45,7 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build test app run install clean icon
+.PHONY: all build test app run install clean icon release dist package doctor
 
 all: app
 
@@ -78,6 +75,9 @@ app: build
 	@cp $(MCPBUILD) "$(CONTENTS)/MacOS/$(MCP)"
 	@codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$(CONTENTS)/MacOS/$(MCP)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
+	@plutil -replace CFBundleShortVersionString -string "$(VERSION)" "$(CONTENTS)/Info.plist"
+	@plutil -replace CFBundleVersion -string "$(BUILD_NUMBER)" "$(CONTENTS)/Info.plist"
+	@plutil -replace VoiceNotesSiteURL -string "$(SITE_URL)" "$(CONTENTS)/Info.plist"
 	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$(CONTENTS)/Resources/"; fi
 	@printf 'APPL????' > "$(CONTENTS)/PkgInfo"
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
@@ -88,7 +88,7 @@ app: build
 		--options runtime \
 		--timestamp=none \
 		"$(BUNDLE)"
-	@echo "built $(BUNDLE)  [signed: $(SIGN_ID)]"
+	@echo "built $(BUNDLE) $(VERSION) ($(BUILD_NUMBER))  [signed: $(SIGN_ID)]"
 
 ## Only ever targets the Murmur executable — never the separate `murmur` app.
 run: install
@@ -104,7 +104,40 @@ install: app
 	@echo "installed to /Applications/$(APPNAME)"
 
 clean:
-	@rm -rf .build "$(STAGE)" "$(SCRATCH)"
+	@rm -rf .build "$(STAGE)" "$(SCRATCH)" "$(DIST)"
+
+## An optimised build of the bundle. Same staging path; `install` and `dist` take it from there.
+release:
+	@$(MAKE) --no-print-directory app CONFIG=release
+
+## A disk image with an Applications shortcut, so dragging lands the app where the login
+## item and the Claude Desktop connection expect it. `ZIP=1` produces a zip instead.
+## Not notarised: first launch needs Privacy & Security ▸ Open Anyway (see docs/INSTALL.md).
+dist:
+	@$(MAKE) --no-print-directory app CONFIG=release
+	@$(MAKE) --no-print-directory package CONFIG=release
+
+package:
+	@codesign --verify --deep --strict "$(BUNDLE)"
+	@if [ "$(SIGN_ID)" = "-" ]; then \
+		echo "warning: ad-hoc signature — every update will reset the Accessibility grant on the user's Mac"; fi
+	@mkdir -p "$(DIST)"
+	@rm -rf "$(STAGE)/dist-staging" && mkdir -p "$(STAGE)/dist-staging"
+	@if [ "$(ZIP)" = "1" ]; then \
+		ditto -c -k --keepParent "$(BUNDLE)" "$(DIST)/VoiceNotes-$(VERSION).zip"; \
+		echo "wrote $(DIST)/VoiceNotes-$(VERSION).zip"; \
+	else \
+		cp -R "$(BUNDLE)" "$(STAGE)/dist-staging/"; \
+		ln -s /Applications "$(STAGE)/dist-staging/Applications"; \
+		hdiutil create -volname "Voice Notes" -srcfolder "$(STAGE)/dist-staging" -format UDZO -ov \
+			"$(DIST)/VoiceNotes-$(VERSION).dmg" >/dev/null; \
+		echo "wrote $(DIST)/VoiceNotes-$(VERSION).dmg"; \
+	fi
+	@rm -rf "$(STAGE)/dist-staging"
+
+## Checks the toolchain and signing identity, and says what to fix.
+doctor:
+	@SIGN_ID="$(SIGN_ID)" sh Tools/doctor.sh
 
 ## Pre-seed the optional on-device models from a terminal (the app can do the same from
 ## Settings). `make models` fetches everything; `make models WHICH=speakers` one of them.

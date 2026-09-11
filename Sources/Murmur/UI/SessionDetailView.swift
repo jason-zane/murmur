@@ -30,6 +30,7 @@ struct SessionDetailView: View {
     @State private var renamingSpeaker: String?
     @State private var speakerName = ""
     @State private var summaries = MeetingSummaryService.shared
+    @State private var sync = CloudSync.shared
     @FocusState private var titleFocused: Bool
 
     private enum DetailTab: String, CaseIterable { case notes = "Notes", transcript = "Transcript" }
@@ -39,35 +40,13 @@ struct SessionDetailView: View {
     var body: some View {
         VStack(spacing: DS.Space.zero) {
             header
-            if let progress = summaries.progress[session.id] {
-                InlineNotice(icon: "sparkles", text: progress) {
-                    ActionButton(title: "Cancel", emphasis: .quiet) { summaries.cancel(session.id) }
-                }.padding([.horizontal, .bottom], DS.Space.xl)
-            }
-            if let message = error ?? summaries.errors[session.id] {
-                InlineNotice(icon: "info.circle", text: message) {
-                    if let generated = summaries.drafts[session.id] {
-                        ActionButton(title: "Review draft", emphasis: .normal) { draft = generated; editing = true }
-                    }
-                }.padding([.horizontal, .bottom], DS.Space.xl)
-            }
-            if externalChange {
-                InlineNotice(icon: "arrow.triangle.2.circlepath", text: "The saved note changed in another app. Your draft is kept here.") {
-                    ActionButton(title: "Copy draft", emphasis: .quiet) { copy(draft, label: "draft") }
-                    ActionButton(title: "Keep my draft", emphasis: .normal) {
-                        version = store.noteVersion(for: session.id); externalChange = false; _ = saveDraft()
-                    }
-                    ActionButton(title: "Use saved", emphasis: .quiet) {
-                        do { try store.clearEditingDraft(for: session.id, matching: draft); loadNote(); externalChange = false; error = nil }
-                        catch { self.error = error.localizedDescription }
-                    }
-                }.padding([.horizontal, .bottom], DS.Space.xl)
-            }
-            HStack {
+            notice.padding([.horizontal, .bottom], DS.Space.xl)
+            HStack(spacing: DS.Space.md) {
                 Segmented(options: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
-                    .frame(width: DS.Layout.tabPicker)
+                    .fixedSize()
                 Spacer()
                 if tab == .notes {
+                    if hasSource { summariseMenu }
                     ActionButton(title: editing ? "Done" : "Edit", systemImage: editing ? "checkmark" : "square.and.pencil", emphasis: .quiet) {
                         if editing { if saveDraft() { editing = false } }
                         else { draft = note; editing = true }
@@ -119,18 +98,20 @@ struct SessionDetailView: View {
         .confirmationDialog("Move “\(session.title)” to Trash?", isPresented: $confirmTrash, titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) { trash() }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("The meeting and all its note versions can be recovered from the Mac's Trash.") }
+        } message: { Text("This note and its history can be recovered from the Mac's Trash.") }
         .sheet(isPresented: $showHistory) { historySheet }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: DS.Space.lg) {
-            HStack(spacing: DS.Space.sm) {
-                Text(session.isNoteOnly ? "Personal note" : "Meeting notes").font(DS.Font.label).foregroundStyle(DS.Color.textTertiary)
-                Spacer()
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            HStack(alignment: .top, spacing: DS.Space.sm) {
+                TextField("Untitled note", text: $title, axis: .vertical)
+                    .textFieldStyle(.plain).font(DS.Font.documentTitle).foregroundStyle(DS.Color.text)
+                    .focused($titleFocused).onSubmit(saveTitle)
                 Button { pin() } label: { Image(systemName: session.isPinned ? "pin.fill" : "pin").font(DS.Font.symbol) }
                     .buttonStyle(.plain).foregroundStyle(session.isPinned ? DS.Color.accent : DS.Color.textSecondary)
                     .help(session.isPinned ? "Unpin note" : "Pin note")
+                    .padding(.top, DS.Space.sm)
                 Menu {
                     Button("Copy notes") { copy(note.isEmpty ? bullets.map(\.text).joined(separator: "\n") : note, label: "notes") }
                     Button("Copy full meeting as Markdown") { copy(store.markdown(for: session.id), label: "meeting") }
@@ -145,35 +126,72 @@ struct SessionDetailView: View {
                 } label: { Image(systemName: "ellipsis").font(DS.Font.symbol) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: DS.Layout.symbolColumn)
                 .help("Copy, export and note options")
+                .padding(.top, DS.Space.sm)
             }
-            TextField("Untitled note", text: $title, axis: .vertical)
-                .textFieldStyle(.plain).font(DS.Font.documentTitle).foregroundStyle(DS.Color.text)
-                .focused($titleFocused).onSubmit(saveTitle)
-            HStack(spacing: DS.Space.sm) {
-                Readout(session.startedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute()))
-                if !session.isNoteOnly { Readout("· " + TimeFormat.clock(session.duration)) }
-                if let app = session.app { Text("· " + app).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary) }
-                Spacer(minLength: DS.Space.zero)
-            }
-            if !session.attendees.isEmpty {
-                Label(session.attendees.map(\.name).joined(separator: ", "), systemImage: "person.2")
-                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
-            }
-            if hasSource {
-                HStack(spacing: DS.Space.sm) {
-                    Picker("Note template", selection: $template) {
-                        ForEach(SummaryTemplate.allCases) { template in Text(template.title).tag(template) }
-                    }.labelsHidden().frame(width: DS.Layout.templatePicker)
-                    ActionButton(title: note.isEmpty ? "Summarize" : "Refresh summary", systemImage: "sparkles", emphasis: .prominent) {
-                        if editing, !saveDraft() { return }
-                        editing = false
-                        summaries.generate(id: session.id, template: template, store: store)
-                    }.disabled(working || !FoundationModelFormatter.isAvailable || externalChange)
-                    ActionButton(title: copied == "ai" ? "Copied" : "Copy for AI", emphasis: .quiet) { copyForAI() }
-                }
-            }
+            Text(metadata)
+                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(DS.Space.xl)
+    }
+
+    /// Date · duration · app · who was there. One line; it wraps if the room was full.
+    private var metadata: String {
+        var parts = [session.startedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute())]
+        if !session.isNoteOnly { parts.append(TimeFormat.clock(session.duration)) }
+        if let app = session.app { parts.append(app) }
+        if !session.attendees.isEmpty { parts.append(session.attendees.map(\.name).joined(separator: ", ")) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The template is the menu; the button is the action. Replaces a picker and a button
+    /// that together said the same thing twice.
+    private var summariseMenu: some View {
+        Menu {
+            ForEach(SummaryTemplate.allCases) { option in
+                Button(option.title) { template = option; summarise() }
+            }
+        } label: {
+            Label(note.isEmpty ? "Summarise" : "Refresh summary", systemImage: "sparkles")
+        } primaryAction: {
+            summarise()
+        }
+        .fixedSize()
+        .disabled(working || !FoundationModelFormatter.isAvailable || externalChange)
+        .help(FoundationModelFormatter.unavailableReason ?? "Uses the \(template.title) template. Choose another from the menu.")
+    }
+
+    private func summarise() {
+        if editing, !saveDraft() { return }
+        editing = false
+        summaries.generate(id: session.id, template: template, store: store)
+    }
+
+    /// One notice at a time, most important first: a change you might lose, then an error,
+    /// then progress.
+    @ViewBuilder private var notice: some View {
+        if externalChange {
+            InlineNotice(icon: "arrow.triangle.2.circlepath", text: "The saved note changed in another app. Your draft is kept here.") {
+                ActionButton(title: "Copy draft", emphasis: .quiet) { copy(draft, label: "draft") }
+                ActionButton(title: "Keep my draft", emphasis: .normal) {
+                    version = store.noteVersion(for: session.id); externalChange = false; _ = saveDraft()
+                }
+                ActionButton(title: "Use saved", emphasis: .quiet) {
+                    do { try store.clearEditingDraft(for: session.id, matching: draft); loadNote(); externalChange = false; error = nil }
+                    catch { self.error = error.localizedDescription }
+                }
+            }
+        } else if let message = error ?? summaries.errors[session.id] {
+            InlineNotice(icon: "info.circle", text: message) {
+                if let generated = summaries.drafts[session.id] {
+                    ActionButton(title: "Review draft", emphasis: .normal) { draft = generated; editing = true }
+                }
+            }
+        } else if let progress = summaries.progress[session.id] {
+            InlineNotice(icon: "sparkles", text: progress) {
+                ActionButton(title: "Cancel", emphasis: .quiet) { summaries.cancel(session.id) }
+            }
+        }
     }
 
     private var notesBody: some View {
@@ -190,16 +208,16 @@ struct SessionDetailView: View {
                             .accessibilityLabel("Meeting notes editor")
                     }
                 } else if note.isEmpty {
-                    VStack(alignment: .leading, spacing: DS.Space.md) {
-                        Image(systemName: "square.and.pencil").font(DS.Font.largeSymbol).foregroundStyle(DS.Color.textTertiary)
-                        Text(hasSource ? "Turn the conversation into a useful note." : session.isNoteOnly ? "A blank page, ready for you." : "No speech was captured.")
-                            .font(DS.Font.documentHeading)
-                        Text(hasSource ? (summaries.unavailableReason ?? "Make a summary on this Mac, with key points, decisions and next steps.")
-                             : session.isNoteOnly ? "Capture a thought, prepare an agenda or write something you want to keep."
-                             : "You can add a note here. For your next recording, check that the You and Call meters respond while people speak.")
-                            .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                    EmptyState(
+                        icon: "square.and.pencil",
+                        label: hasSource ? "Turn the meeting into a useful note." : session.isNoteOnly ? "A blank page, ready for you." : "No speech was captured.",
+                        detail: hasSource ? (summaries.unavailableReason ?? "Make a summary on this Mac, with key points, decisions and next steps.")
+                            : session.isNoteOnly ? "Capture a thought, prepare an agenda or write something you want to keep."
+                            : "You can still write a note here. Next time, check that the notes window says it's hearing you and the call."
+                    ) {
                         ActionButton(title: "Write a note", systemImage: "square.and.pencil", emphasis: .normal) { draft = note; editing = true }
-                    }.padding(.vertical, DS.Space.xl)
+                    }
+                    .frame(maxHeight: DS.Layout.editorHeight)
                 } else {
                     MarkdownNoteView(text: note, onToggleTask: toggleTask, onTimestamp: jump)
                 }
@@ -232,7 +250,7 @@ struct SessionDetailView: View {
                 Picker("Speaker", selection: $speakerFilter) {
                     Text("Everyone").tag("Everyone")
                     ForEach(speakers, id: \.self) { Text($0).tag($0) }
-                }.labelsHidden().frame(width: DS.Layout.templatePicker)
+                }.labelsHidden().fixedSize()
             }.padding(DS.Space.lg)
             ScrollViewReader { proxy in
                 ScrollView {
@@ -253,7 +271,7 @@ struct SessionDetailView: View {
                                             Text("Name this speaker").font(DS.Font.headline)
                                             TextField("Name", text: $speakerName).textFieldStyle(.roundedBorder)
                                             ActionButton(title: "Save name", emphasis: .prominent) { renameSpeaker(displayName(segment), to: speakerName) }
-                                        }.padding(DS.Space.lg).frame(width: DS.Layout.tabPicker)
+                                        }.padding(DS.Space.lg).frame(width: DS.Layout.popoverWidth)
                                     }
                                     Readout(TimeFormat.clock(segment.start), color: DS.Color.textTertiary)
                                 }
@@ -276,14 +294,11 @@ struct SessionDetailView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: DS.Space.sm) {
-            Image(systemName: "laptopcomputer").font(DS.Font.smallSymbol).foregroundStyle(DS.Color.textTertiary)
-            Text(copied != nil ? "Copied to clipboard" : editing && draft != note ? "Unsaved changes" : "Saved on this Mac")
-                .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
-            Spacer()
-            if let source = session.noteSource { Text(source).font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary) }
-            if version > 0 { Readout("v\(version)", color: DS.Color.textTertiary) }
-        }.padding(.horizontal, DS.Space.xl).padding(.vertical, DS.Space.md)
+        NoteStatusLine(
+            transient: copied != nil ? "Copied" : (editing && draft != note ? "Unsaved changes" : nil),
+            source: session.noteSource,
+            syncIssue: sync.issue(for: session.id)?.message
+        )
     }
 
     private var historySheet: some View {
@@ -321,7 +336,7 @@ struct SessionDetailView: View {
         return segments.filter { (speakerFilter == "Everyone" || displayName($0) == speakerFilter) && (query.isEmpty || $0.text.localizedStandardContains(query)) }
     }
     private var speakers: [String] { var names: [String] = []; for s in segments { let name = displayName(s); if !names.contains(name) { names.append(name) } }; return names }
-    private func displayName(_ s: TranscriptSegment) -> String { s.source == .you ? "You" : s.speaker ?? "Speaker" }
+    private func displayName(_ s: TranscriptSegment) -> String { s.source == .you ? "You" : s.speaker ?? "Call" }
     private func speakerColor(_ s: TranscriptSegment) -> Color { s.source == .you ? DS.Color.speaker(0) : DS.Color.speaker((speakers.filter { $0 != "You" }.firstIndex(of: displayName(s)) ?? 0) + 1) }
     private func firstSegment(named name: String) -> UUID? { filteredSegments.first { displayName($0) == name }?.id }
     private func load() {

@@ -2,20 +2,25 @@
 
 Read this before changing anything. It is written for a coding agent picking the project up
 cold, and it is mostly a list of things that look wrong but aren't, plus things that look
-fine and will bite you.
+fine and will bite you. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) has the build, signing
+and release mechanics; this file is the judgement.
 
 ---
 
 ## What this is
 
-Push-to-talk dictation for macOS. Hold **fn**, talk, release, and cleaned-up text is typed
-into whatever had focus. Swift 6, SwiftUI, no sandbox, everything on-device.
+Push-to-talk dictation and meeting notes for macOS. Hold **Right ⌥** (the default; any key
+or mouse button can be added), talk, release, and cleaned-up text is typed into whatever
+had focus. When a call starts, the app offers to record both sides into a note. Swift 6,
+SwiftUI, no sandbox, everything on-device unless the person signs in to the optional
+backend in `web/`.
 
 It replaces a Wispr Flow subscription, so "as good as Wispr for daily use" is the bar —
 not "a demo that transcribes."
 
-A Windows port existed upstream and has been removed. If you find a reference to C#,
-Avalonia, sherpa-onnx or `windows/`, it is a leftover — delete it.
+Product name **Voice Notes**; bundle id `com.jasonhunt.murmur`, executable `Murmur`,
+`Murmur.app`, `murmur://`, Keychain service `com.jasonhunt.murmur.cloud`. Those are TCC and
+Keychain identity on installed copies and don't change.
 
 ---
 
@@ -41,22 +46,9 @@ cp shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/
 
 ## Things that look like bugs and are not
 
-**Compare mode doesn't type anything.** By design — `Settings.compareMode` runs every
-engine on one recording and shows them side by side. If both injected, two transcripts
-would fight over one text field. This is the single most confusing behaviour in the app.
-
-**The timing column isn't comparing like with like.** Apple and Parakeet are timed on local
-compute with the clock started *after* model load. Any Wispr row read from its database is
-its own `e2eLatency`, which includes a network round trip and its cleanup pass. Don't
-present them as one ranking.
-
 **`MainActor.assumeIsolated` will crash the process.** It does not check the claim, it
 asserts it. Use `await MainActor.run` from any non-main-actor context. This took the app
 down once already.
-
-**Mutating `@State` inside a `Canvas` draw closure floods the log and corrupts state.** The
-VU meter keeps its needle physics in a plain reference type the view merely holds, which is
-invisible to SwiftUI's state graph. Don't "clean that up" into `@State`.
 
 **`TextInjector` ignores the AX return value on purpose.** Electron apps, Chrome and most
 terminals return `.success` from the `kAXSelectedTextAttribute` write and then silently
@@ -65,39 +57,49 @@ drop it. The AX path is only trusted when the caret can be observed to have move
 **fn is not consumed by the event tap.** Swallowing it would break fn+arrow, fn+delete and
 the emoji picker. Right ⌥ and Right ⌘ *are* consumed, because they have no other job.
 
+**Parakeet is chosen only when its models are on disk.** `Settings.engine == .parakeet`
+with nothing downloaded means Apple, plus one line in the dictation bar saying so. The
+engine must never download behind a held key — 470 MB looks like a hang.
+
+**The sync loop is 30 s and there is no "Sync now".** `CloudSync` also runs a pass when the
+app becomes active and 5 s after a note changes; the button was removed because "now" is
+implicit. The recovery for a note that didn't sync is **Try again** in Settings ▸
+Connections. `CloudSync.state` (`SyncState`) is the only thing views read; signed out is
+`.off` and shows nothing anywhere.
+
+**The comparison window scene exists even with the developer switch off.** `SceneBuilder`
+can't type-check an `if` around it; instead everything that *reaches* it is gated on
+`Settings.developerMode` (the menu, ⌘D, `murmur://show`, the launch-time restore).
+
+**`CaptureStatus` has no timer.** It reads `MeetingController.elapsed`, which ticks every
+second, so its timed states ("Hearing you and the call" for 3 s, "No call audio yet" after
+20 s of silence) advance for free. `callSilentSince` lives on the controller for the same
+reason: views stay stateless.
+
 ---
 
 ## Code signing is load-bearing, not cosmetic
 
-TCC stores a code-signing *requirement* per entry, not just a path. An ad-hoc signature
-changes every build, so the rebuilt binary stops satisfying the stored requirement — and
-the symptom lies: the Accessibility toggle still shows as **on** while the app is
-untrusted.
+TCC stores a code-signing *requirement* per entry. An ad-hoc signature changes every
+build, so the rebuilt binary stops satisfying the stored requirement — and the symptom
+lies: the Accessibility toggle still shows as **on** while the app is untrusted.
 
 The `Makefile` resolves an identity in this order: **Developer ID Application** →
-**Apple Development** → ad-hoc. This machine has only the Apple Development cert, which is
-not distributable but *is* stable across rebuilds — which is the property TCC cares about.
-**Don't replace that with `--sign -`.**
-
-If a grant does get wedged, reset that one row — never toggle, and never omit the bundle ID:
-
-```bash
-tccutil reset Accessibility com.jasonhunt.murmur
-```
-
-A bare `tccutil reset Accessibility` wipes every app on the machine. Then quit System
-Settings entirely (⌘Q) before reopening; the Privacy pane caches its list.
+**Apple Development** → ad-hoc. **Don't replace that with `--sign -`.** Reset a wedged
+grant with `tccutil reset Accessibility com.jasonhunt.murmur` — never without the
+identifier — then quit System Settings entirely before reopening it.
+`Permissions.wasEverTrusted` is how onboarding knows to show that fix only when it applies.
 
 ---
 
 ## Build notes
 
-**Always build with `make`.** It uses `--scratch-path` outside the source tree. A bare
-`swift build` writes `.build/` into the repo.
+**Always build with `make`.** It uses `--scratch-path` outside the source tree; a bare
+`swift build` writes `.build/` into the repo. `make app` stamps `CFBundleShortVersionString`
+(git tag, else short hash), `CFBundleVersion` (commit count) and `VoiceNotesSiteURL`
+(`SITE_URL`) into the copied Info.plist — the checked-in plist holds placeholders.
 
-**Never copy a scratch directory between paths.** The precompiled module cache has its
-absolute path baked in, and the build fails with "was compiled with module cache path …
-but the path is currently …". Delete and rebuild instead.
+**Never copy a scratch directory between paths.** The module cache bakes in absolute paths.
 
 **`log` may be shadowed in the user's shell.** Use `/usr/bin/log` explicitly:
 
@@ -105,10 +107,15 @@ but the path is currently …". Delete and rebuild instead.
 /usr/bin/log show --predicate 'subsystem == "com.jasonhunt.murmur"' --last 5m
 ```
 
-**Don't run the `.app` out of the build directory.** `make install` puts the running copy
-in `/Applications`, which is also where the login item needs it to be — `SMAppService`
-registers the bundle at its current path, so registering a staged copy would pin the login
-item to a build artifact.
+**Don't run the `.app` out of the build directory** except in preview mode. The login item
+and the Claude Desktop connection point at `/Applications/Murmur.app`.
+
+**Preview mode** (`MURMUR_UI_TESTING=1` + `MURMUR_SESSIONS_DIR`, debug only) disables the
+hotkey, cloud, calendar and detection and reads a synthetic library;
+`MURMUR_PREVIEW_OPEN=settings:meetings|onboarding|session:<id>` raises a screen on launch
+so it can be screenshotted without input. `Tools/preview-fixtures.py` makes the library.
+
+**The full test suite takes ~20 minutes** (timeout tests). Filter while iterating.
 
 ---
 
@@ -116,30 +123,65 @@ item to a build artifact.
 
 `Sources/Murmur/UI/DesignSystem.swift` defines every colour, size, radius, duration and
 material token. **Views must not contain literal values.** If a component needs a number
-that isn't a token, add the token rather than inlining it.
+that isn't a token, add the token rather than inlining it. `ComparisonWindow.swift` and
+`DashboardHTML.swift` are developer-only and exempt.
 
 The direction is **quiet, modern, native** — system materials, generous whitespace, one
 accent, depth from soft shadow and hairline separators. Not negotiable:
 
-- **Red means recording.** Nothing else in the app is red. Speaker colours deliberately stay
-  far from it.
-- **One accent** (indigo) for interaction. Speaker colours and the meter's amber/green are
-  instrumentation, never chrome.
+- **Red means recording.** Nothing else in the app is red.
+- **One accent** (indigo) for interaction. Speaker colours are instrumentation, never chrome.
 - **Numbers are readouts**: `DS.Font.readout` + `.monospacedDigit()`, via the `Readout` view.
+- **One of each**: `ToggleRow`, `PickerRow`, `InlineNotice` (`.info`/`.warning`),
+  `EmptyState`, `PermissionRow`, `ModelRow`, `EngineRow`. Don't add a second toggle style.
+- **Australian English** in every user-facing string (summarise, recognised, colour).
+  Identifiers and persisted raw values stay as they are.
+- **One word per thing**: note (never session/conversation/recording in copy), Record
+  meeting / Stop, New note, "notes window" (not notepad), dictation bar, dictation(s),
+  push-to-talk key, Transcription · Apple / Parakeet, Voice Notes account, Connected apps,
+  Claude Desktop. Settings paths use `▸`.
 
-An earlier draft described a 1980s field-recorder look — silver faces, brushed grain, bevels,
-"no gradients anywhere". That direction was abandoned before the current code was written and
-the description survived in these docs for a while. If you meet a reference to it, it is
-stale: the token file's own header comment is the authority.
+Panels that float (dictation bar, the meeting offer, the notes rail) use a transparent
+`NSHostingView` over a clear window; a SwiftUI `shadow` on a material capsule renders as a
+rectangle, so they cast none.
 
-## Regex, if you touch the dictionary
+---
 
-**NFC normalization is required.** macOS returns decomposed strings, so without it an
-accented trigger silently never fires.
+## Meetings
 
-Stay inside the safe subset — `\b`, `\d`, `\w`, `\s`, character classes, greedy/lazy
-quantifiers, alternation, `(?<name>…)`, fixed-length lookbehind, lookahead, `\p{L}`, and
-`$1`–`$9` in replacements. Nothing else.
+`MeetingDetector` watches for two-way audio in known apps (`MeetingAppRegistry`) and shows
+`OfferStrip`; `MeetingController` owns capture (mic + a Core Audio process tap for the call
+side), the live transcript, bullets and the save path; `MeetingSummaryService` writes the
+note with Apple Intelligence, in parts for long meetings. The notes window is
+`NotepadWindow`, a full-height rail down the right edge. Calendar naming is read-only
+through EventKit or the hosted Google connection. Speaker separation is optional and only
+when its model is on disk.
+
+## Cloud
+
+`CloudAccount` (OAuth PKCE through `ASWebAuthenticationSession`, refresh token in the
+Keychain, bootstrap from `<site>/api/config`) and `CloudSync` (versioned documents,
+per-account sync index, conflict copies titled "(copy from this Mac)"). The origin comes
+from `VoiceNotesSiteURL` in Info.plist. `docs/CLOUD.md` is the contract;
+`docs/SELF-HOSTING.md` the deployment. The web app is Next.js on Vercel with Supabase; the
+access-token hook binds third-party OAuth tokens to the MCP audience stored in
+`murmur_config`.
+
+## MCP
+
+Two servers. Local: `murmur-mcp` inside the bundle, stdio, what Claude Desktop runs;
+`ClaudeDesktopIntegration` merges it into `claude_desktop_config.json` with a backup and
+can expose the snippet for other clients; `--allow-writes` enables `save_summary` with a
+revision check. Remote: `<site>/mcp`, OAuth, read-only. `Tools/smoke-mcp.py` exercises the
+local one.
+
+## The developer switch
+
+`defaults write com.jasonhunt.murmur developerMode -bool true`. Read once at launch, no UI.
+Gates the benchmark lab: Engine comparison window, Compare mode (records every engine, types
+nothing — forced off when the switch is off), `WisprReader`, the HTML dashboard, engine
+chips and timings on dictation rows. Timings aren't comparable across engines: local ones
+start the clock after model load; Wispr's is end-to-end including network.
 
 ---
 
@@ -147,5 +189,7 @@ quantifiers, alternation, `(?<name>…)`, fixed-length lookbehind, lookahead, `\
 
 1. **Command Mode** — select text, hold a second key, "make this more formal." Needs an AX
    read of `kAXSelectedTextAttribute` plus an LLM round-trip.
-2. **Onboarding** — a first-run window walking through the two permissions.
-3. **Notarization** — only needed to distribute; irrelevant for personal use.
+2. **Notarisation** — needs the Apple Developer Program. Releases are signed (Apple
+   Development) and users click Open Anyway once.
+3. **Sparkle-style in-app updates** — the app checks GitHub Releases daily and links to the
+   download; installing is drag-over.

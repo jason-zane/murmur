@@ -20,6 +20,20 @@ enum Permissions {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
+    /// Whether this Mac has ever trusted the app. A grant that was there and is now gone is
+    /// the wedged-TCC case — the stored entry belongs to an older signature — and only then
+    /// is the `tccutil` advice worth showing.
+    static var wasEverTrusted: Bool {
+        UserDefaults.standard.bool(forKey: trustedKey)
+    }
+
+    /// Call whenever Accessibility is observed to be granted.
+    static func rememberTrusted() {
+        if hasAccessibility, !wasEverTrusted { UserDefaults.standard.set(true, forKey: trustedKey) }
+    }
+
+    private static let trustedKey = "accessibility.wasTrusted"
+
     /// Shows the system Accessibility prompt if the app isn't yet trusted.
     @discardableResult
     static func promptForAccessibility() -> Bool {
