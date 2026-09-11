@@ -10,14 +10,14 @@ export default async function Page() {
   const client = await serverClient();
   const { data: { user } } = await client.auth.getUser();
   if (!user) redirect("/login?next=/settings");
-  const { data: calendar, error } = await client
+  const { data: calendars, error } = await client
     .from("calendar_connections")
     .select("email,updated_at,error")
-    .maybeSingle();
+    .order("created_at");
   return (
     <AccountSettings
       email={user.email || "Your account"}
-      calendar={calendar}
+      calendars={calendars ?? []}
       calendarUnavailable={Boolean(error)}
     />
   );

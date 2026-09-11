@@ -7,9 +7,9 @@ import { Shell } from "@/components/shell";
 import { LocalTime } from "@/components/local-time";
 import { browserClient } from "@/lib/supabase/browser";
 
-export function AccountSettings({ email, calendar, calendarUnavailable }: {
+export function AccountSettings({ email, calendars, calendarUnavailable }: {
   email: string;
-  calendar: { email: string | null; updated_at: string; error: string | null } | null;
+  calendars: { email: string | null; updated_at: string | null; error: string | null }[];
   calendarUnavailable: boolean;
 }) {
   const [signingOut, setSigningOut] = useState(false);
@@ -61,11 +61,11 @@ export function AccountSettings({ email, calendar, calendarUnavailable }: {
             <CalendarDays size={21} />
             <div>
               <h3>Google Calendar</h3>
-              <p>{calendarUnavailable ? "Connection status is unavailable. Please try again." : calendar ? `Connected${calendar.email ? ` as ${calendar.email}` : ""}` : "Not connected"}</p>
-              {calendar?.updated_at && <span className="fine-print">Last refreshed <LocalTime value={calendar.updated_at} /></span>}
-              {calendar?.error && <p className="notice">{calendar.error}</p>}
+              <p>{calendarUnavailable ? "Connection status is unavailable. Please try again." : calendars.length ? `Connected as ${calendars.map((c) => c.email ?? "a Google account").join(", ")}` : "Not connected"}</p>
+              {calendars.some((c) => c.updated_at) && <span className="fine-print">Last refreshed <LocalTime value={calendars.map((c) => c.updated_at).filter((v): v is string => Boolean(v)).sort()[0]} /></span>}
+              {calendars.filter((c) => c.error).map((c) => <p className="notice" key={c.email ?? c.error}>{c.email ? `${c.email}: ` : ""}{c.error}</p>)}
             </div>
-            <Link className="text-link" href="/connections">{calendar ? "Manage connection" : "Connect Google Calendar"}<ArrowUpRight size={14} /></Link>
+            <Link className="text-link" href="/connections">{calendars.length ? "Manage calendars" : "Connect Google Calendar"}<ArrowUpRight size={14} /></Link>
           </div>
           <div className="settings-row">
             <Link2 size={21} />

@@ -76,6 +76,9 @@ describe("remote MCP transport and authorization", () => {
         "fetch",
         "get_transcript",
         "list_upcoming_meetings",
+        "list_booking_links",
+        "list_bookings",
+        "find_free_time",
       ]),
     );
     expect(

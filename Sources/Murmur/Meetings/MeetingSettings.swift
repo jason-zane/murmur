@@ -51,6 +51,8 @@ final class MeetingSettings {
     var autoOpenMeetings: Bool { didSet { defaults.set(autoOpenMeetings, forKey: Keys.autoOpenMeetings) } }
     var autoSummarize: Bool { didSet { defaults.set(autoSummarize, forKey: Keys.autoSummarize) } }
     var defaultTemplate: SummaryTemplate { didSet { defaults.set(defaultTemplate.rawValue, forKey: Keys.defaultTemplate) } }
+    /// Shares start and end times of busy events on this Mac so booking links avoid them.
+    var shareBusyTimes: Bool { didSet { defaults.set(shareBusyTimes, forKey: Keys.shareBusyTimes) } }
 
     /// Rule for an app, falling back to the registry default: known meeting apps and
     /// browsers ask; anything unknown asks quietly (handled by the detector, not here).
@@ -81,6 +83,7 @@ final class MeetingSettings {
         static let autoOpenMeetings = "meeting.autoOpenMeetings"
         static let autoSummarize = "meeting.autoSummarize"
         static let defaultTemplate = "meeting.defaultTemplate"
+        static let shareBusyTimes = "meeting.shareBusyTimes"
     }
 
     private init() {
@@ -103,5 +106,6 @@ final class MeetingSettings {
         autoOpenMeetings = defaults.object(forKey: Keys.autoOpenMeetings) as? Bool ?? true
         autoSummarize = defaults.object(forKey: Keys.autoSummarize) as? Bool ?? true
         defaultTemplate = SummaryTemplate(rawValue: defaults.string(forKey: Keys.defaultTemplate) ?? "") ?? .meeting
+        shareBusyTimes = defaults.object(forKey: Keys.shareBusyTimes) as? Bool ?? false
     }
 }

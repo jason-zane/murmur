@@ -13,6 +13,8 @@ struct CalendarEvent: Sendable, Identifiable, Hashable {
     /// True when the event carries a video link, in its URL, location or notes.
     let hasConference: Bool
     let conferenceURL: URL?
+    /// Present when a guest booked this meeting through a Voice Notes booking link.
+    var booking: CloudBooking? = nil
 
     var scheduledMeeting: ScheduledMeeting? {
         conferenceURL.map { ScheduledMeeting(eventID: id, start: start, end: end, url: $0) }
@@ -60,7 +62,7 @@ final class CalendarService {
         let cloud = CloudSync.shared.meetings.filter { $0.ends_at > date.addingTimeInterval(-before) && $0.starts_at <= date.addingTimeInterval(after) }.map { event in
             let url = event.meeting_url.flatMap { MeetingLink.provider(for: $0) != nil ? $0 : nil }
             return CalendarEvent(id: "google-" + event.id, title: event.title, start: event.starts_at, end: event.ends_at,
-                attendees: event.attendees, hasConference: url != nil, conferenceURL: url)
+                attendees: event.attendees, hasConference: url != nil, conferenceURL: url, booking: event.booking)
         }
         guard isAuthorized else { return cloud.sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) } }
         let predicate = store.predicateForEvents(
@@ -79,11 +81,36 @@ final class CalendarService {
             }
             .map(Self.reduce)
             .sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) }
-        let additional = cloud.filter { remote in !local.contains { local in
+        let same = { (local: CalendarEvent, remote: CalendarEvent) in
             abs(local.start.timeIntervalSince(remote.start)) < 60 &&
                 (local.conferenceURL == remote.conferenceURL && remote.conferenceURL != nil || local.title == remote.title)
-        } }
-        return (local + additional).sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) }
+        }
+        // The Mac's copy of a booked meeting keeps the guest's booking details from the cloud copy.
+        let merged = local.map { event -> CalendarEvent in
+            guard let booked = cloud.first(where: { $0.booking != nil && same(event, $0) }) else { return event }
+            var event = event
+            event.booking = booked.booking
+            return event
+        }
+        let additional = cloud.filter { remote in !local.contains { same($0, remote) } }
+        return (merged + additional).sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) }
+    }
+
+    /// Only when this Mac's calendars are busy — no titles, people or places — so booking
+    /// links avoid events that exist only on this Mac. All-day events count only when marked busy.
+    func busyTimes(from start: Date = Date(), days: Int = 60) -> [DateInterval] {
+        guard isAuthorized else { return [] }
+        let predicate = store.predicateForEvents(withStart: start, end: start.addingTimeInterval(Double(days) * 86_400), calendars: nil)
+        let blocks = store.events(matching: predicate).filter { event in
+            if event.availability == .free { return false }
+            if event.isAllDay, event.availability != .busy, event.availability != .unavailable { return false }
+            if let status = event.attendees?.first(where: { $0.isCurrentUser })?.participantStatus,
+               status == .declined { return false }
+            return event.endDate > event.startDate
+        }
+        .map { DateInterval(start: $0.startDate, end: $0.endDate) }
+        .sorted { $0.start < $1.start }
+        return Array(blocks.prefix(2_000))
     }
 
     /// The single event most likely to be the call happening now.

@@ -15,18 +15,40 @@ import {
 } from "lucide-react";
 import { Shell } from "@/components/shell";
 import { browserClient } from "@/lib/supabase/browser";
+import { canBook, canListCalendars } from "@/lib/google";
+type Account = {
+  id: string;
+  email: string | null;
+  scopes: string[];
+  updated_at: string | null;
+  error: string | null;
+};
+type Source = {
+  connection_id: string;
+  calendar_id: string;
+  name: string;
+  color: string | null;
+  is_primary: boolean;
+  selected: boolean;
+};
 export function Connections({
   email,
   mcpURL,
-  calendar: initialCalendar,
+  accounts: initialAccounts,
+  calendars: initialCalendars,
+  calendarUnavailable,
   googleReady,
 }: {
   email: string;
   mcpURL: string;
-  calendar: { email: string; updated_at: string; error: string | null } | null;
+  accounts: Account[];
+  calendars: Source[];
+  calendarUnavailable: boolean;
   googleReady: boolean;
 }) {
-  const [calendar, setCalendar] = useState(initialCalendar);
+  const [accounts, setAccounts] = useState(initialAccounts);
+  const [calendars, setCalendars] = useState(initialCalendars);
+  const [pending, setPending] = useState<string | null>(null);
   const [grantsState, setGrantsState] = useState<"loading" | "ready" | "error">("loading");
   const [copied, setCopied] = useState(false),
     [message, setMessage] = useState(""),
@@ -50,15 +72,19 @@ export function Connections({
     const p = new URLSearchParams(location.search);
     if (p.get("error")) setMessage(p.get("error")!);
     if (p.get("connected"))
-      setMessage("Google Calendar is connected. Your next meetings are ready.");
+      setMessage("Google Calendar is connected. Choose which calendars to include below.");
   }, []);
+  function apply(body: { connections: Account[]; calendars: Source[] }) {
+    setAccounts(body.connections);
+    setCalendars(body.calendars);
+  }
   async function refresh() {
     setBusy(true);
     try {
       const r = await fetch("/api/calendar", { method: "POST" });
       const body = await r.json();
       if (!r.ok) throw new Error(body.error);
-      setCalendar(body.connection);
+      apply(body);
       setMessage(`Calendar refreshed. ${body.events.length} upcoming events.`);
     } catch (e) {
       setMessage(
@@ -68,12 +94,59 @@ export function Connections({
       setBusy(false);
     }
   }
-  async function disconnect() {
+  async function choose(source: Source, selected: boolean) {
+    const key = `${source.connection_id}|${source.calendar_id}`;
+    setPending(key);
+    setCalendars((all) =>
+      all.map((c) =>
+        c.connection_id === source.connection_id && c.calendar_id === source.calendar_id
+          ? { ...c, selected }
+          : c,
+      ),
+    );
+    try {
+      const r = await fetch("/api/calendar/sources", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection_id: source.connection_id,
+          calendar_id: source.calendar_id,
+          selected,
+        }),
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error);
+      apply(body);
+    } catch (e) {
+      setCalendars((all) =>
+        all.map((c) =>
+          c.connection_id === source.connection_id && c.calendar_id === source.calendar_id
+            ? { ...c, selected: !selected }
+            : c,
+        ),
+      );
+      setMessage(e instanceof Error ? e.message : "Could not update that calendar.");
+    } finally {
+      setPending(null);
+    }
+  }
+  async function disconnect(account: Account) {
+    if (
+      !confirm(
+        `Disconnect ${account.email ?? "this Google account"}? Its meetings leave your agenda and its calendars stop blocking booking times.`,
+      )
+    )
+      return;
     setBusy(true);
-    const r = await fetch("/api/calendar", { method: "DELETE" });
+    const r = await fetch(`/api/calendar?connection=${encodeURIComponent(account.id)}`, {
+      method: "DELETE",
+    });
     setBusy(false);
-    if (r.ok) location.reload();
-    else setMessage("Could not disconnect Google Calendar. Please try again.");
+    if (r.ok) {
+      setAccounts((all) => all.filter((a) => a.id !== account.id));
+      setCalendars((all) => all.filter((c) => c.connection_id !== account.id));
+      setMessage(`${account.email ?? "The account"} is disconnected.`);
+    } else setMessage("Could not disconnect Google Calendar. Please try again.");
   }
   return (
     <Shell email={email}>
@@ -160,17 +233,72 @@ export function Connections({
           <div>
             <h2>Google Calendar</h2>
             <p>
-              {calendar
-                ? `Connected${calendar.email ? ` as ${calendar.email}` : ""}. Your primary calendar is available in Voice Notes and your connected AI apps.`
-                : "See what’s next, join on time, and prepare with context from past meetings."}
+              {accounts.length
+                ? "Ticked calendars appear in your agenda, name your meetings on the Mac, and block times on your booking links."
+                : "See what’s next, join on time, and prepare with context from past meetings. Connect work and personal accounts."}
             </p>
-            {calendar?.updated_at && (
-              <span className="fine-print">
-                Last refreshed <LocalTime value={calendar.updated_at} />
-              </span>
+            {calendarUnavailable && (
+              <p className="notice">Calendar status is unavailable. Please try again.</p>
             )}
-            {calendar?.error && <p className="notice">{calendar.error}</p>}
-            {!googleReady && !calendar && (
+            {accounts.map((account) => {
+              const own = calendars.filter((c) => c.connection_id === account.id);
+              return (
+                <div className="calendar-account" key={account.id}>
+                  <div className="calendar-account-head">
+                    <strong>{account.email ?? "Google account"}</strong>
+                    {canBook(account.scopes) && <span className="chip">Booking allowed</span>}
+                  </div>
+                  {account.updated_at && (
+                    <span className="fine-print">
+                      Last refreshed <LocalTime value={account.updated_at} />
+                    </span>
+                  )}
+                  {account.error && <p className="notice">{account.error}</p>}
+                  {own.length > 0 && (
+                    <ul className="calendar-list">
+                      {own.map((c) => (
+                        <li key={c.calendar_id}>
+                          <label className="check">
+                            <input
+                              type="checkbox"
+                              checked={c.selected}
+                              disabled={pending !== null}
+                              onChange={(e) => void choose(c, e.target.checked)}
+                            />
+                            <span
+                              className="swatch"
+                              style={{ background: c.color ?? "var(--accent)" }}
+                              aria-hidden="true"
+                            />
+                            {c.name}
+                            {c.is_primary && <small>Primary</small>}
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="calendar-account-actions">
+                    {!canListCalendars(account.scopes) && (
+                      <a
+                        className="text-link"
+                        href={`/api/google/connect${account.email ? `?account=${encodeURIComponent(account.email)}` : ""}`}
+                      >
+                        Show my other calendars
+                        <ArrowUpRight size={14} />
+                      </a>
+                    )}
+                    <button
+                      className="text-link"
+                      onClick={() => void disconnect(account)}
+                      disabled={busy}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {!googleReady && !accounts.length && (
               <p className="fine-print">
                 Google Calendar setup is being completed. Your Mac’s calendar
                 connection remains available.
@@ -178,7 +306,7 @@ export function Connections({
             )}
           </div>
           <div className="connection-actions">
-            {calendar ? (
+            {accounts.length ? (
               <>
                 <button
                   className="button small"
@@ -188,13 +316,12 @@ export function Connections({
                   <RefreshCw size={16} />
                   Refresh
                 </button>
-                <button
-                  className="text-link"
-                  onClick={disconnect}
-                  disabled={busy}
+                <a
+                  className={"text-link " + (!googleReady ? "disabled" : "")}
+                  href={googleReady ? "/api/google/connect?add=1" : undefined}
                 >
-                  Disconnect
-                </button>
+                  Add another Google account
+                </a>
               </>
             ) : (
               <a

@@ -10,15 +10,24 @@ export default async function Page() {
     data: { user },
   } = await client.auth.getUser();
   if (!user) redirect("/login?next=/connections");
-  const { data } = await client
-    .from("calendar_connections")
-    .select("email,updated_at,error")
-    .maybeSingle();
+  const [connections, sources] = await Promise.all([
+    client
+      .from("calendar_connections")
+      .select("id,email,scopes,updated_at,error,created_at")
+      .order("created_at"),
+    client
+      .from("calendar_sources")
+      .select("connection_id,calendar_id,name,color,is_primary,can_write,selected")
+      .order("is_primary", { ascending: false })
+      .order("name"),
+  ]);
   return (
     <Connections
       email={user.email || "Your account"}
       mcpURL={`${siteURL()}/mcp`}
-      calendar={data}
+      accounts={connections.data ?? []}
+      calendars={sources.data ?? []}
+      calendarUnavailable={Boolean(connections.error || sources.error)}
       googleReady={Boolean(
         process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
       )}

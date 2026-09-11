@@ -152,6 +152,13 @@ final class MeetingController {
                     attendees: context.calendarEvent?.attendees ?? [],
                     engine: engineName
                 )
+                if let booking = context.calendarEvent?.booking {
+                    manifest.booking = BookingContext(
+                        eventType: booking.event_type, guestName: booking.guest_name, guestEmail: booking.guest_email,
+                        answers: booking.answers.map { .init(question: $0.question, answer: $0.answer) })
+                    // The meeting type the guest booked decides how its notes are written.
+                    manifest.summaryTemplate = booking.template.flatMap(SummaryTemplate.init(rawValue:))?.rawValue
+                }
                 try store.create(manifest)
                 manifest.duration = 0
                 session = manifest
@@ -421,7 +428,7 @@ final class MeetingController {
         state = .idle
         runID = UUID()
         if MeetingSettings.shared.autoSummarize, !segments.isEmpty, FoundationModelFormatter.isAvailable {
-            MeetingSummaryService.shared.generate(id: manifest.id, template: MeetingSettings.shared.defaultTemplate, store: store)
+            MeetingSummaryService.shared.generate(id: manifest.id, template: SummaryTemplate(rawValue: manifest.summaryTemplate ?? "") ?? MeetingSettings.shared.defaultTemplate, store: store)
         }
     }
 

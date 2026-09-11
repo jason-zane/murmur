@@ -21,17 +21,32 @@ export default function Page() {
         </p>
         <h2>Your connected apps</h2>
         <p>
-          An AI app you authorize can read your synced library and upcoming
-          calendar events. Text it requests is shared with that provider. You
+          An AI app you authorize can read your synced library, upcoming
+          calendar events, booking links and bookings, and can suggest free
+          times. It cannot change anything. Text it requests is shared with
+          that provider. You
           can revoke authorization in Connections; already-issued access tokens
           remain valid until they expire, for up to one hour.
         </p>
         <h2>Google Calendar</h2>
         <p>
-          Connecting Google Calendar grants read-only access to your primary
-          calendar. Voice Notes stores an encrypted refresh token so it can refresh
-          your agenda. Disconnecting removes that token and the synced calendar
+          Connecting Google Calendar lets Voice Notes read events from the
+          calendars you choose, across one or more Google accounts. Voice Notes
+          stores an encrypted refresh token for each account so it can refresh
+          your agenda. Disconnecting an account removes its token and its synced
           events.
+        </p>
+        <h2>Booking links</h2>
+        <p>
+          If you turn on booking links, Google asks for two more permissions on
+          that account: to see when you’re busy and to add meetings to your
+          calendar. When someone books, the event is created on your calendar
+          and Google sends the invitation from your account. Voice Notes does
+          not email guests. The guest’s name, email address, time zone and
+          answers are stored with the booking so they appear with the meeting.
+          Busy times shared from your Mac contain only start and end times.
+          Booking pages are rate limited using a keyed hash of the visitor’s
+          network address; raw addresses are not stored.
         </p>
         <h2>Keeping a copy</h2>
         <p>
@@ -43,8 +58,8 @@ export default function Page() {
         <p>
           Deleting a local note does not delete its cloud copy. Account removal
           currently requires the project owner to delete the account through
-          Supabase; that cascades to its notes, revisions, calendar events and
-          credentials. This is a personal deployment with no analytics or
+          Supabase; that cascades to its notes, revisions, calendar events,
+          booking links, bookings and credentials. This is a personal deployment with no analytics or
           advertising cookies.
         </p>
       </div>

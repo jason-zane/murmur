@@ -58,6 +58,14 @@ public enum MeetingNotes {
     public static func source(session: MeetingSession, bullets: [NoteBullet], segments: [TranscriptSegment]) -> String {
         var lines = ["Meeting: \(session.title)"]
         if !session.attendees.isEmpty { lines.append("Attendees: " + session.attendees.map(\.name).joined(separator: ", ")) }
+        if let booking = session.booking {
+            lines.append("Booked by: \(booking.guestName) (\(booking.eventType))")
+            let answers = booking.answers.filter { !$0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            if !answers.isEmpty {
+                lines.append("\nGuest's answers when booking (written before the meeting, not said in it):")
+                lines += answers.map { "- \($0.question): \($0.answer)" }
+            }
+        }
         if !bullets.isEmpty {
             lines.append("\nUser's notes:")
             lines += bullets.map { "[\(TimeFormat.clock($0.at))] \($0.text)" }

@@ -79,6 +79,32 @@ public struct Attendee: Codable, Sendable, Hashable {
     }
 }
 
+/// What a guest told the host when booking the meeting through a Voice Notes booking link.
+/// Written before the meeting, so notes must never present it as something said in it.
+public struct BookingContext: Codable, Sendable, Hashable {
+    public struct Answer: Codable, Sendable, Hashable {
+        public var question: String
+        public var answer: String
+
+        public init(question: String, answer: String) {
+            self.question = question
+            self.answer = answer
+        }
+    }
+
+    public var eventType: String
+    public var guestName: String
+    public var guestEmail: String?
+    public var answers: [Answer]
+
+    public init(eventType: String, guestName: String, guestEmail: String? = nil, answers: [Answer] = []) {
+        self.eventType = eventType
+        self.guestName = guestName
+        self.guestEmail = guestEmail
+        self.answers = answers
+    }
+}
+
 /// The manifest for one meeting: everything except the transcript and notes themselves,
 /// which live in sibling files so they can be appended to and revised independently.
 public struct MeetingSession: Codable, Sendable, Identifiable, Hashable {
@@ -106,6 +132,7 @@ public struct MeetingSession: Codable, Sendable, Identifiable, Hashable {
     public var pinned: Bool?
     public var noteSource: String?
     public var summaryTemplate: String?
+    public var booking: BookingContext?
 
     public var isPinned: Bool { pinned == true }
     public var isNoteOnly: Bool { engine == "Notes" }

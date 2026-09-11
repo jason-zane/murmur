@@ -3,9 +3,16 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { requestAuth } from "@/lib/http";
 import { adminClient } from "@/lib/supabase/server";
-import { googleToken, encryptToken, refreshCalendar } from "@/lib/calendar";
+import {
+  connectionsFor,
+  googleToken,
+  refreshConnection,
+  saveConnection,
+} from "@/lib/calendar";
+import { canBook, canReadEvents } from "@/lib/google";
 import { siteURL } from "@/lib/config";
 export async function GET(request: Request) {
+  let bookingFlow = false;
   try {
     const { user } = await requestAuth(request),
       params = new URL(request.url).searchParams,
@@ -18,7 +25,12 @@ export async function GET(request: Request) {
       throw new Error(
         "Calendar connection was cancelled or expired. Please try again.",
       );
-    const expected = JSON.parse(stored);
+    const expected = JSON.parse(stored) as {
+      state: string;
+      verifier: string;
+      booking?: boolean;
+    };
+    bookingFlow = Boolean(expected.booking);
     const a = Buffer.from(state),
       b = Buffer.from(expected.state);
     if (a.length !== b.length || !timingSafeEqual(a, b))
@@ -29,15 +41,8 @@ export async function GET(request: Request) {
       redirect_uri: `${siteURL()}/api/google/callback`,
       code_verifier: expected.verifier,
     });
-    if (
-      !token.scope
-        ?.split(" ")
-        .some(
-          (s) =>
-            s === "https://www.googleapis.com/auth/calendar.events.readonly" ||
-            s === "https://www.googleapis.com/auth/calendar.readonly",
-        )
-    )
+    const granted = token.scope?.split(" ").filter(Boolean) ?? [];
+    if (!canReadEvents(granted))
       throw new Error("Allow read-only Calendar access to show your agenda.");
     if (!token.refresh_token)
       throw new Error(
@@ -51,31 +56,37 @@ export async function GET(request: Request) {
       },
     );
     const profile = response.ok ? await response.json() : {};
-    const db = adminClient();
-    const { error } = await db
-      .from("calendar_credentials")
-      .upsert({
-        user_id: user.id,
-        encrypted_refresh_token: encryptToken(token.refresh_token),
-        updated_at: new Date().toISOString(),
+    const id = await saveConnection(
+      user.id,
+      profile.email || null,
+      granted,
+      token.refresh_token,
+    );
+    const connection = (await connectionsFor(user.id)).find((c) => c.id === id);
+    if (connection)
+      await refreshConnection(connection).catch(async (error) => {
+        await adminClient()
+          .from("calendar_connections")
+          .update({
+            error:
+              error instanceof Error ? error.message : "Calendar sync failed.",
+          })
+          .eq("id", id);
       });
-    if (error) throw error;
-    const { error: statusError } = await db
-      .from("calendar_connections")
-      .upsert({
-        user_id: user.id,
-        email: profile.email || null,
-        error: null,
-        updated_at: null,
-      });
-    if (statusError) throw statusError;
-    await refreshCalendar(user.id, true);
-    return NextResponse.redirect(`${siteURL()}/connections?connected=google`);
+    if (bookingFlow && !canBook(granted))
+      throw new Error(
+        "Booking needs permission to add events to your calendar and to see when you’re busy. Try again and allow both.",
+      );
+    return NextResponse.redirect(
+      bookingFlow
+        ? `${siteURL()}/scheduling?connected=booking`
+        : `${siteURL()}/connections?connected=google`,
+    );
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Could not connect Google Calendar.";
     return NextResponse.redirect(
-      `${siteURL()}/connections?error=${encodeURIComponent(message)}`,
+      `${siteURL()}/${bookingFlow ? "scheduling" : "connections"}?error=${encodeURIComponent(message)}`,
     );
   }
 }

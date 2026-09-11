@@ -21,6 +21,18 @@ export const documentSchema = z.object({
     pinned: z.boolean().nullable().optional(),
     noteSource: short.nullable().optional(),
     summaryTemplate: short.nullable().optional(),
+    // Answers a guest gave on the booking page. Not said in the meeting, not written by you.
+    booking: z
+      .object({
+        eventType: short,
+        guestName: short,
+        guestEmail: short.nullable().optional(),
+        answers: z
+          .array(z.object({ question: short, answer: z.string().max(4000) }))
+          .max(20),
+      })
+      .nullable()
+      .optional(),
   }),
   transcript: z
     .array(
@@ -62,6 +74,14 @@ export type CalendarMeeting = {
   ends_at: string;
   meeting_url: string | null;
   attendees: { name: string; email?: string }[];
+  booking?: {
+    id: string;
+    event_type: string;
+    template: string;
+    guest_name: string;
+    guest_email: string;
+    answers: { question: string; answer: string }[];
+  };
 };
 export function newDocument(title = "Untitled note"): MeetingDocument {
   const now = new Date().toISOString();

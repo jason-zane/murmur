@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BookOpen,
+  CalendarClock,
   Link2,
   ArrowUpRight,
   Settings,
@@ -31,6 +32,13 @@ export function Shell({
           <Link href="/" className={path === "/" ? "nav active" : "nav"}>
             <BookOpen size={18} />
             Your notes
+          </Link>
+          <Link
+            href="/scheduling"
+            className={path === "/scheduling" ? "nav active" : "nav"}
+          >
+            <CalendarClock size={18} />
+            Booking links
           </Link>
           <Link
             href="/connections"

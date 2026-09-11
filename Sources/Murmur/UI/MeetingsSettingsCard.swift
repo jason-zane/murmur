@@ -97,6 +97,8 @@ struct MeetingsSettingsCards: View {
                     .disabled(!settings.calendarEnabled)
                 Hint("Opens supported meeting links a minute before the start. Google Meet opens in Chrome. Recording starts only when the call is detected. Skip a meeting from Up next.")
                 Hint("Uses Google Calendar connected through Voice Notes, or calendars on this Mac, to find meeting names, people and links. Nothing is written back.")
+                SettingToggleRow(title: "Keep booking links clear of events on this Mac", isOn: $settings.shareBusyTimes)
+                Hint("For Voice Notes booking links. Shares only when you’re busy on this Mac, never titles, people or places, so guests can’t book over those times. Turn off to remove them.")
 
                 if settings.calendarEnabled {
                     calendarPermissionRow

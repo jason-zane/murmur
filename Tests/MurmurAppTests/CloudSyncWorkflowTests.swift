@@ -140,6 +140,29 @@ struct CloudSyncWorkflowTests {
         #expect(sync.meetings.isEmpty && !sync.calendarConnected && sync.message == nil)
     }
 
+    @Test func bookedMeetingsCarryGuestContextAndOnlyBusyTimesAreShared() async throws {
+        let fixture = try SyncFixture()
+        defer { fixture.remove() }
+        let remote = MemorySyncTransport()
+        remote.bookingEnabled = true
+        remote.booking = CloudBooking(id: "booking-1", event_type: "Intro call", template: "oneOnOne", guest_name: "Ada Guest",
+                                      guest_email: "ada@example.invalid", answers: [.init(question: "What would you like to cover?", answer: "Pricing")])
+        let start = Date().addingTimeInterval(3_600)
+        remote.localBusy = [DateInterval(start: start, duration: 1_800)]
+        let sync = CloudSync(store: fixture.store, transport: remote, agendaChanged: {}, busyTimes: { remote.localBusy })
+
+        await sync.sync()
+        #expect(sync.meetings.first?.booking?.guest_name == "Ada Guest")
+        #expect(sync.meetings.first?.booking?.answers.first?.answer == "Pricing")
+        #expect(remote.busyUploads == [[ISO8601DateFormatter().string(from: start)]])
+
+        // Turning sharing off clears what this Mac shared, once.
+        remote.localBusy = nil
+        await sync.sync()
+        await sync.sync()
+        #expect(remote.busyUploads.count == 2 && remote.busyUploads.last == [])
+    }
+
     @Test func offlineRestartLoadsOnlyTheLinkedAccountsCachedAgenda() async throws {
         let fixture = try SyncFixture()
         defer { fixture.remove() }
@@ -208,6 +231,10 @@ private final class MemorySyncTransport: CloudSyncTransport {
         var document: CloudDocument
     }
     private struct Upload: Decodable { let document: CloudDocument; let expectedVersion: Int }
+    private struct BusyUpload: Decodable {
+        struct Block: Decodable { let start: String; let end: String }
+        let blocks: [Block]
+    }
     private struct Index: Encodable {
         let sessions: [Row]
         let nextOffset: Int? = nil
@@ -215,6 +242,7 @@ private final class MemorySyncTransport: CloudSyncTransport {
     private struct Agenda: Encodable {
         let events: [CloudMeeting]
         let connection = Connection()
+        var bookingEnabled: Bool? = nil
         struct Connection: Encodable { let email = "fixture@example.invalid" }
     }
     var userID: String? = "fixture-account"
@@ -225,6 +253,10 @@ private final class MemorySyncTransport: CloudSyncTransport {
     var networkError: URLError?
     var beforeRequest: ((String, String) throws -> Void)?
     var afterResponse: ((String, String) throws -> Void)?
+    var bookingEnabled: Bool?
+    var booking: CloudBooking?
+    var localBusy: [DateInterval]?
+    var busyUploads: [[String]] = []
 
     func request(_ path: String, method: String, body: Data?) async throws -> Data {
         paths.append(path)
@@ -232,7 +264,7 @@ private final class MemorySyncTransport: CloudSyncTransport {
         try beforeRequest?(path, method)
         let data: Data
         if path == "api/calendar" {
-            data = try CloudCoding.encoder.encode(Agenda(events: [.init(id: "scheduled", title: "Fixture meeting", starts_at: Date().addingTimeInterval(600), ends_at: Date().addingTimeInterval(2_400), meeting_url: nil, attendees: [])]))
+            data = try CloudCoding.encoder.encode(Agenda(events: [.init(id: "scheduled", title: "Fixture meeting", starts_at: Date().addingTimeInterval(600), ends_at: Date().addingTimeInterval(2_400), meeting_url: nil, attendees: [], booking: booking)], bookingEnabled: bookingEnabled))
         } else if path.hasPrefix("api/sync?") {
             data = try CloudCoding.encoder.encode(Index(sessions: rows.values.sorted { $0.id < $1.id }))
         } else if path.hasPrefix("api/sessions/"), method == "GET" {
@@ -249,6 +281,10 @@ private final class MemorySyncTransport: CloudSyncTransport {
             let row = Row(id: id, version: version + 1, document: upload.document)
             rows[id] = row
             data = try CloudCoding.encoder.encode(row)
+        } else if path == "api/calendar/device-busy", method == "PUT" {
+            let upload = try JSONDecoder().decode(BusyUpload.self, from: try #require(body))
+            busyUploads.append(upload.blocks.map(\.start))
+            data = Data(#"{"shared":\#(upload.blocks.count)}"#.utf8)
         } else { throw CloudHTTPError(status: 404, message: "Unexpected fixture request") }
         try afterResponse?(path, method)
         return data

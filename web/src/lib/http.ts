@@ -17,6 +17,16 @@ export async function requestAuth(request: Request) {
     throw new HttpError(403, "This request must come from Voice Notes.");
   return { client, user: data.user };
 }
+/** Changes require the signed-in web app or the Mac app, never a connected AI app. */
+export async function requireEditor(
+  request: Request,
+  message = "Sign in to Voice Notes to make changes.",
+) {
+  const auth = await requestAuth(request);
+  const { data } = await auth.client.rpc("is_murmur_editor");
+  if (!data) throw new HttpError(403, message);
+  return auth;
+}
 export class HttpError extends Error {
   constructor(
     public status: number,
@@ -37,9 +47,13 @@ export function failure(error: unknown) {
     { status: 500 },
   );
 }
-export async function limitedJSON(request: Request, limit = 8_000_000) {
+export async function limitedJSON(
+  request: Request,
+  limit = 8_000_000,
+  tooLarge = "This meeting is too large to sync.",
+) {
   if (Number(request.headers.get("content-length") || 0) > limit)
-    throw new HttpError(413, "This meeting is too large to sync.");
+    throw new HttpError(413, tooLarge);
   const reader = request.body?.getReader();
   if (!reader) throw new HttpError(400, "Missing request body.");
   let bytes = 0;
@@ -50,7 +64,7 @@ export async function limitedJSON(request: Request, limit = 8_000_000) {
     bytes += value.length;
     if (bytes > limit) {
       await reader.cancel();
-      throw new HttpError(413, "This meeting is too large to sync.");
+      throw new HttpError(413, tooLarge);
     }
     chunks.push(value);
   }

@@ -9,6 +9,19 @@ struct CloudMeeting: Codable, Sendable, Identifiable {
     let ends_at: Date
     let meeting_url: URL?
     let attendees: [Attendee]
+    /// Present when a guest booked this meeting through a Voice Notes booking link.
+    var booking: CloudBooking? = nil
+}
+
+/// What the guest gave when booking. Their answers are their own words, written before the meeting.
+struct CloudBooking: Codable, Sendable, Hashable {
+    struct Answer: Codable, Sendable, Hashable { let question: String; let answer: String }
+    let id: String
+    let event_type: String
+    let template: String?
+    let guest_name: String
+    let guest_email: String?
+    let answers: [Answer]
 }
 
 /// Keeps account ownership and HTTP outside the synchronization workflow so interrupted
@@ -62,6 +75,7 @@ final class CloudSync {
     private let store: SessionStore
     private let transport: any CloudSyncTransport
     private let agendaChanged: @MainActor () -> Void
+    private let busyTimes: @MainActor () -> [DateInterval]?
     private var index: SyncIndex?
     private let indexURL: URL
 
@@ -75,10 +89,14 @@ final class CloudSync {
     }
 
     init(store: SessionStore = SessionStore(), transport: (any CloudSyncTransport)? = nil,
-         agendaChanged: @escaping @MainActor () -> Void = { MeetingSchedule.shared.refresh() }) {
+         agendaChanged: @escaping @MainActor () -> Void = { MeetingSchedule.shared.refresh() },
+         busyTimes: @escaping @MainActor () -> [DateInterval]? = {
+             MeetingSettings.shared.shareBusyTimes ? CalendarService.shared.busyTimes() : nil
+         }) {
         self.store = store
         self.transport = transport ?? AccountSyncTransport()
         self.agendaChanged = agendaChanged
+        self.busyTimes = busyTimes
         indexURL = store.root.deletingLastPathComponent().appendingPathComponent("cloud-sync.json")
         if let data = try? Data(contentsOf: indexURL) { index = try? JSONDecoder().decode(SyncIndex.self, from: data) }
     }
@@ -132,6 +150,7 @@ final class CloudSync {
                 applyAgenda(agenda)
                 saveAgenda(agenda, for: userID)
                 calendarWarning = agenda.connection?.error
+                await shareBusyTimes(bookingEnabled: agenda.bookingEnabled == true, run: run)
             } catch {
                 try check(run)
                 if Self.stopsPass(error) { throw error }
@@ -253,6 +272,20 @@ final class CloudSync {
         return try CloudCoding.decoder.decode(T.self, from: data)
     }
 
+    /// Booking links avoid events that exist only on this Mac. Only start and end times leave it,
+    /// and turning sharing off, or booking links off, clears what was shared.
+    private func shareBusyTimes(bookingEnabled: Bool, run: Run) async {
+        let blocks = bookingEnabled ? busyTimes() : nil
+        guard blocks != nil || index?.sharesBusyTimes == true else { return }
+        let format = ISO8601DateFormatter()
+        let upload = BusyUpload(blocks: (blocks ?? []).map { .init(start: format.string(from: $0.start), end: format.string(from: $0.end)) })
+        do {
+            let _: BusyShared = try await request("api/calendar/device-busy", method: "PUT", body: try JSONEncoder().encode(upload), run: run)
+            index?.sharesBusyTimes = blocks != nil
+            try persistIndex()
+        } catch {}
+    }
+
     private func check(_ run: Run) throws {
         try Task.checkCancellation()
         guard generation == run.generation, transport.userID == run.userID else { throw CancellationError() }
@@ -291,7 +324,16 @@ final class CloudSync {
     }
 
     private struct Run { let userID: String; let generation: UUID }
-    private struct SyncIndex: Codable { var userID: String; var entries: [String: CloudSyncEntry] }
+    private struct SyncIndex: Codable {
+        var userID: String
+        var entries: [String: CloudSyncEntry]
+        var sharesBusyTimes: Bool? = nil
+    }
+    private struct BusyUpload: Encodable {
+        struct Block: Encodable { let start: String; let end: String }
+        let blocks: [Block]
+    }
+    private struct BusyShared: Decodable { let shared: Int }
     private struct RemoteIndex: Decodable { let id: String; let version: Int; let deleted_at: String? }
     private struct IndexPage: Decodable { let sessions: [RemoteIndex]; let nextOffset: Int? }
     private struct RemoteDocument: Decodable, Sendable {
@@ -308,6 +350,8 @@ final class CloudSync {
     private struct CalendarPage: Codable {
         let events: [CloudMeeting]
         let connection: Connection?
+        /// Booking links are set up, so busy times from this Mac may be shared.
+        let bookingEnabled: Bool?
         struct Connection: Codable { let email: String?; let updated_at: String?; let error: String? }
     }
 }

@@ -43,6 +43,32 @@ activation completed. Data access was saved with `openid`, userinfo email/profil
 `NEXT_PUBLIC_GOOGLE_ENABLED=true` is deployed. Actual Google sign-in completed using
 `jasonzanehunt@gmail.com`, and the authenticated private library loaded successfully.
 
+## Booking links and multiple calendars: built, not deployed
+
+Built and tested locally on 11 September 2026. Nothing below has been applied to
+production; each step needs the owner's approval.
+
+1. Apply `supabase/migrations/20260911090000_murmur_scheduling.sql`. The existing Google
+   connection becomes the first account with its read-only scope. Cached agenda events are
+   cleared and rebuild on the next refresh.
+2. In Google Cloud → Data access for `voice-notes-508106`, add
+   `calendar.calendarlist.readonly`, `calendar.events` and `calendar.freebusy`. They are
+   sensitive scopes: until Google verifies the app, only test users can grant them and
+   Google shows its unverified-app screen. Verification needs the privacy policy (updated
+   for booking links) and a short demo of the consent and booking flow.
+3. Deploy the web app. No new environment variables are needed;
+   `GOOGLE_TOKEN_ENCRYPTION_KEY` also derives the booking rate-limit key.
+4. As the owner: Connections → Show my other calendars (grants the calendar list), tick
+   calendars, then Booking links → Allow booking, choose a link name, hours and calendar,
+   and add a meeting type.
+5. Install a Mac build from this branch so booked meetings carry their guest answers and
+   template. Busy times from the Mac are shared only after turning on Settings → Meetings →
+   Keep booking links clear of events on this Mac.
+
+Live checks still to do after deployment: a real booking creates the event and Meet link
+and Google emails the guest; reschedule and cancel from the guest's link update the event;
+the Mac names the booked meeting and applies its template.
+
 ## Acceptance and live checks
 
 The user accepted this delivery as complete on 9 September 2026, with the final two-person

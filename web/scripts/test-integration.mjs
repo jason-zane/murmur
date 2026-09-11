@@ -2,7 +2,7 @@
 // Never reads .env.local, global Supabase credentials or a hosted project.
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, readdir, readFile, writeFile } from "node:fs/promises";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 const run = promisify(execFile);
@@ -23,16 +23,21 @@ try {
 const { stdout } = await run("supabase", ["status", "-o", "json"], { cwd: root });
 const local = JSON.parse(stdout);
 if (local.API_URL !== "http://127.0.0.1:56321") throw new Error("Refusing an unexpected Supabase stack.");
-const sql = await readFile(new URL("../../supabase/tests/cloud-access.sql", import.meta.url), "utf8");
-await new Promise((resolve, reject) => {
-  const child = spawn("docker", ["exec", "-i", "supabase_db_murmur", "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-q"], { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
-  let output = "", error = "";
-  child.stdout.on("data", chunk => output += chunk);
-  child.stderr.on("data", chunk => error += chunk);
-  child.on("error", reject);
-  child.on("exit", code => code === 0 ? resolve(output) : reject(new Error(error)));
-  child.stdin.end(sql);
-});
+// Every rollback-only fixture in supabase/tests runs, in name order.
+const fixtures = (await readdir(new URL("../../supabase/tests/", import.meta.url))).filter(name => name.endsWith(".sql")).sort();
+for (const name of fixtures) {
+  const sql = await readFile(new URL(`../../supabase/tests/${name}`, import.meta.url), "utf8");
+  const output = await new Promise((resolve, reject) => {
+    const child = spawn("docker", ["exec", "-i", "supabase_db_murmur", "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-q"], { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
+    let output = "", error = "";
+    child.stdout.on("data", chunk => output += chunk);
+    child.stderr.on("data", chunk => error += chunk);
+    child.on("error", reject);
+    child.on("exit", code => code === 0 ? resolve(output) : reject(new Error(`${name}: ${error}`)));
+    child.stdin.end(sql);
+  });
+  console.log(String(output).split("\n").find(line => line.includes("PASS")) ?? `${name} passed`);
+}
 console.log("Rollback-only SQL checks passed.");
 const exitCode = await new Promise((resolve, reject) => {
   const child = spawn(process.execPath, ["node_modules/vitest/vitest.mjs", "run", "--config", "vitest.integration.config.ts"], {

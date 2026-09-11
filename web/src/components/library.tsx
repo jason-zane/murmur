@@ -91,7 +91,7 @@ export function Library({ email, userID }: { email: string; userID: string }) {
       if (r.ok) {
         const b = await r.json();
         setEvents(b.events || []);
-        setCalendarConnected(Boolean(b.connection));
+        setCalendarConnected(Boolean(b.connections?.length ?? b.connection));
       }
     });
   }, [load]);
@@ -317,6 +317,11 @@ export function Library({ email, userID }: { email: string; userID: string }) {
                       <strong>{time(event.starts_at)}</strong>
                     </span>
                     <h3>{event.title}</h3>
+                    {event.booking && (
+                      <span className="agenda-booking">
+                        Booked · {event.booking.event_type}
+                      </span>
+                    )}
                     <p>
                       {event.attendees
                         ?.slice(0, 3)
