@@ -1,11 +1,43 @@
 # Voice Notes deployment
 
+## Unified meeting workspace — 11 September 2026
+
+Production code `97e19f3` is live at https://murmur-rho-pied.vercel.app. Deployment
+`dpl_9zS5hjqpq1om6TUNys8TstTskhBG` is READY. The Mac app uses the same navigation and
+design tokens, a native agenda/day/week calendar, and the hosted booking and connection
+screens inside the signed-in workspace. Recording a selected booked meeting preserves
+its guest answers and meeting type's notes template.
+
+Meeting types now support default hours, reusable availability profiles or custom hours,
+including date exceptions, plus destination-calendar and email-sender overrides.
+Bookings include host rescheduling, cancellation, attendance and reviewed follow-ups.
+Preparation, reminder and thank-you email recipes use the user's Gmail account; recipes
+remain disabled by default. Private note-derived drafts require review before sending.
+
+Applied `20260911100000_meeting_workspace_messages.sql` and
+`20260911110000_reusable_availability.sql` to project `olxjfdsslbpdvywsnzrc` after checking
+the new tables were absent. Verified RLS on all four new tables. Added the production
+`CRON_SECRET`; Vercel dispatch runs every minute and returned successful responses.
+Gmail API and send-only scope are enabled. Jason approved consent and the self-test;
+Google verification was not submitted and remains Jason's responsibility.
+
+Validation: TypeScript and production builds passed; 156 web unit tests passed (two
+skipped), 25 integration tests passed against isolated local Supabase, 68 focused Swift
+tests passed, and the installed MCP smoke checks passed. Signed-in production Connections
+and Booking links loaded on web and Mac. A live booking created a Meet event and Google
+invitation; a reviewed Gmail follow-up arrived at Jason's own plus-address. A 13-second
+Mac test note carried the guest answers, booking identity and Meeting notes template.
+Rescheduling generated Google's update; cancellation generated its cancellation email.
+Both cancelled test bookings and their message history were removed, and the public API
+offered the original 09:00 and moved 09:30 Sydney slots again. Test notes remain available
+as recording evidence. No third-party guests were contacted.
+
 ## Created
 
 - Vercel project: `murmur`, team `jason-zanes-projects`.
 - Site: https://murmur-rho-pied.vercel.app
-- Latest verified deployment: `dpl_7TpugBwNJhA7QRVaaeWzhicHVX2c`, READY on 9 September
-  2026, including shared Account settings, the phone layout correction and updated connection instructions.
+- Latest verified deployment: `dpl_9zS5hjqpq1om6TUNys8TstTskhBG`, READY on 11 September
+  2026, including the unified meeting workspace, reusable availability and Gmail follow-ups.
 - Remote MCP: https://murmur-rho-pied.vercel.app/mcp
 - New Supabase organization: **Murmur**, `dxqglhelvchutaqnjiyi`.
 - Supabase project: **Murmur**, `olxjfdsslbpdvywsnzrc`, Sydney (`ap-southeast-2`).
