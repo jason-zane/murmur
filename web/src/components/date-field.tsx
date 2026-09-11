@@ -7,6 +7,7 @@ export function DateField({ value, onChange, label = "Choose date" }: {
   return (
     <div className="date-field">
       <input type="date" aria-label={label} value={value}
+        onInput={(event) => onChange(event.currentTarget.value)}
         onChange={(event) => onChange(event.target.value)} />
     </div>
   );

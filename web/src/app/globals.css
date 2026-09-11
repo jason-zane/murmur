@@ -3360,3 +3360,15 @@ select:focus-visible {
 .calendar-month .month-more { color: var(--muted); text-align: left; }
 
 .month-heading { margin-bottom: 16px; }
+
+.calendar-layout.month-layout { grid-template-columns: minmax(0, 1fr); }
+.month-layout .calendar-aside { display: none; }
+
+.calendar-filters { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; }
+.calendar-filters:empty { display: none; }
+.calendar-filters .calendar-filter { width: 240px; margin: 0; }
+.calendar-filters .search { margin: 0 0 0 auto; width: 280px; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; background: var(--surface); }
+@media (max-width: 600px) {
+  .calendar-filters { flex-direction: column; align-items: stretch; gap: 12px; }
+  .calendar-filters .calendar-filter, .calendar-filters .search { width: 100%; }
+}

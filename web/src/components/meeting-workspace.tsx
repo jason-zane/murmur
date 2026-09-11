@@ -191,7 +191,7 @@ export function MeetingWorkspace({
           <Link href="/connections">Reconnect</Link>
         </p>
       )}
-      <div className="calendar-layout">
+      <div className={"calendar-layout" + (!home && view === "Month" ? " month-layout" : "")}>
         <section className="calendar-main">
           <div className="calendar-toolbar">
             <div className="button-group">
@@ -246,6 +246,7 @@ export function MeetingWorkspace({
               <RefreshCw size={16} className={busy ? "spin" : ""} />
             </button>
           </div>
+          <div className="calendar-filters">
           {!home && (
             <label className="field calendar-filter">
               <span>Calendar</span>
@@ -277,6 +278,7 @@ export function MeetingWorkspace({
               />
             </label>
           )}
+          </div>
           {busy && (
             <p className="muted" role="status">
               Loading meetings…
@@ -443,7 +445,7 @@ export function MeetingWorkspace({
           </section>
           <section className="workspace-card">
             <h3>Your booking page</h3>
-            <p>Make space for the meetings that matter.</p>
+            <p>Manage meeting types and availability.</p>
             <Link className="text-link" href="/scheduling">
               Manage booking links <ArrowUpRight size={14} />
             </Link>
