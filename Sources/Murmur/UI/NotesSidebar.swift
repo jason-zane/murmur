@@ -26,14 +26,6 @@ struct NotesSidebar: View {
             VStack(spacing: DS.Space.md) {
                 SearchField(text: $query, placeholder: "Search all notes")
                     .focused($searchFocused)
-                VStack(spacing: DS.Space.xxs) {
-                    NavRow(title: "Home", systemImage: "house", isSelected: selection == nil && page == .home) {
-                        selection = nil; page = .home
-                    }
-                    NavRow(title: "Dictation", systemImage: "waveform", isSelected: selection == nil && page == .dictation) {
-                        selection = nil; page = .dictation
-                    }
-                }
                 HStack(spacing: DS.Space.sm) {
                     Text("Notes").font(DS.Font.label).foregroundStyle(DS.Color.textTertiary)
                     Spacer()
@@ -82,7 +74,7 @@ struct NotesSidebar: View {
                 .scrollContentBackground(.hidden)
             }
         }
-        .onAppear(perform: reload)
+        .onAppear { reload(); searchFocused = true }
         .onChange(of: controller.state) { _, _ in reload() }
         .onChange(of: reloadToken) { _, _ in reload() }
         .onChange(of: selection) { _, id in match = id.flatMap { matches[$0] } }
@@ -136,7 +128,7 @@ struct NotesSidebar: View {
 }
 
 /// A sidebar destination that isn't a note: Home and the dictation list.
-private struct NavRow: View {
+struct NavRow: View {
     let title: String
     let systemImage: String
     let isSelected: Bool
@@ -152,7 +144,7 @@ private struct NavRow: View {
             }
             .foregroundStyle(isSelected ? DS.Color.accent : DS.Color.textSecondary)
             .padding(.horizontal, DS.Space.sm)
-            .padding(.vertical, DS.Space.xs)
+            .padding(.vertical, DS.Space.sm)
             .background(isSelected ? DS.Color.accentSoft : isHovering ? DS.Color.hover : .clear, in: .rect(cornerRadius: DS.Radius.md))
             .contentShape(.rect)
         }

@@ -8,7 +8,14 @@ export async function GET(request: Request) {
     const { client, user } = await requestAuth(request);
     if (process.env.SUPABASE_SECRET_KEY)
       await refreshCalendar(user.id).catch(() => {});
-    return Response.json(await agenda(client), { headers });
+    return Response.json(
+      await agenda(
+        client,
+        new URL(request.url).searchParams.has("workspace") ? 90 : 30,
+        new URL(request.url).searchParams.has("workspace"),
+      ),
+      { headers },
+    );
   } catch (e) {
     return failure(e);
   }
@@ -21,7 +28,14 @@ export async function POST(request: Request) {
       "Sign in to Voice Notes to manage Calendar.",
     );
     await refreshCalendar(user.id, true).catch(() => {});
-    return Response.json(await agenda(client), { headers });
+    return Response.json(
+      await agenda(
+        client,
+        new URL(request.url).searchParams.has("workspace") ? 90 : 30,
+        new URL(request.url).searchParams.has("workspace"),
+      ),
+      { headers },
+    );
   } catch (e) {
     return failure(e);
   }

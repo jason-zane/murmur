@@ -83,7 +83,13 @@ export function Library({ email, userID }: { email: string; userID: string }) {
     }
   }, []);
   useEffect(() => {
-    setDayLabel(new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }));
+    setDayLabel(
+      new Date().toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      }),
+    );
     void load();
     const id = new URLSearchParams(location.search).get("note");
     if (id) setSelected(id);
@@ -125,52 +131,70 @@ export function Library({ email, userID }: { email: string; userID: string }) {
   return (
     <Shell email={email} onNew={create}>
       {current ? (
-        <NoteDetail
-          key={current.id}
-          row={current}
-          userID={userID}
-          onBack={() => {
-            setSelected(null);
-            history.replaceState(null, "", "/");
-          }}
-          onSaved={replace}
-        />
+        <div className="notes-detail-layout">
+          <aside className="note-index" aria-label="Notes list">
+            <label className="search">
+              <Search size={16} />
+              <input
+                aria-label="Search notes"
+                placeholder="Search notes"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+            {visible.map((n) => (
+              <button
+                key={n.id}
+                className={n.id === current.id ? "selected" : ""}
+                onClick={() => {
+                  if (n.id === current.id) return;
+                  if (
+                    document.querySelector(".note-editor") &&
+                    !confirm(
+                      "Leave this note? An unfinished draft stays in this browser.",
+                    )
+                  )
+                    return;
+                  setSelected(n.id);
+                  history.replaceState(
+                    null,
+                    "",
+                    `/notes?note=${encodeURIComponent(n.id)}`,
+                  );
+                }}
+              >
+                <strong>{n.title}</strong>
+                <small>{date(n.started_at)}</small>
+              </button>
+            ))}
+          </aside>
+          <NoteDetail
+            key={current.id}
+            row={current}
+            userID={userID}
+            onBack={() => {
+              setSelected(null);
+              history.replaceState(null, "", "/notes");
+            }}
+            onSaved={replace}
+          />
+        </div>
       ) : (
         <>
           <header className="page-header">
-            <span className="eyebrow">
-              {dayLabel}
-            </span>
             <div className="heading-row">
-              <h1>
-                A good place
-                <br />
-                to <em>pick things up.</em>
-              </h1>
-              <span className="cloud-label">
-                <Cloud size={15} />
-                Your private library
-              </span>
+              <div>
+                <h1>Notes</h1>
+                <p>Your meetings and ideas, together.</p>
+              </div>
+              <button className="button primary" onClick={create}>
+                <Plus size={16} />
+                New note
+              </button>
             </div>
           </header>
-          <div className="home-grid">
+          <div className="notes-workspace">
             <section className="notes-section">
-              <div className="capture-banner">
-                <div>
-                  <span className="eyebrow">BRING YOUR ATTENTION</span>
-                  <h2>Let the conversation flow.</h2>
-                  <p>
-                    Record a meeting or dictate a thought.
-                    <br />
-                    Voice Notes on your Mac keeps every word close.
-                  </p>
-                  <a href="murmur://cloud" className="button primary">
-                    Open Mac app
-                    <ArrowUpRight size={16} />
-                  </a>
-                </div>
-                <Waveform />
-              </div>
               <div className="library-toolbar">
                 <div className="tabs">
                   <button
@@ -257,7 +281,7 @@ export function Library({ email, userID }: { email: string; userID: string }) {
                         history.replaceState(
                           null,
                           "",
-                          `/?note=${encodeURIComponent(row.id)}`,
+                          `/notes?note=${encodeURIComponent(row.id)}`,
                         );
                       }}
                     >
@@ -303,82 +327,6 @@ export function Library({ email, userID }: { email: string; userID: string }) {
                 </div>
               )}
             </section>
-            <aside className="agenda-rail">
-              <div className="section-title">
-                <h2>On the horizon</h2>
-                <CalendarDays size={18} />
-              </div>
-              <p className="rail-caption">A little space to see what’s next.</p>
-              {events.length > 0 ? (
-                events.slice(0, 6).map((event) => (
-                  <div className="agenda-event" key={event.id}>
-                    <span className="agenda-date">
-                      {date(event.starts_at)}
-                      <strong>{time(event.starts_at)}</strong>
-                    </span>
-                    <h3>{event.title}</h3>
-                    {event.booking && (
-                      <span className="agenda-booking">
-                        Booked · {event.booking.event_type}
-                      </span>
-                    )}
-                    <p>
-                      {event.attendees
-                        ?.slice(0, 3)
-                        .map((a) => a.name)
-                        .join(", ") || "Google Calendar"}
-                    </p>
-                    {meetingURL(event.meeting_url) && (
-                      <a
-                        href={meetingURL(event.meeting_url)!}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-link"
-                      >
-                        Join meeting
-                        <ArrowUpRight size={15} />
-                      </a>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="agenda-empty">
-                  <CalendarDays size={28} />
-                  <h3>
-                    {calendarConnected
-                      ? "A little breathing room."
-                      : "Your day, in view."}
-                  </h3>
-                  <p>
-                    {calendarConnected
-                      ? "No upcoming meetings in your synced agenda."
-                      : "Connect Google Calendar to see meetings here and ask about them from your AI apps."}
-                  </p>
-                  <Link href="/connections" className="text-link">
-                    {calendarConnected
-                      ? "Calendar settings"
-                      : "Connect your calendar"}
-                    <ArrowUpRight size={14} />
-                  </Link>
-                </div>
-              )}
-              <div className="connection-nudge">
-                <BrandMark compact />
-                <h3>Good notes go places.</h3>
-                <p>
-                  Ask Claude or ChatGPT what you decided, what’s next, or what
-                  you might have missed.
-                </p>
-                <Link href="/connections" className="text-link">
-                  Connect your apps
-                  <ArrowUpRight size={14} />
-                </Link>
-              </div>
-              <p className="rail-foot">
-                <Laptop size={15} />
-                Recording stays on your Mac.
-              </p>
-            </aside>
           </div>
         </>
       )}
@@ -499,25 +447,31 @@ function NoteDetail({
     setBusy(true);
     setMessage("");
     try {
-    const document = {
-      ...row.document,
-      session: {
-        ...row.document.session,
-        pinned: !row.document.session.pinned,
-      },
-    };
-    const r = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ document, expectedVersion: row.version }),
-    });
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.error || "Could not pin this note.");
-    onSaved(body);
-    setBaseVersion(body.version);
+      const document = {
+        ...row.document,
+        session: {
+          ...row.document.session,
+          pinned: !row.document.session.pinned,
+        },
+      };
+      const r = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document, expectedVersion: row.version }),
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Could not pin this note.");
+      onSaved(body);
+      setBaseVersion(body.version);
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Could not pin this note. Try again when you’re online.");
-    } finally { setBusy(false); }
+      setMessage(
+        e instanceof Error
+          ? e.message
+          : "Could not pin this note. Try again when you’re online.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
   function download() {
     const blob = new Blob([`# ${title}\n\n${text}`], { type: "text/markdown" });
@@ -533,7 +487,7 @@ function NoteDetail({
       <header className="document-toolbar">
         <button className="text-link" onClick={onBack}>
           <ChevronLeft size={17} />
-          Your notes
+          Notes
         </button>
         <div>
           <button
@@ -598,6 +552,34 @@ function NoteDetail({
           </span>
           <span>Version {row.version}</span>
         </div>
+        {row.document.session.booking && (
+          <details className="workspace-card">
+            <summary>
+              Booking details · {row.document.session.booking.eventType}
+            </summary>
+            <p>
+              {row.document.session.booking.guestName} ·{" "}
+              {row.document.session.booking.guestEmail}
+            </p>
+            {row.document.session.booking.answers.map((answer, index) => (
+              <div key={index}>
+                <strong>{answer.question}</strong>
+                <p>{answer.answer}</p>
+              </div>
+            ))}
+            <p className="fine-print">
+              Provided by the guest before the meeting.
+            </p>
+            {row.document.session.booking.bookingID && (
+              <a
+                className="text-link"
+                href={`/scheduling?tab=Bookings&booking=${encodeURIComponent(row.document.session.booking.bookingID)}`}
+              >
+                Booking and follow-up messages
+              </a>
+            )}
+          </details>
+        )}
         <div className="document-tabs">
           <div className="tabs">
             <button

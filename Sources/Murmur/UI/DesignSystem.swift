@@ -23,9 +23,9 @@ enum DS {
 
     enum Color {
         /// Interaction: selection, focus, the live waveform, primary actions.
-        static let accent = adaptive(light: 0x4F46E5, dark: 0x8B8BF5)
+        static let accent = adaptive(light: WorkspaceTokens.accentLight, dark: WorkspaceTokens.accentDark)
         /// Accent at rest — chips, subtle fills, hover states on tinted controls.
-        static let accentSoft = adaptive(light: 0x4F46E5, dark: 0x8B8BF5).opacity(0.12)
+        static let accentSoft = adaptive(light: WorkspaceTokens.accentLight, dark: WorkspaceTokens.accentDark).opacity(0.12)
 
         /// Recording. Nothing else in the app is red.
         static let record = adaptive(light: 0xE5484D, dark: 0xFF6369)
@@ -66,7 +66,7 @@ enum DS {
     /// SF Pro throughout. Rounded is used only inside the HUD, where the capsule shape and
     /// small size want softer letterforms.
     enum Font {
-        static let title = SwiftUI.Font.system(size: 19, weight: .semibold)
+        static let title = SwiftUI.Font.system(size: WorkspaceTokens.workspaceTitle, weight: .semibold)
         static let headline = SwiftUI.Font.system(size: 14, weight: .semibold)
         static let body = SwiftUI.Font.system(size: 13, weight: .regular)
         static let bodyEmphasis = SwiftUI.Font.system(size: 13, weight: .medium)
@@ -120,6 +120,10 @@ enum DS {
     }
 
     enum Layout {
+        static let navigationWidth = WorkspaceTokens.navigationWidth
+        static let calendarDayWidth: CGFloat = 180
+        static let meetingDetailWidth: CGFloat = 480
+        static let calendarAccent: CGFloat = 3
         static let windowWidth: CGFloat = 1_180
         static let windowHeight: CGFloat = 780
         static let minWindowWidth: CGFloat = 1_040
@@ -139,8 +143,8 @@ enum DS {
         static let settingsMinHeight: CGFloat = 640
         static let settingsHeight: CGFloat = 760
         /// One sidebar for notes and dictations; the detail takes the rest.
-        static let sidebarWidth: CGFloat = 280
-        static let sidebarMinWidth: CGFloat = 240
+        static let sidebarWidth: CGFloat = 260
+        static let sidebarMinWidth: CGFloat = 220
         static let sidebarMaxWidth: CGFloat = 360
         /// A small popover, like the speaker rename.
         static let popoverWidth: CGFloat = 224

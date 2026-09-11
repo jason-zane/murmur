@@ -23,7 +23,7 @@ Supabase or Vercel being available.
 
 ## Booking links
 
-Booking follows the Calendly and Cal.com model without running email or video services.
+Booking follows the Calendly and Cal.com model, with Google providing calendar invitations, video links and optional email delivery.
 Each person has one public page, `/book/<handle>`, and a page per meeting type,
 `/book/<handle>/<slug>`. Open times come from their weekly hours and date changes, minus
 busy time on every ticked calendar (Google free/busy), busy times shared from the Mac
@@ -45,6 +45,55 @@ When the Mac records a booked meeting, the session keeps the guest's answers, la
 written before the meeting, and its notes use the meeting type's template. Connected AI
 apps can list booking links and bookings and suggest free times; they cannot book, move or
 cancel anything.
+
+## Shared meeting workspace
+
+Mac and web use Home, Calendar, Notes, Dictation and Booking links, with Connections and
+Settings below. Mac keeps capture, dictation and device permissions native. Booking and
+connected-account management use the same hosted screens inside an isolated WKWebView.
+A bearer-only `/api/native/session` exchange creates a separate web session without sending
+an email or exposing the Mac refresh token to JavaScript. External consent opens the browser.
+The common navigation, accent and typography tokens are in `shared/design/tokens.json`;
+run `python3 Tools/generate-design-tokens.py` after changing them.
+
+Calendar supports agenda, day and week views, source filtering, meeting details and linked
+notes. Preparing a note creates a private note containing the booking context; it does not
+start recording or change the calendar event. Dictation and audio capture require the Mac.
+
+## Availability and meeting messages
+
+Every meeting type can inherit default availability, reference a named availability profile,
+or define custom weekly hours, time zone and date exceptions. Named profile edits affect
+future availability for all linked types; existing bookings retain their times. Duration,
+location, notes template, guest questions, notice, buffers and booking limits belong to the
+type. Destination calendar and email sender can override the account defaults. Connected
+busy calendars remain an account-wide protection against double booking.
+
+Optional Gmail `gmail.send` consent permits sending only, with no inbox-reading scope.
+The Gmail API must be enabled on the Google project. Connections controls the default
+sender and master sending switch. Each meeting type has preparation, reminder and thank-you
+recipes, all disabled by default. Thank-you messages require the host to mark attendance
+completed. Recipes use an allowlisted set of variables and plain-text email.
+
+Vercel invokes `/api/messages/dispatch` every minute in production; it requires a random
+`CRON_SECRET` production environment variable. This schedule needs a Vercel plan supporting
+minute-level cron. Cron timing and delivery are best effort. Messages have a unique schedule
+key per recipe, booking and start time. Sends and booking changes share a per-booking lease.
+Cancelled, moved or expired messages are suppressed before sending. Ambiguous Google
+responses are marked `needs_attention` and never automatically retried; check Sent mail.
+The history reports Google acceptance, not proof of delivery. Sending is capped at 100
+attempts per account per day, with manual requests additionally capped at 30 per hour.
+
+When enabled in Connections, completed booked notes produce private follow-up drafts from
+explicitly labelled Decisions, Actions or Next steps sections. Transcripts, guest answers
+and unrelated note sections are excluded. The host reviews and edits each draft, then
+explicitly sends it. This is section extraction, not a second AI summarisation step.
+
+Apply `20260911100000_meeting_workspace_messages.sql` and
+`20260911110000_reusable_availability.sql` before deploying this workspace. Hosted migrations
+are applied individually after checking the target project, not with `supabase db push`.
+All new tables use owner-scoped RLS; email mutations require first-party editor sessions.
+Remote MCP remains read-only and cannot send email.
 
 ## Synchronisation contract
 

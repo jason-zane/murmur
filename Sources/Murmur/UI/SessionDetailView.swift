@@ -131,6 +131,19 @@ struct SessionDetailView: View {
             Text(metadata)
                 .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let booking = session.booking {
+                DisclosureGroup("Booking details · \(booking.eventType)") {
+                    VStack(alignment: .leading, spacing: DS.Space.sm) {
+                        Text(booking.guestName).font(DS.Font.label)
+                        if let email = booking.guestEmail { Text(email).foregroundStyle(DS.Color.textSecondary) }
+                        ForEach(booking.answers, id: \.question) { answer in
+                            Text(answer.question).font(DS.Font.label)
+                            Text(answer.answer).textSelection(.enabled)
+                        }
+                        Text("Provided by the guest before the meeting.").foregroundStyle(DS.Color.textSecondary)
+                    }.font(DS.Font.caption).frame(maxWidth: .infinity, alignment: .leading)
+                }.font(DS.Font.callout)
+            }
         }
         .padding(DS.Space.xl)
     }

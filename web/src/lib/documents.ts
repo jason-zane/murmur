@@ -24,6 +24,7 @@ export const documentSchema = z.object({
     // Answers a guest gave on the booking page. Not said in the meeting, not written by you.
     booking: z
       .object({
+        bookingID: z.uuid().nullable().optional(),
         eventType: short,
         guestName: short,
         guestEmail: short.nullable().optional(),
@@ -69,6 +70,8 @@ export type CloudSession = {
 };
 export type CalendarMeeting = {
   id: string;
+  connection_id?: string;
+  calendar_id?: string;
   title: string;
   starts_at: string;
   ends_at: string;

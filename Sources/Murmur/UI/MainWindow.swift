@@ -3,13 +3,14 @@ import MurmurSessions
 import SwiftUI
 
 /// What the detail column shows when no note is selected.
-enum MainPage: Hashable { case home, dictation }
+enum MainPage: Hashable { case home, calendar, notes, dictation, booking, connections, settings }
 
 struct MainWindow: View {
     @Bindable var controller: DictationController
     let meetings: MeetingController
     let onToggleMeeting: () -> Void
     let onShowNotepad: () -> Void
+    let onPreviewBar: () -> Void
     @State private var page: MainPage = .home
     @State private var selectedSession: String?
     @State private var selectedMatch: SessionMatch?
@@ -23,7 +24,7 @@ struct MainWindow: View {
         NavigationSplitView {
             sidebar
                 .navigationSplitViewColumnWidth(
-                    min: DS.Layout.sidebarMinWidth, ideal: DS.Layout.sidebarWidth, max: DS.Layout.sidebarMaxWidth
+                    min: DS.Layout.navigationWidth, ideal: DS.Layout.navigationWidth, max: DS.Layout.sidebarMinWidth
                 )
         } detail: {
             GeometryReader { geometry in
@@ -39,7 +40,13 @@ struct MainWindow: View {
                         }
                         .padding([.horizontal, .top], DS.Space.lg)
                     }
-                    detail
+                    if page == .notes {
+                        HSplitView {
+                            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion)
+                                .frame(minWidth: DS.Layout.sidebarMinWidth, idealWidth: DS.Layout.sidebarWidth, maxWidth: DS.Layout.sidebarMaxWidth)
+                            detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    } else { detail }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
             }
@@ -53,7 +60,12 @@ struct MainWindow: View {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { note in
+            page = .notes
             selectedSession = note.object as? String
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurFind)) { _ in page = .notes }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowPage)) { note in
+            if let target = note.object as? MainPage { page = target; selectedSession = nil }
         }
         .onReceive(NotificationCenter.default.publisher(for: .murmurNewNote)) { _ in newNote() }
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowDictation)) { _ in
@@ -61,7 +73,7 @@ struct MainWindow: View {
             page = .dictation
         }
         .onChange(of: meetings.lastFinishedSessionID) { _, id in
-            if let id { selectedSession = id }
+            if let id { page = .notes; selectedSession = id }
         }
     }
 
@@ -96,10 +108,26 @@ struct MainWindow: View {
             .padding(.top, DS.Space.md)
             .padding(.bottom, DS.Space.sm)
 
-            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion)
+            VStack(spacing: DS.Space.xxs) {
+                navigation("Home", "house", .home)
+                navigation("Calendar", "calendar", .calendar)
+                navigation("Notes", "book.closed", .notes)
+                navigation("Dictation", "waveform", .dictation)
+                navigation("Booking links", "calendar.badge.clock", .booking)
+                Spacer()
+                navigation("Connections", "link", .connections)
+                navigation("Settings", "gearshape", .settings)
+            }.padding(DS.Space.md)
 
             Divider()
             footer
+        }
+    }
+
+    private func navigation(_ title: String, _ icon: String, _ target: MainPage) -> some View {
+        NavRow(title: title, systemImage: icon, isSelected: page == target) {
+            page = target
+            if target != .notes { selectedSession = nil }
         }
     }
 
@@ -113,6 +141,9 @@ struct MainWindow: View {
                     }
                     .buttonStyle(.plain)
                     .help("Open Settings ▸ Connections")
+                }
+                if CloudAccount.shared.isConnected {
+                    Text(CloudAccount.shared.email).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
                 }
                 Text("Hold " + settings.triggerSummary + " to dictate")
                     .font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary)
@@ -133,12 +164,24 @@ struct MainWindow: View {
     }
 
     @ViewBuilder private var detail: some View {
-        if let id = selectedSession, let session = meetings.store.session(id: id) {
+        if page == .notes, let id = selectedSession, let session = meetings.store.session(id: id) {
             SessionDetailView(
                 session: session, store: meetings.store, initialMatch: selectedMatch,
                 onChanged: { libraryVersion += 1 },
                 onDeleted: { selectedSession = nil; libraryVersion += 1 }
             ).id(id)
+        } else if page == .calendar {
+            CalendarWorkspace(store: meetings.store)
+        } else if page == .booking {
+            CloudWorkspace(path: "/scheduling")
+        } else if page == .connections {
+            ConnectionsWorkspace()
+        } else if page == .settings {
+            SettingsWindow(controller: controller, onPreviewBar: onPreviewBar)
+        } else if page == .notes {
+            EmptyState(icon: "note.text", label: "Notes", detail: "Choose a note, or start with a new one.") {
+                ActionButton(title: "New note", emphasis: .prominent) { newNote() }
+            }
         } else if page == .dictation {
             DictationList(controller: controller)
         } else {
@@ -148,6 +191,7 @@ struct MainWindow: View {
 
     private func newNote() {
         do {
+            page = .notes
             selectedSession = try meetings.store.createNote().id
             libraryVersion += 1
         } catch { self.error = error.localizedDescription }

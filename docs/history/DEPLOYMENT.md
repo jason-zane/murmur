@@ -43,10 +43,37 @@ activation completed. Data access was saved with `openid`, userinfo email/profil
 `NEXT_PUBLIC_GOOGLE_ENABLED=true` is deployed. Actual Google sign-in completed using
 `jasonzanehunt@gmail.com`, and the authenticated private library loaded successfully.
 
-## Booking links and multiple calendars: built, not deployed
+## Booking links and multiple calendars: deployed 11 September 2026
 
-Built and tested locally on 11 September 2026. Nothing below has been applied to
-production; each step needs the owner's approval.
+Deployed from `d10422f` with the owner's approval. Vercel deployment
+`dpl_fZ2FMY8JmhUeCC9Q3vurYVtt9dM7` is READY at the stable production origin.
+
+Google Data access now includes `calendar.calendarlist.readonly`, `calendar.events`
+and `calendar.freebusy`; verification was not submitted. The scheduling migration was
+applied once through `apply_migration`, after confirming `public.calendar_sources` did
+not exist. All six new tables have RLS and `bookings_no_overlap` exists. Production was
+deployed immediately afterwards. Signed-in Connections and Booking links load.
+
+The owner approved Google's unverified-app warning and incremental consent. Gmail and
+`jason@trajectas.com` are selected; holiday and Rugby World Cup calendars are not.
+The live page is `/book/jason-hunt`, with weekday 09:00–17:00 Australia/Sydney hours
+and the primary Gmail destination. `/book/jason-hunt/intro-call` is a 30-minute Google
+Meet meeting type, using the Meeting notes template and the default optional question.
+
+With separate approval to send invitations only to `jasonzanehunt+guest@gmail.com`,
+a public booking for 14 September at 09:00 created a Meet link and a Google invitation.
+The invitation included the guest's answer and private management link. That link moved
+the same booking to 09:30, and Google's updated invitation arrived. Guest cancellation
+succeeded; Google's cancellation email arrived and both 09:00 and 09:30 were offered
+again. The installed Mac app displayed the rescheduled meeting at 09:30.
+
+Outstanding: the Mac recording/guest-answer/template check needs a booked meeting near
+its start time; no recording was made for this future booking. The cancelled test row
+remains in `bookings`: the connector's `execute_sql` rejected DELETE as read-only,
+and the Supabase dashboard requires sign-in. Its calendar event is cancelled and it
+does not block availability. Optional Mac busy-time sharing was not enabled.
+
+Original rollout checklist (completed except the recording check noted above):
 
 1. Apply `supabase/migrations/20260911090000_murmur_scheduling.sql`. The existing Google
    connection becomes the first account with its read-only scope. Cached agenda events are
@@ -65,9 +92,8 @@ production; each step needs the owner's approval.
    template. Busy times from the Mac are shared only after turning on Settings → Meetings →
    Keep booking links clear of events on this Mac.
 
-Live checks still to do after deployment: a real booking creates the event and Meet link
-and Google emails the guest; reschedule and cancel from the guest's link update the event;
-the Mac names the booked meeting and applies its template.
+Remaining live check: record a booked meeting on the Mac and verify its saved guest
+answers and notes template. Complete test-row cleanup after dashboard sign-in.
 
 ## Acceptance and live checks
 

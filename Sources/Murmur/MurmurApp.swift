@@ -12,7 +12,7 @@ struct MurmurApp: App {
         // workspace. ⌘N creates a note rather than another copy of the window.
         Window("Voice Notes", id: "main") {
             MainWindow(controller: delegate.controller, meetings: delegate.meetings,
-                       onToggleMeeting: delegate.toggleMeeting, onShowNotepad: delegate.showNotepad)
+                       onToggleMeeting: delegate.toggleMeeting, onShowNotepad: delegate.showNotepad, onPreviewBar: delegate.previewDictationBar)
         }
         .defaultSize(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight)
         .windowResizability(.contentMinSize)
@@ -262,6 +262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if SessionStore.isValidID(id), meetings.store.session(id: id) != nil {
                     NotificationCenter.default.post(name: .murmurShowSession, object: id)
                 }
+            case "dictation":
+                NSApp.activate(ignoringOtherApps: true)
+                NotificationCenter.default.post(name: .murmurShowDictation, object: nil)
             case "connections", "cloud":
                 NSApp.activate(ignoringOtherApps: true)
                 NotificationCenter.default.post(name: .murmurOpenSettings, object: "connections")

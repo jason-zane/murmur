@@ -170,7 +170,7 @@ final class MeetingController {
                 if let booking = context.calendarEvent?.booking {
                     manifest.booking = BookingContext(
                         eventType: booking.event_type, guestName: booking.guest_name, guestEmail: booking.guest_email,
-                        answers: booking.answers.map { .init(question: $0.question, answer: $0.answer) })
+                        answers: booking.answers.map { .init(question: $0.question, answer: $0.answer) }, bookingID: booking.id)
                     // The meeting type the guest booked decides how its notes are written.
                     manifest.summaryTemplate = booking.template.flatMap(SummaryTemplate.init(rawValue:))?.rawValue
                 }

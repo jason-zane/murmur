@@ -20,7 +20,10 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.xxl) {
-                Readout(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)), color: DS.Color.textTertiary)
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    Text("Home").font(DS.Font.title)
+                    Text("Your day, ready when you are.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                }
                 HStack(alignment: .top, spacing: DS.Space.xxl) {
                     day.frame(maxWidth: .infinity, alignment: .topLeading)
                     MonthCalendar(month: $visibleMonth, selected: $selectedDay, activity: activity)
@@ -29,7 +32,7 @@ struct HomeView: View {
                 if !microphoneGranted || !audioGranted { setup }
                 Hint("Voice Notes offers to record when a call starts in Meet, Zoom or Teams. Change this in Settings ▸ Meetings.")
             }
-            .padding(DS.Space.page)
+            .padding(DS.Space.xxl)
             .frame(maxWidth: DS.Layout.homeWideWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .top)
         }
