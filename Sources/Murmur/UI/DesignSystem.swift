@@ -157,6 +157,11 @@ enum DS {
         static let stepBadge: CGFloat = 26
         static let kindChip: CGFloat = 46
         static let sheetNarrow: CGFloat = 480
+        /// Home: the day column beside the month grid.
+        static let homeWideWidth: CGFloat = 1_120
+        static let monthGridWidth: CGFloat = 280
+        static let calendarCell: CGFloat = 32
+        static let calendarDot: CGFloat = 5
         static let onboardingSize = NSSize(width: 540, height: 620)
     }
 

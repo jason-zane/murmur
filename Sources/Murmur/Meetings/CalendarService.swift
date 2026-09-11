@@ -91,6 +91,34 @@ final class CalendarService {
     /// Prefers events with attendees or a conference link — a solo "Focus" block is not a
     /// meeting — and, among those, the one whose start is nearest to now. An event that
     /// started more than fifteen minutes ago and has no link is assumed to be over.
+    /// Everything in a date range, for the calendar on Home. Same filters as `events(around:)`:
+    /// no all-day or free-time events, nothing the user declined. Sorted by start.
+    func events(from start: Date, to end: Date) -> [CalendarEvent] {
+        if PreviewEnvironment.isActive { return PreviewEnvironment.sampleEvents(from: start, to: end) }
+        let cloud = CloudSync.shared.meetings
+            .filter { $0.ends_at > start && $0.starts_at < end }
+            .map { event -> CalendarEvent in
+                let url = event.meeting_url.flatMap { MeetingLink.provider(for: $0) != nil ? $0 : nil }
+                return CalendarEvent(id: "google-" + event.id, title: event.title, start: event.starts_at, end: event.ends_at,
+                    attendees: event.attendees, hasConference: url != nil, conferenceURL: url)
+            }
+        guard isAuthorized else { return cloud.sorted { $0.start < $1.start } }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        let local = store.events(matching: predicate)
+            .filter { event in
+                guard !event.isAllDay, event.availability != .free else { return false }
+                if let status = event.attendees?.first(where: { $0.isCurrentUser })?.participantStatus,
+                   status == .declined { return false }
+                return true
+            }
+            .map(Self.reduce)
+        let additional = cloud.filter { remote in !local.contains { local in
+            abs(local.start.timeIntervalSince(remote.start)) < 60 &&
+                (local.conferenceURL == remote.conferenceURL && remote.conferenceURL != nil || local.title == remote.title)
+        } }
+        return (local + additional).sorted { $0.start < $1.start }
+    }
+
     func bestMatch(at date: Date = Date()) -> CalendarEvent? {
         let candidates = events(around: date)
         return candidates.first {

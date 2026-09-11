@@ -5,6 +5,7 @@ import SwiftUI
 /// The Notes half of the sidebar: search, the pin filter, and every note by day.
 struct NotesSidebar: View {
     @Bindable var controller: MeetingController
+    @Binding var page: MainPage
     @Binding var selection: String?
     /// The search hit for the selected note, so the detail can open at the right moment.
     @Binding var match: SessionMatch?
@@ -25,10 +26,16 @@ struct NotesSidebar: View {
             VStack(spacing: DS.Space.md) {
                 SearchField(text: $query, placeholder: "Search all notes")
                     .focused($searchFocused)
+                VStack(spacing: DS.Space.xxs) {
+                    NavRow(title: "Home", systemImage: "house", isSelected: selection == nil && page == .home) {
+                        selection = nil; page = .home
+                    }
+                    NavRow(title: "Dictation", systemImage: "waveform", isSelected: selection == nil && page == .dictation) {
+                        selection = nil; page = .dictation
+                    }
+                }
                 HStack(spacing: DS.Space.sm) {
-                    Button { selection = nil } label: { Label("Home", systemImage: "house") }
-                        .font(DS.Font.callout).buttonStyle(.plain)
-                        .foregroundStyle(selection == nil ? DS.Color.accent : DS.Color.textSecondary)
+                    Text("Notes").font(DS.Font.label).foregroundStyle(DS.Color.textTertiary)
                     Spacer()
                     Button { pinnedOnly.toggle() } label: {
                         Image(systemName: pinnedOnly ? "pin.fill" : "pin")
@@ -126,6 +133,32 @@ struct NotesSidebar: View {
         catch { self.error = error.localizedDescription }
     }
     private func copy(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
+}
+
+/// A sidebar destination that isn't a note: Home and the dictation list.
+private struct NavRow: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: DS.Space.sm) {
+                Image(systemName: systemImage).font(DS.Font.symbol).frame(width: DS.Layout.symbolColumn)
+                Text(title).font(DS.Font.callout)
+                Spacer(minLength: DS.Space.zero)
+            }
+            .foregroundStyle(isSelected ? DS.Color.accent : DS.Color.textSecondary)
+            .padding(.horizontal, DS.Space.sm)
+            .padding(.vertical, DS.Space.xs)
+            .background(isSelected ? DS.Color.accentSoft : isHovering ? DS.Color.hover : .clear, in: .rect(cornerRadius: DS.Radius.md))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
 }
 
 private struct NoteRow: View {

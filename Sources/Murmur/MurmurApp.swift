@@ -90,6 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         showOnboarding()
                     } else if action.hasPrefix("session:") {
                         NotificationCenter.default.post(name: .murmurShowSession, object: String(action.dropFirst("session:".count)))
+                    } else if action == "dictation" {
+                        NotificationCenter.default.post(name: .murmurShowDictation, object: nil)
                     }
                 }
             }
@@ -357,8 +359,17 @@ private struct MenuContent: View {
         return "Record meeting"
     }
 
+    /// One switch for both sounds, the same as Settings ▸ General.
+    private var sound: Binding<Bool> {
+        Binding(
+            get: { settings.soundEnabled },
+            set: { settings.soundEnabled = $0; MeetingSettings.shared.soundEnabled = $0 }
+        )
+    }
+
     /// Short on purpose. Everything that is a setting lives in Settings; the menu holds the
-    /// things you reach for from another app.
+    /// things you reach for from another app, plus three switches worth flipping without
+    /// opening a window: sound, start at login and which engine transcribes.
     var body: some View {
         if meetings.state.isActive {
             Button("Stop recording  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
@@ -374,6 +385,18 @@ private struct MenuContent: View {
 
         Button("Paste last dictation") { controller.pasteLastDictation() }
         Text("Hold \(settings.triggerSummary) to dictate")
+
+        Divider()
+
+        Toggle("Sound", isOn: sound)
+        Toggle("Start at login", isOn: $settings.launchAtLogin)
+        Picker("Transcription", selection: $settings.engine) {
+            ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
+                Text(choice == .parakeet && !ParakeetModels.isDownloaded
+                     ? "Parakeet (not downloaded)" : choice.displayName)
+                    .tag(choice)
+            }
+        }
 
         Divider()
 
