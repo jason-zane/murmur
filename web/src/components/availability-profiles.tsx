@@ -1,4 +1,5 @@
 "use client";
+import { ItemActions } from "./item-actions";
 import { useState } from "react";
 import {
   AvailabilityFields,
@@ -95,7 +96,7 @@ export function AvailabilityProfiles({
                 .join(", ") || "Not used yet"}
             </p>
           </div>
-          <div className="type-actions">
+          <ItemActions label={s.name}>
             <button className="button small" onClick={() => setEditing(s)}>
               Edit
             </button>
@@ -104,9 +105,9 @@ export function AvailabilityProfiles({
               disabled={busy}
               onClick={() => remove(s)}
             >
-              Delete
+              Delete availability profile…
             </button>
-          </div>
+          </ItemActions>
         </div>
       ))}
       {editing && (

@@ -25,3 +25,19 @@ availability retains its explicitly selected scheduling time zone.
 The browser month grid scrolls horizontally on narrow windows to preserve legible meeting
 rows. Selecting a date opens Day; selecting a meeting opens existing meeting details.
 No recording, email or booking action is triggered by navigation.
+
+## Item actions
+
+Secondary actions use a visible ellipsis disclosure on both platforms. Primary actions such
+as Copy and Join stay directly accessible. Notes, dictations, dictionary entries, meeting
+types, availability profiles, bookings and web Google connections follow this pattern.
+Menus support keyboard focus and dismissal. Irreversible removals require confirmation.
+
+Use “Delete” for stored items, “Cancel booking” for a calendar cancellation that notifies
+the guest, “Disconnect account” for a connection, and “Move to Trash” for recoverable Mac
+note removal. A cancelled booking's history can be deleted after cancellation.
+
+Web-note deletion uses the existing versioned cloud tombstone operation. The confirmation
+states that existing Mac copies remain on the Mac. Browser drafts are cleared after a
+successful delete; conflicts and failures keep the note and draft available. A disposable
+local note was created and deleted through the UI to check the complete flow.

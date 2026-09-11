@@ -120,6 +120,7 @@ private struct DictationRow: View {
     let onCopy: () -> Void
     let onDelete: () -> Void
     @State private var expanded = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
@@ -151,21 +152,22 @@ private struct DictationRow: View {
             Spacer(minLength: DS.Space.sm)
             HStack(spacing: DS.Space.xs) {
                 ActionButton(title: copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc", emphasis: .quiet, action: onCopy)
-                Button(action: onDelete) {
-                    Image(systemName: "trash").font(DS.Font.smallSymbol).foregroundStyle(DS.Color.textTertiary)
-                        .frame(width: DS.Layout.symbolColumn, height: DS.Layout.symbolColumn)
+                ItemActions(label: "dictation") {
+                    Button("Copy", action: onCopy)
+                    Button("Delete dictation…") { confirmingDelete = true }
                 }
-                .buttonStyle(.plain)
-                .help("Delete this dictation")
-                .accessibilityLabel("Delete this dictation")
             }
         }
         .padding(.vertical, DS.Space.md)
         .contentShape(.rect)
         .contextMenu {
             Button("Copy", action: onCopy)
-            Button("Delete", action: onDelete)
+            Button("Delete dictation…") { confirmingDelete = true }
         }
+        .confirmationDialog("Delete this dictation?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete dictation", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("This removes it from this Mac's history. This can't be undone.") }
     }
 }
 

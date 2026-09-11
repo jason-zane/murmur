@@ -112,7 +112,7 @@ struct SessionDetailView: View {
                     .buttonStyle(.plain).foregroundStyle(session.isPinned ? DS.Color.accent : DS.Color.textSecondary)
                     .help(session.isPinned ? "Unpin note" : "Pin note")
                     .padding(.top, DS.Space.sm)
-                Menu {
+                ItemActions(label: session.title) {
                     Button("Copy notes") { copy(note.isEmpty ? bullets.map(\.text).joined(separator: "\n") : note, label: "notes") }
                     Button("Copy full meeting as Markdown") { copy(store.markdown(for: session.id), label: "meeting") }
                     Button("Copy for AI") { copyForAI() }
@@ -123,9 +123,7 @@ struct SessionDetailView: View {
                     Button("Reveal files in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)]) }
                     Divider()
                     Button("Move to Trash…") { confirmTrash = true }
-                } label: { Image(systemName: "ellipsis").font(DS.Font.symbol) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: DS.Layout.symbolColumn)
-                .help("Copy, export and note options")
+                }
                 .padding(.top, DS.Space.sm)
             }
             Text(metadata)

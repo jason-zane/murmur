@@ -1,4 +1,5 @@
 "use client";
+import { ItemActions } from "@/components/item-actions";
 import { DateField } from "@/components/date-field";
 import { AvailabilityProfiles } from "@/components/availability-profiles";
 import {
@@ -365,7 +366,7 @@ export function Scheduling({
   async function removeType(type: EventType) {
     if (
       !confirm(
-        `Remove “${type.title}”? Existing bookings stay on your calendar.`,
+        `Delete “${type.title}”? Existing bookings stay on your calendar.`,
       )
     )
       return;
@@ -796,20 +797,10 @@ export function Scheduling({
                     />
                     <span>{type.active ? "On" : "Off"}</span>
                   </label>
-                  <button
-                    className="icon-button"
-                    aria-label={`Edit ${type.title}`}
-                    onClick={() => setEditing(type)}
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    aria-label={`Remove ${type.title}`}
-                    onClick={() => removeType(type)}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <ItemActions label={type.title}>
+                    <button onClick={() => setEditing(type)}>Edit meeting type</button>
+                    <button onClick={() => removeType(type)}>Delete meeting type…</button>
+                  </ItemActions>
                 </div>
               </div>
             ),
@@ -1066,6 +1057,18 @@ function BookingRow({
         )}
       </div>
       <div className="type-actions">
+        {booking.meeting_url && booking.status === "confirmed" && (
+          <a
+            className="text-link"
+            href={booking.meeting_url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Join
+            <ArrowUpRight size={14} />
+          </a>
+        )}
+        {(booking.status === "cancelled" || (booking.status === "confirmed" && new Date(booking.ends_at) > new Date() && !confirming)) && <ItemActions label={booking.guest_name + " booking"}>
         {booking.status === "cancelled" && (
           <button
             className="text-link"
@@ -1088,19 +1091,8 @@ function BookingRow({
               }
             }}
           >
-            Remove from history
+            Delete booking history…
           </button>
-        )}
-        {booking.meeting_url && booking.status === "confirmed" && (
-          <a
-            className="text-link"
-            href={booking.meeting_url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Join
-            <ArrowUpRight size={14} />
-          </a>
         )}
         {booking.status === "confirmed" &&
           new Date(booking.starts_at) > new Date() && (
@@ -1112,9 +1104,10 @@ function BookingRow({
           new Date(booking.ends_at) > new Date() &&
           !confirming && (
             <button className="text-link" onClick={() => setConfirming(true)}>
-              Cancel
+              Cancel booking…
             </button>
           )}
+        </ItemActions>}
       </div>
     </div>
   );

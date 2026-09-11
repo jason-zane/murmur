@@ -1,4 +1,5 @@
 "use client";
+import { ItemActions } from "@/components/item-actions";
 import { EmailConnection } from "@/components/messages";
 import { LocalTime } from "@/components/local-time";
 import { AccountIdentity } from "@/components/account-identity";
@@ -314,13 +315,15 @@ export function Connections({
                         <ArrowUpRight size={14} />
                       </a>
                     )}
+                    <ItemActions label={account.email || "Google account"}>
                     <button
                       className="text-link"
                       onClick={() => void disconnect(account)}
                       disabled={busy}
                     >
-                      Disconnect
+                      Disconnect account…
                     </button>
+                    </ItemActions>
                   </div>
                 </div>
               );

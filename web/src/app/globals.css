@@ -3372,3 +3372,12 @@ select:focus-visible {
   .calendar-filters { flex-direction: column; align-items: stretch; gap: 12px; }
   .calendar-filters .calendar-filter, .calendar-filters .search { width: 100%; }
 }
+.item-actions { position: relative; display: inline-block; flex-shrink: 0; }
+.item-actions > summary { list-style: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; cursor: pointer; color: var(--muted); }
+.item-actions > summary::-webkit-details-marker { display: none; }
+.item-actions > summary:hover, .item-actions[open] > summary { background: var(--soft); }
+.item-actions-panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 45; min-width: 210px; padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px #20202818; }
+.item-actions-panel > button { display: block; text-align: left; width: 100%; padding: 9px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; }
+.item-actions-panel > button:hover:not(:disabled) { background: var(--soft); }
+.item-actions-panel > button:disabled { opacity: .5; }
+.item-actions summary:focus-visible, .item-actions-panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

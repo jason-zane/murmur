@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ItemActions } from "./item-actions";
 import { Shell } from "./shell";
 import { BrandMark, Waveform } from "./brand";
 import {
@@ -120,7 +121,8 @@ export function Library({ email, userID }: { email: string; userID: string }) {
     }
   }
   function replace(row: CloudSession) {
-    setRows((v) => v.map((r) => (r.id === row.id ? row : r)));
+    setRows((v) => row.deleted_at ? v.filter(r => r.id !== row.id) : v.map((r) => (r.id === row.id ? row : r)));
+    if (row.deleted_at) { setSelected(null); history.replaceState(null, "", "/notes"); }
   }
   const current = rows.find((r) => r.id === selected),
     visible = rows.filter(
@@ -473,6 +475,22 @@ function NoteDetail({
       setBusy(false);
     }
   }
+  async function deleteNote() {
+    if (busy || !confirm(`Delete “${row.title}” from your Voice Notes account? It will leave the web library. Copies already stored on your Mac remain there.${changed ? " Your unsaved browser draft will also be removed." : ""}`)) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/sessions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document: row.document, expectedVersion: row.version, deleted: true }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(response.status === 409 ? "This note changed on another device. Reload it before deleting." : result.error || "Could not delete this note.");
+      try { localStorage.removeItem(key); } catch { /* Deletion succeeded even when browser storage is unavailable. */ }
+      onSaved(result);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete this note."); }
+    finally { setBusy(false); }
+  }
   function download() {
     const blob = new Blob([`# ${title}\n\n${text}`], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
@@ -490,6 +508,7 @@ function NoteDetail({
           Notes
         </button>
         <div>
+
           <button
             className={
               "icon-button " + (row.document.session.pinned ? "is-pinned" : "")
@@ -517,13 +536,11 @@ function NoteDetail({
           >
             {copied ? <Check size={17} /> : <Copy size={17} />}
           </button>
-          <button
-            className="icon-button"
-            aria-label="Download Markdown"
-            onClick={download}
-          >
-            <Download size={17} />
-          </button>
+          <ItemActions label={row.title}>
+            <button disabled={busy || changed} onClick={pin}>{row.document.session.pinned ? "Unpin note" : "Pin note"}</button>
+            <button onClick={download}>Export Markdown…</button>
+            <button disabled={busy} onClick={deleteNote}>Delete note…</button>
+          </ItemActions>
         </div>
       </header>
       <div className="document-inner">
