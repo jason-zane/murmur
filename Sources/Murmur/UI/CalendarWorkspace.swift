@@ -4,6 +4,8 @@ import MurmurSessions
 
 struct CalendarWorkspace: View {
     let store: SessionStore
+    let onRecord: (CalendarEvent) -> Void
+    let canRecord: Bool
     @State private var date = Calendar.current.startOfDay(for: Date())
     @State private var mode = "Agenda"
     @State private var events: [CalendarEvent] = []
@@ -81,6 +83,10 @@ struct CalendarWorkspace: View {
                     }
                 }
                 HStack(spacing: DS.Space.md) {
+                    ActionButton(title: "Record meeting", systemImage: "mic", emphasis: .prominent) {
+                        selected = nil
+                        onRecord(event)
+                    }.disabled(!canRecord)
                     if event.conferenceURL != nil {
                         ActionButton(title: "Join meeting", systemImage: "arrow.up.right", emphasis: .prominent) { MeetingSchedule.shared.join(event) }
                     }

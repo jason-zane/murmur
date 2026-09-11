@@ -9,6 +9,7 @@ struct MainWindow: View {
     @Bindable var controller: DictationController
     let meetings: MeetingController
     let onToggleMeeting: () -> Void
+    let onRecordCalendar: (CalendarEvent) -> Void
     let onShowNotepad: () -> Void
     let onPreviewBar: () -> Void
     @State private var page: MainPage = .home
@@ -171,7 +172,7 @@ struct MainWindow: View {
                 onDeleted: { selectedSession = nil; libraryVersion += 1 }
             ).id(id)
         } else if page == .calendar {
-            CalendarWorkspace(store: meetings.store)
+            CalendarWorkspace(store: meetings.store, onRecord: onRecordCalendar, canRecord: meetings.state == .idle)
         } else if page == .booking {
             CloudWorkspace(path: "/scheduling")
         } else if page == .connections {

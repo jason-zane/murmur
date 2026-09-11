@@ -76,7 +76,9 @@ export function Connections({
     if (p.get("error")) setMessage(p.get("error")!);
     if (p.get("connected"))
       setMessage(
-        "Google Calendar is connected. Choose which calendars to include below.",
+        p.get("connected") === "email"
+          ? "Gmail is connected. Choose your sender and allow sending in Email below."
+          : "Google Calendar is connected. Choose which calendars to include below.",
       );
   }, []);
   function apply(body: { connections: Account[]; calendars: Source[] }) {
@@ -167,7 +169,7 @@ export function Connections({
         <header className="page-header">
           <h1>Connections</h1>
           <p>
-            Google Calendar and the apps connected to your Voice Notes account.
+            Calendars, email and the apps connected to your Voice Notes account.
           </p>
         </header>
         <div className="connection-account">

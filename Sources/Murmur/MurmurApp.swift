@@ -12,7 +12,7 @@ struct MurmurApp: App {
         // workspace. ⌘N creates a note rather than another copy of the window.
         Window("Voice Notes", id: "main") {
             MainWindow(controller: delegate.controller, meetings: delegate.meetings,
-                       onToggleMeeting: delegate.toggleMeeting, onShowNotepad: delegate.showNotepad, onPreviewBar: delegate.previewDictationBar)
+                       onToggleMeeting: delegate.toggleMeeting, onRecordCalendar: delegate.recordCalendarMeeting, onShowNotepad: delegate.showNotepad, onPreviewBar: delegate.previewDictationBar)
         }
         .defaultSize(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight)
         .windowResizability(.contentMinSize)
@@ -197,6 +197,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showNotepad() {
+        notepad?.present(activate: true)
+    }
+
+    func recordCalendarMeeting(_ event: CalendarEvent) {
+        guard meetings.state == .idle else { return }
+        offerStrip?.dismiss()
+        detector.dismissOffer()
+        meetings.start(.init(title: event.title, calendarEvent: event))
         notepad?.present(activate: true)
     }
 

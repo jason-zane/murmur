@@ -88,9 +88,8 @@ final class CalendarService {
         // The Mac's copy of a booked meeting keeps the guest's booking details from the cloud copy.
         let merged = local.map { event -> CalendarEvent in
             guard let booked = cloud.first(where: { $0.booking != nil && same(event, $0) }) else { return event }
-            var event = event
-            event.booking = booked.booking
-            return event
+            return CalendarEvent(id: booked.id, title: event.title, start: event.start, end: event.end,
+                attendees: event.attendees, hasConference: event.hasConference, conferenceURL: event.conferenceURL, booking: booked.booking)
         }
         let additional = cloud.filter { remote in !local.contains { same($0, remote) } }
         return (merged + additional).sorted { abs($0.offset(from: date)) < abs($1.offset(from: date)) }
@@ -127,7 +126,7 @@ final class CalendarService {
             .map { event -> CalendarEvent in
                 let url = event.meeting_url.flatMap { MeetingLink.provider(for: $0) != nil ? $0 : nil }
                 return CalendarEvent(id: "google-" + event.id, title: event.title, start: event.starts_at, end: event.ends_at,
-                    attendees: event.attendees, hasConference: url != nil, conferenceURL: url)
+                    attendees: event.attendees, hasConference: url != nil, conferenceURL: url, booking: event.booking)
             }
         guard isAuthorized else { return cloud.sorted { $0.start < $1.start } }
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
@@ -139,11 +138,17 @@ final class CalendarService {
                 return true
             }
             .map(Self.reduce)
-        let additional = cloud.filter { remote in !local.contains { local in
+        let same = { (local: CalendarEvent, remote: CalendarEvent) in
             abs(local.start.timeIntervalSince(remote.start)) < 60 &&
                 (local.conferenceURL == remote.conferenceURL && remote.conferenceURL != nil || local.title == remote.title)
-        } }
-        return (local + additional).sorted { $0.start < $1.start }
+        }
+        let merged = local.map { event -> CalendarEvent in
+            guard let booked = cloud.first(where: { $0.booking != nil && same(event, $0) }) else { return event }
+            return CalendarEvent(id: booked.id, title: event.title, start: event.start, end: event.end,
+                attendees: event.attendees, hasConference: event.hasConference, conferenceURL: event.conferenceURL, booking: booked.booking)
+        }
+        let additional = cloud.filter { remote in !local.contains { same($0, remote) } }
+        return (merged + additional).sorted { $0.start < $1.start }
     }
 
     func bestMatch(at date: Date = Date()) -> CalendarEvent? {

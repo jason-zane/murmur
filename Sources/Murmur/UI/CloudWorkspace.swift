@@ -20,12 +20,13 @@ struct CloudWorkspace: View {
                 }
                 SharedWorkspaceWebView(path: path, error: $error)
                     .id("\(account.credentials?.userID ?? "")-\(path)-\(retry)")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 EmptyState(icon: "calendar.badge.clock", label: "Your meeting workspace", detail: "Sign in to manage booking links, availability and messages on Mac and web.") {
                     ActionButton(title: "Sign in to Voice Notes", emphasis: .prominent) { SettingsRouter.shared.open(.connections) }
                 }
             }
-        }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -90,7 +91,7 @@ private struct SharedWorkspaceWebView: NSViewRepresentable {
             if let url = action.request.url, url.scheme == "https" { NSWorkspace.shared.open(url) }
             return nil
         }
-        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable (Bool) -> Void) {
             let alert = NSAlert(); alert.messageText = "Voice Notes"; alert.informativeText = message
             alert.addButton(withTitle: "Continue"); alert.addButton(withTitle: "Cancel")
             guard let window = webView.window else { completionHandler(false); return }
