@@ -22,7 +22,7 @@ struct CalendarWorkspace: View {
                 HStack {
                     VStack(alignment: .leading, spacing: DS.Space.sm) {
                         Text("Calendar").font(DS.Font.title)
-                        Text("Prepare, meet and follow through.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                        Text("Your meetings, guest details and notes.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                     }
                     Spacer()
                     Segmented(options: [("Agenda", "Agenda"), ("Day", "Day"), ("Week", "Week")], selection: $mode)
@@ -88,7 +88,7 @@ struct CalendarWorkspace: View {
                         onRecord(event)
                     }.disabled(!canRecord)
                     if event.conferenceURL != nil {
-                        ActionButton(title: "Join meeting", systemImage: "arrow.up.right", emphasis: .prominent) { MeetingSchedule.shared.join(event) }
+                        ActionButton(title: "Join meeting", systemImage: "arrow.up.right", emphasis: .normal) { MeetingSchedule.shared.join(event) }
                     }
                     if let note = store.listSessions().first(where: { $0.calendarEventID == event.id }) {
                         ActionButton(title: "Open note", emphasis: .normal) {

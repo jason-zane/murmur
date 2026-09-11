@@ -167,8 +167,8 @@ export function MeetingWorkspace({
             <h1>{home ? "Home" : "Calendar"}</h1>
             <p>
               {home
-                ? "Your day, ready when you are."
-                : "Prepare, meet and follow through."}
+                ? "Meetings and notes for your day."
+                : "Your meetings, guest details and notes."}
             </p>
           </div>
           <a className="button primary" href="murmur://cloud">

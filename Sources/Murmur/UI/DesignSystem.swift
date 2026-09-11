@@ -129,6 +129,8 @@ enum DS {
         static let minWindowWidth: CGFloat = 1_040
         static let minWindowHeight: CGFloat = 620
         static let documentWidth: CGFloat = 760
+        static let dictationPreviewLines = 5
+        static let dictationExpansionThreshold = 600
         static let homeWidth: CGFloat = 640
         static let symbolColumn: CGFloat = 20
         static let brandMark: CGFloat = 30

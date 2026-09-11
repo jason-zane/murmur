@@ -14,7 +14,7 @@ export default async function Page() {
     <Shell email={user.email || "Your account"}>
       <header className="page-header">
         <h1>Dictation</h1>
-        <p>Your words, wherever you write.</p>
+        <p>Dictation history and settings live on your Mac.</p>
       </header>
       <section className="workspace-card">
         <h2>Dictate on your Mac</h2>

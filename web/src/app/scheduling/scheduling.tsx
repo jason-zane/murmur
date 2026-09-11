@@ -429,7 +429,7 @@ export function Scheduling({
       <div className="scheduling-page">
         <header className="page-header">
           <h1>Booking links</h1>
-          <p>Your meeting types, availability and guest experience.</p>
+          <p>Meeting types, availability and booked guests.</p>
         </header>
         {message && (
           <p className="notice" role="status">
@@ -439,7 +439,7 @@ export function Scheduling({
 
         {live ? (
           <section className="booking-live">
-            <span className="eyebrow">YOUR BOOKING PAGE IS LIVE</span>
+            <span className="eyebrow">Your booking page</span>
             <CopyLink url={profileURL} />
             <Link
               className="text-link"
