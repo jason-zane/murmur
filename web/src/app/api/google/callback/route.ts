@@ -13,6 +13,7 @@ import { canBook, canReadEvents } from "@/lib/google";
 import { siteURL } from "@/lib/config";
 export async function GET(request: Request) {
   let bookingFlow = false;
+  let mailFlow = false;
   try {
     const { user } = await requestAuth(request),
       params = new URL(request.url).searchParams,
@@ -29,8 +30,10 @@ export async function GET(request: Request) {
       state: string;
       verifier: string;
       booking?: boolean;
+      mail?: boolean;
     };
     bookingFlow = Boolean(expected.booking);
+    mailFlow = Boolean(expected.mail);
     const a = Buffer.from(state),
       b = Buffer.from(expected.state);
     if (a.length !== b.length || !timingSafeEqual(a, b))
@@ -77,10 +80,19 @@ export async function GET(request: Request) {
       throw new Error(
         "Booking needs permission to add events to your calendar and to see when you’re busy. Try again and allow both.",
       );
+    if (
+      mailFlow &&
+      !granted.includes("https://www.googleapis.com/auth/gmail.send")
+    )
+      throw new Error(
+        "Allow sending email to use preparation and follow-up messages.",
+      );
     return NextResponse.redirect(
-      bookingFlow
-        ? `${siteURL()}/scheduling?connected=booking`
-        : `${siteURL()}/connections?connected=google`,
+      mailFlow
+        ? `${siteURL()}/connections?connected=email`
+        : bookingFlow
+          ? `${siteURL()}/scheduling?connected=booking`
+          : `${siteURL()}/connections?connected=google`,
     );
   } catch (e) {
     const message =

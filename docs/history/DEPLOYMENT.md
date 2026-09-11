@@ -1,11 +1,43 @@
 # Voice Notes deployment
 
+## Unified meeting workspace — 11 September 2026
+
+Production code `97e19f3` is live at https://murmur-rho-pied.vercel.app. Deployment
+`dpl_9zS5hjqpq1om6TUNys8TstTskhBG` is READY. The Mac app uses the same navigation and
+design tokens, a native agenda/day/week calendar, and the hosted booking and connection
+screens inside the signed-in workspace. Recording a selected booked meeting preserves
+its guest answers and meeting type's notes template.
+
+Meeting types now support default hours, reusable availability profiles or custom hours,
+including date exceptions, plus destination-calendar and email-sender overrides.
+Bookings include host rescheduling, cancellation, attendance and reviewed follow-ups.
+Preparation, reminder and thank-you email recipes use the user's Gmail account; recipes
+remain disabled by default. Private note-derived drafts require review before sending.
+
+Applied `20260911100000_meeting_workspace_messages.sql` and
+`20260911110000_reusable_availability.sql` to project `olxjfdsslbpdvywsnzrc` after checking
+the new tables were absent. Verified RLS on all four new tables. Added the production
+`CRON_SECRET`; Vercel dispatch runs every minute and returned successful responses.
+Gmail API and send-only scope are enabled. Jason approved consent and the self-test;
+Google verification was not submitted and remains Jason's responsibility.
+
+Validation: TypeScript and production builds passed; 156 web unit tests passed (two
+skipped), 25 integration tests passed against isolated local Supabase, 68 focused Swift
+tests passed, and the installed MCP smoke checks passed. Signed-in production Connections
+and Booking links loaded on web and Mac. A live booking created a Meet event and Google
+invitation; a reviewed Gmail follow-up arrived at Jason's own plus-address. A 13-second
+Mac test note carried the guest answers, booking identity and Meeting notes template.
+Rescheduling generated Google's update; cancellation generated its cancellation email.
+Both cancelled test bookings and their message history were removed, and the public API
+offered the original 09:00 and moved 09:30 Sydney slots again. Test notes remain available
+as recording evidence. No third-party guests were contacted.
+
 ## Created
 
 - Vercel project: `murmur`, team `jason-zanes-projects`.
 - Site: https://murmur-rho-pied.vercel.app
-- Latest verified deployment: `dpl_7TpugBwNJhA7QRVaaeWzhicHVX2c`, READY on 9 September
-  2026, including shared Account settings, the phone layout correction and updated connection instructions.
+- Latest verified deployment: `dpl_9zS5hjqpq1om6TUNys8TstTskhBG`, READY on 11 September
+  2026, including the unified meeting workspace, reusable availability and Gmail follow-ups.
 - Remote MCP: https://murmur-rho-pied.vercel.app/mcp
 - New Supabase organization: **Murmur**, `dxqglhelvchutaqnjiyi`.
 - Supabase project: **Murmur**, `olxjfdsslbpdvywsnzrc`, Sydney (`ap-southeast-2`).
@@ -43,10 +75,37 @@ activation completed. Data access was saved with `openid`, userinfo email/profil
 `NEXT_PUBLIC_GOOGLE_ENABLED=true` is deployed. Actual Google sign-in completed using
 `jasonzanehunt@gmail.com`, and the authenticated private library loaded successfully.
 
-## Booking links and multiple calendars: built, not deployed
+## Booking links and multiple calendars: deployed 11 September 2026
 
-Built and tested locally on 11 September 2026. Nothing below has been applied to
-production; each step needs the owner's approval.
+Deployed from `d10422f` with the owner's approval. Vercel deployment
+`dpl_fZ2FMY8JmhUeCC9Q3vurYVtt9dM7` is READY at the stable production origin.
+
+Google Data access now includes `calendar.calendarlist.readonly`, `calendar.events`
+and `calendar.freebusy`; verification was not submitted. The scheduling migration was
+applied once through `apply_migration`, after confirming `public.calendar_sources` did
+not exist. All six new tables have RLS and `bookings_no_overlap` exists. Production was
+deployed immediately afterwards. Signed-in Connections and Booking links load.
+
+The owner approved Google's unverified-app warning and incremental consent. Gmail and
+`jason@trajectas.com` are selected; holiday and Rugby World Cup calendars are not.
+The live page is `/book/jason-hunt`, with weekday 09:00–17:00 Australia/Sydney hours
+and the primary Gmail destination. `/book/jason-hunt/intro-call` is a 30-minute Google
+Meet meeting type, using the Meeting notes template and the default optional question.
+
+With separate approval to send invitations only to `jasonzanehunt+guest@gmail.com`,
+a public booking for 14 September at 09:00 created a Meet link and a Google invitation.
+The invitation included the guest's answer and private management link. That link moved
+the same booking to 09:30, and Google's updated invitation arrived. Guest cancellation
+succeeded; Google's cancellation email arrived and both 09:00 and 09:30 were offered
+again. The installed Mac app displayed the rescheduled meeting at 09:30.
+
+Outstanding: the Mac recording/guest-answer/template check needs a booked meeting near
+its start time; no recording was made for this future booking. The cancelled test row
+remains in `bookings`: the connector's `execute_sql` rejected DELETE as read-only,
+and the Supabase dashboard requires sign-in. Its calendar event is cancelled and it
+does not block availability. Optional Mac busy-time sharing was not enabled.
+
+Original rollout checklist (completed except the recording check noted above):
 
 1. Apply `supabase/migrations/20260911090000_murmur_scheduling.sql`. The existing Google
    connection becomes the first account with its read-only scope. Cached agenda events are
@@ -65,9 +124,8 @@ production; each step needs the owner's approval.
    template. Busy times from the Mac are shared only after turning on Settings → Meetings →
    Keep booking links clear of events on this Mac.
 
-Live checks still to do after deployment: a real booking creates the event and Meet link
-and Google emails the guest; reschedule and cancel from the guest's link update the event;
-the Mac names the booked meeting and applies its template.
+Remaining live check: record a booked meeting on the Mac and verify its saved guest
+answers and notes template. Complete test-row cleanup after dashboard sign-in.
 
 ## Acceptance and live checks
 

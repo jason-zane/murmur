@@ -11,7 +11,9 @@ export async function GET(request: Request) {
     const { data, error } = await client
       .from("sessions")
       .select("id,title,started_at,updated_at,version,deleted_at,document")
-      .order("id")
+      .order(params.get("order") === "recent" ? "started_at" : "id", {
+        ascending: params.get("order") !== "recent",
+      })
       .range(offset, offset + 49);
     if (error) throw error;
     return Response.json(
