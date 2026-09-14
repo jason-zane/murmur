@@ -83,6 +83,7 @@ private struct DictionaryRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         HStack(spacing: DS.Space.md) {
@@ -108,20 +109,12 @@ private struct DictionaryRow: View {
 
             Spacer()
 
-            HStack(spacing: DS.Space.xs) {
-                ActionButton(title: "Edit", emphasis: .quiet, action: onEdit)
-                ActionButton(title: entry.isEnabled ? "Disable" : "Enable",
-                             emphasis: .quiet, action: onToggle)
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(DS.Font.smallSymbol)
-                        .foregroundStyle(DS.Color.textTertiary)
-                        .padding(DS.Space.xs)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
+            ItemActions(label: entry.write) {
+                Button("Edit entry", action: onEdit)
+                Button(entry.isEnabled ? "Disable entry" : "Enable entry", action: onToggle)
+                Divider()
+                Button("Delete entry…") { confirmingDelete = true }
             }
-            .opacity(isHovering ? 1 : 0)
         }
         .opacity(entry.isEnabled ? 1 : 0.5)
         .padding(.horizontal, DS.Space.md)
@@ -134,6 +127,10 @@ private struct DictionaryRow: View {
             RoundedRectangle(cornerRadius: DS.Radius.md)
                 .strokeBorder(DS.Color.separator, lineWidth: DS.Stroke.hairline)
         }
+        .confirmationDialog("Delete “\(entry.write)” from your dictionary?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete entry", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("This removes the term or correction from this Mac. This can't be undone.") }
         .onHover { isHovering = $0 }
         .animation(DS.Motion.smooth, value: isHovering)
     }

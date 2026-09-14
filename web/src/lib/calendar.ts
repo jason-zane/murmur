@@ -1,4 +1,9 @@
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  hkdfSync,
+  randomBytes,
+} from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminClient } from "./supabase/server";
 import { meetingURL, type CalendarMeeting } from "./documents";
@@ -20,7 +25,9 @@ function key() {
 }
 /** A separate key for each purpose, derived from the server's calendar encryption key. */
 export function derivedSecret(label: string) {
-  return Buffer.from(hkdfSync("sha256", key(), Buffer.alloc(0), `voice-notes:${label}`, 32));
+  return Buffer.from(
+    hkdfSync("sha256", key(), Buffer.alloc(0), `voice-notes:${label}`, 32),
+  );
 }
 export function encryptToken(token: string) {
   const iv = randomBytes(12),
@@ -144,7 +151,13 @@ export async function saveConnection(
   } else {
     const { data, error: insert } = await db
       .from("calendar_connections")
-      .insert({ user_id: userID, provider: "google", email, scopes, updated_at: null })
+      .insert({
+        user_id: userID,
+        provider: "google",
+        email,
+        scopes,
+        updated_at: null,
+      })
       .select("id")
       .single();
     if (insert) throw insert;
@@ -161,7 +174,9 @@ export async function saveConnection(
 }
 
 /** A fresh access token for one account. Google reports its current grants each time. */
-export async function accessToken(connection: Pick<CalendarConnection, "id" | "scopes">) {
+export async function accessToken(
+  connection: Pick<CalendarConnection, "id" | "scopes">,
+) {
   const db = adminClient();
   const { data, error } = await db
     .from("calendar_credentials")
@@ -169,31 +184,45 @@ export async function accessToken(connection: Pick<CalendarConnection, "id" | "s
     .eq("connection_id", connection.id)
     .maybeSingle();
   if (error) throw error;
-  if (!data)
-    throw new Error("Reconnect this Google account in Connections.");
+  if (!data) throw new Error("Reconnect this Google account in Connections.");
   const token = await googleToken({
     grant_type: "refresh_token",
     refresh_token: decryptToken(data.encrypted_refresh_token),
   });
   const granted = token.scope?.split(" ").filter(Boolean);
-  if (granted?.length && granted.sort().join(" ") !== [...connection.scopes].sort().join(" ")) {
-    await db.from("calendar_connections").update({ scopes: granted }).eq("id", connection.id);
+  if (
+    granted?.length &&
+    granted.sort().join(" ") !== [...connection.scopes].sort().join(" ")
+  ) {
+    await db
+      .from("calendar_connections")
+      .update({ scopes: granted })
+      .eq("id", connection.id);
     connection.scopes = granted;
   }
   return token.access_token;
 }
 
-const writable = (c: GoogleCalendar) => c.accessRole === "owner" || c.accessRole === "writer";
+const writable = (c: GoogleCalendar) =>
+  c.accessRole === "owner" || c.accessRole === "writer";
 
 /** Mirrors the account's calendar list, keeping each calendar's selection. */
-async function syncSources(connection: CalendarConnection, calendars: GoogleCalendar[]) {
+async function syncSources(
+  connection: CalendarConnection,
+  calendars: GoogleCalendar[],
+) {
   const db = adminClient();
   const { data: existing, error } = await db
     .from("calendar_sources")
     .select("calendar_id,selected")
     .eq("connection_id", connection.id);
   if (error) throw error;
-  const previous = new Map((existing ?? []).map((s) => [s.calendar_id as string, s.selected as boolean]));
+  const previous = new Map(
+    (existing ?? []).map((s) => [
+      s.calendar_id as string,
+      s.selected as boolean,
+    ]),
+  );
   const rows: CalendarSource[] = calendars.slice(0, 200).map((c) => ({
     connection_id: connection.id,
     user_id: connection.user_id,
@@ -208,10 +237,14 @@ async function syncSources(connection: CalendarConnection, calendars: GoogleCale
   if (rows.length) {
     const { error: upsert } = await db
       .from("calendar_sources")
-      .upsert(rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })));
+      .upsert(
+        rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
+      );
     if (upsert) throw upsert;
   }
-  const gone = [...previous.keys()].filter((id) => !rows.some((r) => r.calendar_id === id));
+  const gone = [...previous.keys()].filter(
+    (id) => !rows.some((r) => r.calendar_id === id),
+  );
   if (gone.length) {
     const { error: remove } = await db
       .from("calendar_sources")
@@ -230,15 +263,27 @@ export async function refreshConnection(connection: CalendarConnection) {
   const sources = canListCalendars(connection.scopes)
     ? await syncSources(connection, await api.calendars())
     : await syncSources(connection, [
-        { id: "primary", summary: connection.email || "Primary calendar", primary: true, accessRole: "owner" },
+        {
+          id: "primary",
+          summary: connection.email || "Primary calendar",
+          primary: true,
+          accessRole: "owner",
+        },
       ]);
   const now = new Date(),
-    until = new Date(now.getTime() + 30 * 86400000);
-  const events: (CalendarMeeting & { calendar_id: string; ical_uid: string | null })[] = [];
+    until = new Date(now.getTime() + 90 * 86400000);
+  const events: (CalendarMeeting & {
+    calendar_id: string;
+    ical_uid: string | null;
+  })[] = [];
   for (const source of sources.filter((s) => s.selected).slice(0, 25)) {
     let items: GoogleEvent[];
     try {
-      items = await api.events(source.calendar_id, now, until);
+      items = await api.events(
+        source.calendar_id,
+        new Date(now.getTime() - 90 * 86400000),
+        until,
+      );
     } catch (error) {
       if (error instanceof GoogleError && error.status === 413)
         throw new Error(
@@ -248,7 +293,12 @@ export async function refreshConnection(connection: CalendarConnection) {
     }
     for (const item of items) {
       const event = normalizeEvent(item);
-      if (event) events.push({ ...event, calendar_id: source.calendar_id, ical_uid: item.iCalUID ?? null });
+      if (event)
+        events.push({
+          ...event,
+          calendar_id: source.calendar_id,
+          ical_uid: item.iCalUID ?? null,
+        });
     }
   }
   const { error } = await adminClient().rpc("replace_calendar_events", {
@@ -275,7 +325,8 @@ export async function connectionsFor(userID: string) {
 export async function refreshCalendar(userID: string, force = false) {
   const connections = await connectionsFor(userID);
   const due = connections.filter(
-    (c) => force || !c.updated_at || Date.now() - Date.parse(c.updated_at) >= 300000,
+    (c) =>
+      force || !c.updated_at || Date.now() - Date.parse(c.updated_at) >= 300000,
   );
   let firstError: unknown = null,
     failures = 0;
@@ -285,8 +336,12 @@ export async function refreshCalendar(userID: string, force = false) {
     } catch (error) {
       failures++;
       firstError ??= error;
-      const message = error instanceof Error ? error.message : "Calendar sync failed.";
-      await adminClient().from("calendar_connections").update({ error: message }).eq("id", connection.id);
+      const message =
+        error instanceof Error ? error.message : "Calendar sync failed.";
+      await adminClient()
+        .from("calendar_connections")
+        .update({ error: message })
+        .eq("id", connection.id);
     }
   }
   if (due.length && failures === due.length) throw firstError;
@@ -295,13 +350,22 @@ export async function refreshCalendar(userID: string, force = false) {
 export type AgendaEvent = CalendarMeeting;
 
 /** The merged agenda, readable with the person's own client so row security applies. */
-export async function agenda(client: SupabaseClient, days = 30) {
+export async function agenda(
+  client: SupabaseClient,
+  days = 30,
+  history = false,
+) {
   const now = new Date();
   const [events, connections, sources, profile] = await Promise.all([
     client
       .from("calendar_events")
-      .select("id,ical_uid,title,starts_at,ends_at,meeting_url,attendees")
-      .gt("ends_at", now.toISOString())
+      .select(
+        "id,ical_uid,connection_id,calendar_id,title,starts_at,ends_at,meeting_url,attendees",
+      )
+      .gt(
+        "ends_at",
+        new Date(now.getTime() - (history ? 90 : 0) * 86400000).toISOString(),
+      )
       .lt("starts_at", new Date(now.getTime() + days * 86400000).toISOString())
       .order("starts_at")
       .limit(750),
@@ -311,7 +375,9 @@ export async function agenda(client: SupabaseClient, days = 30) {
       .order("created_at"),
     client
       .from("calendar_sources")
-      .select("connection_id,calendar_id,name,color,is_primary,can_write,selected")
+      .select(
+        "connection_id,calendar_id,name,color,is_primary,can_write,selected",
+      )
       .order("is_primary", { ascending: false })
       .order("name"),
     client.from("booking_profiles").select("handle").maybeSingle(),
@@ -329,30 +395,35 @@ export async function agenda(client: SupabaseClient, days = 30) {
   const bookings = ids.length
     ? await client
         .from("bookings")
-        .select("id,provider_event_id,title,summary_template,guest_name,guest_email,answers,event_types(title)")
+        .select(
+          "id,provider_event_id,title,summary_template,guest_name,guest_email,answers,event_types(title)",
+        )
         .eq("status", "confirmed")
         .in("provider_event_id", ids.slice(0, 500))
     : { data: [], error: null };
   const byEvent = new Map(
     (bookings.data ?? []).map((b) => [b.provider_event_id as string, b]),
   );
-  const list: AgendaEvent[] = unique.slice(0, 250).map(({ ical_uid: _, ...e }) => {
-    const b = byEvent.get(e.id);
-    return b
-      ? {
-          ...e,
-          booking: {
-            id: b.id,
-            event_type:
-              (b.event_types as unknown as { title?: string } | null)?.title || b.title,
-            template: b.summary_template,
-            guest_name: b.guest_name,
-            guest_email: b.guest_email,
-            answers: b.answers as { question: string; answer: string }[],
-          },
-        }
-      : e;
-  });
+  const list: AgendaEvent[] = unique
+    .slice(0, history ? 750 : 250)
+    .map(({ ical_uid: _, ...e }) => {
+      const b = byEvent.get(e.id);
+      return b
+        ? {
+            ...e,
+            booking: {
+              id: b.id,
+              event_type:
+                (b.event_types as unknown as { title?: string } | null)
+                  ?.title || b.title,
+              template: b.summary_template,
+              guest_name: b.guest_name,
+              guest_email: b.guest_email,
+              answers: b.answers as { question: string; answer: string }[],
+            },
+          }
+        : e;
+    });
   const all = connections.data ?? [];
   return {
     events: list,
@@ -388,7 +459,9 @@ export async function disconnect(userID: string, connectionID?: string) {
     try {
       await fetch("https://oauth2.googleapis.com/revoke", {
         method: "POST",
-        body: new URLSearchParams({ token: decryptToken(c.encrypted_refresh_token) }),
+        body: new URLSearchParams({
+          token: decryptToken(c.encrypted_refresh_token),
+        }),
         signal: AbortSignal.timeout(10000),
       });
     } catch {}

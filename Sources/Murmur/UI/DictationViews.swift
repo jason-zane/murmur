@@ -40,7 +40,7 @@ struct DictationList: View {
                 HStack(alignment: .firstTextBaseline, spacing: DS.Space.md) {
                     Text("Dictation").font(DS.Font.title)
                     if !store.runs.isEmpty {
-                        Text(caption).font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary).lineLimit(1)
+                        Text(caption).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).monospacedDigit()
                     }
                     Spacer(minLength: DS.Space.sm)
                     if !store.runs.isEmpty {
@@ -59,7 +59,7 @@ struct DictationList: View {
                 }
                 if !store.runs.isEmpty {
                     SearchField(text: $query, placeholder: "Search dictations")
-                        .frame(maxWidth: DS.Layout.sheetNarrow)
+                        .frame(maxWidth: .infinity)
                 }
                 if runs.isEmpty {
                     EmptyState(
@@ -73,7 +73,7 @@ struct DictationList: View {
                 } else {
                     ForEach(groups, id: \.date) { group in
                         VStack(alignment: .leading, spacing: DS.Space.zero) {
-                            Text(group.title).font(DS.Font.label).foregroundStyle(DS.Color.textTertiary)
+                            Text(group.title).font(DS.Font.label).foregroundStyle(DS.Color.textSecondary)
                                 .padding(.bottom, DS.Space.sm)
                             ForEach(group.runs) { run in
                                 DictationRow(run: run, copied: copiedID == run.id) {
@@ -89,16 +89,15 @@ struct DictationList: View {
                     Hint("Hold \(settings.triggerSummary) in any text field. Everything you dictate is kept here, on this Mac.")
                 }
             }
-            .padding(DS.Space.page)
-            .frame(maxWidth: DS.Layout.documentWidth, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .padding(DS.Space.xxl)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .confirmationDialog(
             "Delete all \(store.runs.count) dictations?",
             isPresented: $isConfirmingClear,
             titleVisibility: .visible
         ) {
-            Button("Delete All", role: .destructive) { RunLog.clear() }
+            Button("Delete all", role: .destructive) { RunLog.clear() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This can't be undone.")
@@ -120,7 +119,8 @@ private struct DictationRow: View {
     let copied: Bool
     let onCopy: () -> Void
     let onDelete: () -> Void
-    @State private var isHovering = false
+    @State private var expanded = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.md) {
@@ -132,7 +132,13 @@ private struct DictationRow: View {
                     .font(DS.Font.body)
                     .foregroundStyle(DS.Color.text)
                     .textSelection(.enabled)
+                    .lineLimit(!expanded && run.text.count > DS.Layout.dictationExpansionThreshold ? DS.Layout.dictationPreviewLines : nil)
                     .fixedSize(horizontal: false, vertical: true)
+                if run.text.count > DS.Layout.dictationExpansionThreshold {
+                    ActionButton(title: expanded ? "Show less" : "Show full text", emphasis: .quiet) {
+                        expanded.toggle()
+                    }
+                }
                 if let corrections = run.corrections, !corrections.isEmpty {
                     CorrectionBadges(corrections: corrections)
                 }
@@ -146,22 +152,22 @@ private struct DictationRow: View {
             Spacer(minLength: DS.Space.sm)
             HStack(spacing: DS.Space.xs) {
                 ActionButton(title: copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc", emphasis: .quiet, action: onCopy)
-                Button(action: onDelete) {
-                    Image(systemName: "trash").font(DS.Font.smallSymbol).foregroundStyle(DS.Color.textTertiary)
-                        .frame(width: DS.Layout.symbolColumn, height: DS.Layout.symbolColumn)
+                ItemActions(label: "dictation") {
+                    Button("Copy", action: onCopy)
+                    Button("Delete dictation…") { confirmingDelete = true }
                 }
-                .buttonStyle(.plain)
-                .help("Delete this dictation")
-                .opacity(isHovering ? 1 : 0)
             }
         }
         .padding(.vertical, DS.Space.md)
         .contentShape(.rect)
-        .onHover { isHovering = $0 }
         .contextMenu {
             Button("Copy", action: onCopy)
-            Button("Delete", action: onDelete)
+            Button("Delete dictation…") { confirmingDelete = true }
         }
+        .confirmationDialog("Delete this dictation?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete dictation", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("This removes it from this Mac's history. This can't be undone.") }
     }
 }
 

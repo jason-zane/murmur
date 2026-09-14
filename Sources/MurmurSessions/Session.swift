@@ -92,12 +92,14 @@ public struct BookingContext: Codable, Sendable, Hashable {
         }
     }
 
+    public var bookingID: String?
     public var eventType: String
     public var guestName: String
     public var guestEmail: String?
     public var answers: [Answer]
 
-    public init(eventType: String, guestName: String, guestEmail: String? = nil, answers: [Answer] = []) {
+    public init(eventType: String, guestName: String, guestEmail: String? = nil, answers: [Answer] = [], bookingID: String? = nil) {
+        self.bookingID = bookingID
         self.eventType = eventType
         self.guestName = guestName
         self.guestEmail = guestEmail

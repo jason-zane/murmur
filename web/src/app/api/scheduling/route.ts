@@ -1,4 +1,10 @@
-import { requestAuth, requireEditor, failure, HttpError, limitedJSON } from "@/lib/http";
+import {
+  requestAuth,
+  requireEditor,
+  failure,
+  HttpError,
+  limitedJSON,
+} from "@/lib/http";
 import { canBook } from "@/lib/google";
 import { firstIssue, profileSchema } from "@/lib/scheduling/schema";
 import { siteURL } from "@/lib/config";
@@ -7,28 +13,44 @@ const headers = { "Cache-Control": "private, no-store" };
 export async function GET(request: Request) {
   try {
     const { client } = await requestAuth(request);
-    const [profile, types, bookings, sources, connections] = await Promise.all([
-      client.from("booking_profiles").select("*").maybeSingle(),
-      client.from("event_types").select("*").order("position").order("created_at"),
-      client
-        .from("bookings")
-        .select("id,event_type_id,title,status,starts_at,ends_at,guest_name,guest_email,guest_time_zone,answers,meeting_url,location_kind")
-        .neq("status", "cancelled")
-        .gt("ends_at", new Date().toISOString())
-        .order("starts_at")
-        .limit(100),
-      client
-        .from("calendar_sources")
-        .select("connection_id,calendar_id,name,is_primary,can_write,selected")
-        .order("is_primary", { ascending: false })
-        .order("name"),
-      client.from("calendar_connections").select("id,email,scopes").order("created_at"),
-    ]);
-    for (const r of [profile, types, bookings, sources, connections]) if (r.error) throw r.error;
+    const [profile, types, bookings, sources, connections, schedules] =
+      await Promise.all([
+        client.from("booking_profiles").select("*").maybeSingle(),
+        client
+          .from("event_types")
+          .select("*")
+          .order("position")
+          .order("created_at"),
+        client
+          .from("bookings")
+          .select(
+            "id,event_type_id,title,status,starts_at,ends_at,guest_name,guest_email,guest_time_zone,attendance,answers,meeting_url,location_kind",
+          )
+          .gte("starts_at", new Date(Date.now() - 365 * 86400000).toISOString())
+          .order("starts_at")
+          .limit(1000),
+        client
+          .from("calendar_sources")
+          .select(
+            "connection_id,calendar_id,name,is_primary,can_write,selected",
+          )
+          .order("is_primary", { ascending: false })
+          .order("name"),
+        client
+          .from("calendar_connections")
+          .select("id,email,scopes")
+          .order("created_at"),
+        client.from("availability_schedules").select("*").order("name"),
+      ]);
+    for (const r of [profile, types, bookings, sources, connections, schedules])
+      if (r.error) throw r.error;
     const accounts = (connections.data ?? []).map((c) => ({
       id: c.id as string,
       email: c.email as string | null,
       can_book: canBook(c.scopes ?? []),
+      can_send: (c.scopes ?? []).includes(
+        "https://www.googleapis.com/auth/gmail.send",
+      ),
     }));
     return Response.json(
       {
@@ -37,6 +59,7 @@ export async function GET(request: Request) {
         bookings: bookings.data,
         accounts,
         calendars: sources.data,
+        schedules: schedules.data,
         base_url: `${siteURL()}/book`,
       },
       { headers },
@@ -48,11 +71,19 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     const { client, user } = await requireEditor(request);
-    const parsed = profileSchema.safeParse(await limitedJSON(request, 200_000, "These settings are too large."));
+    const parsed = profileSchema.safeParse(
+      await limitedJSON(request, 200_000, "These settings are too large."),
+    );
     if (!parsed.success) throw new HttpError(400, firstIssue(parsed.error));
     const value = parsed.data;
-    if (Boolean(value.destination_connection_id) !== Boolean(value.destination_calendar_id))
-      throw new HttpError(400, "Choose the calendar that new bookings go into.");
+    if (
+      Boolean(value.destination_connection_id) !==
+      Boolean(value.destination_calendar_id)
+    )
+      throw new HttpError(
+        400,
+        "Choose the calendar that new bookings go into.",
+      );
     if (value.destination_connection_id) {
       const { data } = await client
         .from("calendar_sources")
@@ -65,10 +96,15 @@ export async function PUT(request: Request) {
     }
     const { data, error } = await client
       .from("booking_profiles")
-      .upsert({ ...value, user_id: user.id, updated_at: new Date().toISOString() })
+      .upsert({
+        ...value,
+        user_id: user.id,
+        updated_at: new Date().toISOString(),
+      })
       .select("*")
       .single();
-    if (error?.code === "23505") throw new HttpError(409, "That link name is taken. Choose another.");
+    if (error?.code === "23505")
+      throw new HttpError(409, "That link name is taken. Choose another.");
     if (error) throw error;
     return Response.json(data, { headers });
   } catch (e) {

@@ -41,12 +41,26 @@ export default function Page() {
           If you turn on booking links, Google asks for two more permissions on
           that account: to see when you’re busy and to add meetings to your
           calendar. When someone books, the event is created on your calendar
-          and Google sends the invitation from your account. Voice Notes does
-          not email guests. The guest’s name, email address, time zone and
+          and Google sends the invitation from your account. The guest’s name, email address, time zone and
           answers are stored with the booking so they appear with the meeting.
           Busy times shared from your Mac contain only start and end times.
           Booking pages are rate limited using a keyed hash of the visitor’s
           network address; raw addresses are not stored.
+        </p>
+        <h2>Optional meeting emails</h2>
+        <p>
+          Connecting Gmail for meeting emails requests permission to send on your
+          behalf, without permission to read your inbox. You choose the sender and
+          which meeting types send preparation, reminders or thank-you messages.
+          Email drafts, templates and delivery status are stored in your account.
+          Replies go to your own inbox. You can pause sending in Connections.
+        </p>
+        <p>
+          When you enable private follow-up drafts, Voice Notes copies labelled
+          decisions and actions from a booked meeting’s note into a draft. It does
+          not attach the transcript or guest answers. You review and edit the draft
+          before sending it. Once Google accepts a message, removing it from Voice
+          Notes cannot recall it from the recipient’s inbox.
         </p>
         <h2>Keeping a copy</h2>
         <p>

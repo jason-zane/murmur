@@ -1,4 +1,6 @@
 "use client";
+import { ItemActions } from "@/components/item-actions";
+import { EmailConnection } from "@/components/messages";
 import { LocalTime } from "@/components/local-time";
 import { AccountIdentity } from "@/components/account-identity";
 import Link from "next/link";
@@ -49,7 +51,9 @@ export function Connections({
   const [accounts, setAccounts] = useState(initialAccounts);
   const [calendars, setCalendars] = useState(initialCalendars);
   const [pending, setPending] = useState<string | null>(null);
-  const [grantsState, setGrantsState] = useState<"loading" | "ready" | "error">("loading");
+  const [grantsState, setGrantsState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const [copied, setCopied] = useState(false),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
@@ -72,7 +76,11 @@ export function Connections({
     const p = new URLSearchParams(location.search);
     if (p.get("error")) setMessage(p.get("error")!);
     if (p.get("connected"))
-      setMessage("Google Calendar is connected. Choose which calendars to include below.");
+      setMessage(
+        p.get("connected") === "email"
+          ? "Gmail is connected. Choose your sender and allow sending in Email below."
+          : "Google Calendar is connected. Choose which calendars to include below.",
+      );
   }, []);
   function apply(body: { connections: Account[]; calendars: Source[] }) {
     setAccounts(body.connections);
@@ -99,7 +107,8 @@ export function Connections({
     setPending(key);
     setCalendars((all) =>
       all.map((c) =>
-        c.connection_id === source.connection_id && c.calendar_id === source.calendar_id
+        c.connection_id === source.connection_id &&
+        c.calendar_id === source.calendar_id
           ? { ...c, selected }
           : c,
       ),
@@ -120,12 +129,15 @@ export function Connections({
     } catch (e) {
       setCalendars((all) =>
         all.map((c) =>
-          c.connection_id === source.connection_id && c.calendar_id === source.calendar_id
+          c.connection_id === source.connection_id &&
+          c.calendar_id === source.calendar_id
             ? { ...c, selected: !selected }
             : c,
         ),
       );
-      setMessage(e instanceof Error ? e.message : "Could not update that calendar.");
+      setMessage(
+        e instanceof Error ? e.message : "Could not update that calendar.",
+      );
     } finally {
       setPending(null);
     }
@@ -138,26 +150,35 @@ export function Connections({
     )
       return;
     setBusy(true);
-    const r = await fetch(`/api/calendar?connection=${encodeURIComponent(account.id)}`, {
-      method: "DELETE",
-    });
+    const r = await fetch(
+      `/api/calendar?connection=${encodeURIComponent(account.id)}`,
+      {
+        method: "DELETE",
+      },
+    );
     setBusy(false);
     if (r.ok) {
       setAccounts((all) => all.filter((a) => a.id !== account.id));
       setCalendars((all) => all.filter((c) => c.connection_id !== account.id));
       setMessage(`${account.email ?? "The account"} is disconnected.`);
-    } else setMessage("Could not disconnect Google Calendar. Please try again.");
+    } else
+      setMessage("Could not disconnect Google Calendar. Please try again.");
   }
   return (
     <Shell email={email}>
       <div className="connections-page">
         <header className="page-header">
           <h1>Connections</h1>
-          <p>Google Calendar and the apps connected to your Voice Notes account.</p>
+          <p>
+            Calendars, email and the apps connected to your Voice Notes account.
+          </p>
         </header>
         <div className="connection-account">
           <AccountIdentity email={email} />
-          <Link href="/settings" className="text-link">Account settings<ArrowUpRight size={14} /></Link>
+          <Link href="/settings" className="text-link">
+            Account settings
+            <ArrowUpRight size={14} />
+          </Link>
         </div>
         <section className="mcp-card">
           <span className="connection-symbol">
@@ -221,8 +242,9 @@ export function Connections({
             <summary>Connect Claude</summary>
             <p>
               In Claude, open Customize → Connectors → Add custom connector.
-              Name it Voice Notes, paste this URL and continue. Add the connector,
-              then select Connect and approve access to your Voice Notes account.
+              Name it Voice Notes, paste this URL and continue. Add the
+              connector, then select Connect and approve access to your Voice
+              Notes account.
             </p>
           </details>
         </div>
@@ -238,15 +260,21 @@ export function Connections({
                 : "See what’s next, join on time, and prepare with context from past meetings. Connect work and personal accounts."}
             </p>
             {calendarUnavailable && (
-              <p className="notice">Calendar status is unavailable. Please try again.</p>
+              <p className="notice">
+                Calendar status is unavailable. Please try again.
+              </p>
             )}
             {accounts.map((account) => {
-              const own = calendars.filter((c) => c.connection_id === account.id);
+              const own = calendars.filter(
+                (c) => c.connection_id === account.id,
+              );
               return (
                 <div className="calendar-account" key={account.id}>
                   <div className="calendar-account-head">
                     <strong>{account.email ?? "Google account"}</strong>
-                    {canBook(account.scopes) && <span className="chip">Booking allowed</span>}
+                    {canBook(account.scopes) && (
+                      <span className="chip">Booking allowed</span>
+                    )}
                   </div>
                   {account.updated_at && (
                     <span className="fine-print">
@@ -287,13 +315,15 @@ export function Connections({
                         <ArrowUpRight size={14} />
                       </a>
                     )}
+                    <ItemActions label={account.email || "Google account"}>
                     <button
                       className="text-link"
                       onClick={() => void disconnect(account)}
                       disabled={busy}
                     >
-                      Disconnect
+                      Disconnect account…
                     </button>
+                    </ItemActions>
                   </div>
                 </div>
               );
@@ -342,9 +372,9 @@ export function Connections({
           <div>
             <h2>Voice Notes on your Mac</h2>
             <p>
-              Sign in from Settings → Account in the Mac app to sync your library.
-              Record, dictate and edit offline. Your changes catch up when you
-              reconnect.
+              Sign in from Settings → Account in the Mac app to sync your
+              library. Record, dictate and edit offline. Your changes catch up
+              when you reconnect.
             </p>
           </div>
           <a href="murmur://cloud" className="button small">
@@ -355,11 +385,17 @@ export function Connections({
         <section className="authorized-apps">
           <h2>Apps you’ve connected</h2>
           {grantsState === "loading" ? (
-            <p className="muted" role="status">Loading connected apps…</p>
+            <p className="muted" role="status">
+              Loading connected apps…
+            </p>
           ) : grantsState === "error" ? (
             <div className="grant-row">
-              <p className="muted" role="alert">Could not load connected apps.</p>
-              <button className="text-link" onClick={() => void loadGrants()}>Try again</button>
+              <p className="muted" role="alert">
+                Could not load connected apps.
+              </p>
+              <button className="text-link" onClick={() => void loadGrants()}>
+                Try again
+              </button>
             </div>
           ) : grants.length ? (
             grants.map((grant) => (
@@ -402,6 +438,7 @@ export function Connections({
             {message}
           </p>
         )}
+        <EmailConnection />
       </div>
     </Shell>
   );

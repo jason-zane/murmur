@@ -112,7 +112,7 @@ struct SessionDetailView: View {
                     .buttonStyle(.plain).foregroundStyle(session.isPinned ? DS.Color.accent : DS.Color.textSecondary)
                     .help(session.isPinned ? "Unpin note" : "Pin note")
                     .padding(.top, DS.Space.sm)
-                Menu {
+                ItemActions(label: session.title) {
                     Button("Copy notes") { copy(note.isEmpty ? bullets.map(\.text).joined(separator: "\n") : note, label: "notes") }
                     Button("Copy full meeting as Markdown") { copy(store.markdown(for: session.id), label: "meeting") }
                     Button("Copy for AI") { copyForAI() }
@@ -123,14 +123,25 @@ struct SessionDetailView: View {
                     Button("Reveal files in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)]) }
                     Divider()
                     Button("Move to Trash…") { confirmTrash = true }
-                } label: { Image(systemName: "ellipsis").font(DS.Font.symbol) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: DS.Layout.symbolColumn)
-                .help("Copy, export and note options")
+                }
                 .padding(.top, DS.Space.sm)
             }
             Text(metadata)
                 .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let booking = session.booking {
+                DisclosureGroup("Booking details · \(booking.eventType)") {
+                    VStack(alignment: .leading, spacing: DS.Space.sm) {
+                        Text(booking.guestName).font(DS.Font.label)
+                        if let email = booking.guestEmail { Text(email).foregroundStyle(DS.Color.textSecondary) }
+                        ForEach(booking.answers, id: \.question) { answer in
+                            Text(answer.question).font(DS.Font.label)
+                            Text(answer.answer).textSelection(.enabled)
+                        }
+                        Text("Provided by the guest before the meeting.").foregroundStyle(DS.Color.textSecondary)
+                    }.font(DS.Font.caption).frame(maxWidth: .infinity, alignment: .leading)
+                }.font(DS.Font.callout)
+            }
         }
         .padding(DS.Space.xl)
     }

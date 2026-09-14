@@ -9,31 +9,42 @@ import { BOOKING_SCOPES, READ_SCOPES } from "@/lib/google";
 // permissions booking needs, for the account named in ?account=.
 export async function GET(request: Request) {
   try {
-    await requireEditor(request, "Calendar settings require signing in to Voice Notes.");
+    await requireEditor(
+      request,
+      "Calendar settings require signing in to Voice Notes.",
+    );
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)
       throw new HttpError(
         503,
         "Google Calendar setup is still being completed.",
       );
     const params = new URL(request.url).searchParams;
+    const mail = params.get("mail") === "1";
     const booking = params.get("booking") === "1",
       add = params.get("add") === "1",
       account = params.get("account");
     const state = randomBytes(32).toString("base64url"),
       verifier = randomBytes(32).toString("base64url"),
       jar = await cookies();
-    jar.set("murmur-google", JSON.stringify({ state, verifier, booking }), {
-      httpOnly: true,
-      secure: siteURL().startsWith("https:"),
-      sameSite: "lax",
-      maxAge: 600,
-      path: "/api/google/callback",
-    });
+    jar.set(
+      "murmur-google",
+      JSON.stringify({ state, verifier, booking, mail }),
+      {
+        httpOnly: true,
+        secure: siteURL().startsWith("https:"),
+        sameSite: "lax",
+        maxAge: 600,
+        path: "/api/google/callback",
+      },
+    );
     const q = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
       redirect_uri: `${siteURL()}/api/google/callback`,
       response_type: "code",
-      scope: (booking ? BOOKING_SCOPES : READ_SCOPES).join(" "),
+      scope: [
+        ...(booking ? BOOKING_SCOPES : READ_SCOPES),
+        ...(mail ? ["https://www.googleapis.com/auth/gmail.send"] : []),
+      ].join(" "),
       access_type: "offline",
       prompt: add ? "consent select_account" : "consent",
       include_granted_scopes: "true",

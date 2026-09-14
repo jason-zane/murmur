@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { cloudReady } from "@/lib/config";
 import { serverClient } from "@/lib/supabase/server";
-import { Library } from "@/components/library";
+import { MeetingWorkspace } from "@/components/meeting-workspace";
 export const dynamic = "force-dynamic";
 export default async function Page() {
   if (!cloudReady()) redirect("/login");
@@ -10,5 +10,5 @@ export default async function Page() {
     data: { user },
   } = await client.auth.getUser();
   if (!user) redirect("/login");
-  return <Library email={user.email || "Your account"} userID={user.id} />;
+  return <MeetingWorkspace email={user.email || "Your account"} home />;
 }

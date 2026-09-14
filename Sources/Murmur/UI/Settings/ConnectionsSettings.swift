@@ -11,8 +11,8 @@ struct ConnectionsSettings: View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             if account.isConnected {
                 AccountCard()
-                ConnectedAppsCard()
                 Card { CalendarAccountDetails() }
+                ConnectedAppsCard()
                 ClaudeDesktopCard()
             } else {
                 ClaudeDesktopCard()
@@ -220,7 +220,7 @@ struct CalendarAccountDetails: View {
             HStack(alignment: .top, spacing: DS.Space.md) {
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     Text(status).font(DS.Font.body).foregroundStyle(DS.Color.text).textSelection(.enabled)
-                    Hint("Read-only access to your upcoming meetings, for names, people and links.")
+                    Hint("Your calendar provides meeting names, people and links. Booking permissions and optional email sending are managed separately.")
                     if let error = sync.calendarError { Hint(error) }
                 }
                 Spacer(minLength: DS.Space.md)

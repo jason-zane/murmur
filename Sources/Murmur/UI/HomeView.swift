@@ -20,7 +20,10 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.xxl) {
-                Readout(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)), color: DS.Color.textTertiary)
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    Text("Home").font(DS.Font.title)
+                    Text("Meetings and notes for your day.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                }
                 HStack(alignment: .top, spacing: DS.Space.xxl) {
                     day.frame(maxWidth: .infinity, alignment: .topLeading)
                     MonthCalendar(month: $visibleMonth, selected: $selectedDay, activity: activity)
@@ -29,9 +32,8 @@ struct HomeView: View {
                 if !microphoneGranted || !audioGranted { setup }
                 Hint("Voice Notes offers to record when a call starts in Meet, Zoom or Teams. Change this in Settings ▸ Meetings.")
             }
-            .padding(DS.Space.page)
-            .frame(maxWidth: DS.Layout.homeWideWidth, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .padding(DS.Space.xxl)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .onAppear { schedule.refresh(); refreshPermissions(); reload() }
         .onChange(of: visibleMonth) { _, _ in reload() }
@@ -187,7 +189,7 @@ struct HomeView: View {
 // MARK: - Model
 
 /// What happened, or is due, on each day of the visible month.
-private struct MonthActivity: Equatable {
+struct MonthActivity: Equatable {
     var events: [Date: [CalendarEvent]] = [:]
     var notes: [Date: [MeetingSession]] = [:]
 
@@ -201,7 +203,7 @@ private struct MonthActivity: Equatable {
 
     /// The day's events, each paired with the note recorded for it, followed by notes that
     /// weren't tied to any event — a call that wasn't in the calendar, a personal note.
-    func entries(on day: Date) -> [DayEntry] {
+    fileprivate func entries(on day: Date) -> [DayEntry] {
         let dayEvents = events[day] ?? []
         let dayNotes = notes[day] ?? []
         var linked: Set<String> = []
@@ -276,7 +278,7 @@ private struct DayRow: View {
 
 // MARK: - Month grid
 
-private struct MonthCalendar: View {
+struct MonthCalendar: View {
     @Binding var month: Date
     @Binding var selected: Date
     let activity: MonthActivity
