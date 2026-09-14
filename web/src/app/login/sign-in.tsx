@@ -223,7 +223,9 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
                   </button>
                 )}
                 {mode === "reset" && (
-                  <button onClick={() => setMode("login")}>Back to sign in</button>
+                  <button onClick={() => setMode("login")}>
+                    Back to sign in
+                  </button>
                 )}
               </div>
             </>
@@ -233,6 +235,10 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
               {message}
             </p>
           )}
+          <p className="privacy-foot">
+            Recording happens on your Mac.{" "}
+            <Link href="/download">Download Voice Notes for Mac</Link>
+          </p>
           <p className="privacy-foot">
             Your notes belong to you.{" "}
             <Link href="/privacy">How Voice Notes handles your data</Link>

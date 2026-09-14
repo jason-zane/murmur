@@ -1984,7 +1984,12 @@ h3 {
     scroll-behavior: auto !important;
   }
 }
-.conflict-actions {display:flex;gap:12px;flex-wrap:wrap;margin:15px 0 24px;}
+.conflict-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 15px 0 24px;
+}
 
 /* Booking links: owner settings */
 .scheduling-page {
@@ -2746,5 +2751,136 @@ select:focus-visible {
   .book-card.book-index,
   .book-card.book-done {
     padding: 32px 22px;
+  }
+}
+.download-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #eeedf5;
+}
+.download-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30px 55px;
+}
+.download-main {
+  flex: 1;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 30px 55px 70px;
+}
+.download-hero > p {
+  font-size: 1rem;
+  line-height: 1.9;
+  color: #807b91;
+  margin-top: 24px;
+  max-width: 545px;
+}
+.download-hero .eyebrow {
+  margin-bottom: 22px;
+}
+.download-button {
+  margin-top: 38px;
+  font-size: 0.95rem;
+  padding: 16px 30px;
+  gap: 11px;
+}
+.download-hero .fine-print {
+  margin-top: 16px;
+}
+.download-steps {
+  margin-top: 66px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 38px 42px 34px;
+  box-shadow:
+    0 20px 60px #52456910,
+    0 2px 5px #52456905;
+}
+.download-steps > ol {
+  list-style: none;
+  counter-reset: step;
+  margin: 26px 0 0;
+  padding: 0;
+}
+.download-steps > ol > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0 0 0 46px;
+}
+.download-steps > ol > li + li {
+  margin-top: 30px;
+  border-top: 1px solid var(--line);
+  padding-top: 30px;
+}
+.download-steps > ol > li:before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: -2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+}
+/* `top` is measured from the border edge, so rows carrying the separator's top padding
+   have to add it back or the counter floats up onto the rule above the heading. */
+.download-steps > ol > li + li:before {
+  top: 28px;
+}
+.download-steps > ol > li > p {
+  font-size: 0.87rem;
+  line-height: 1.85;
+  color: var(--muted);
+  margin-top: 9px;
+}
+.download-steps > ol > li strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.download-assurance {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin-top: 32px;
+  padding: 17px 19px;
+  background: var(--soft);
+  border-radius: 13px;
+  font-size: 0.8rem;
+  line-height: 1.75;
+  color: var(--muted);
+}
+.download-assurance svg {
+  color: var(--accent);
+  margin-top: 2px;
+}
+.download-footer {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  margin-top: 34px;
+}
+@media (max-width: 700px) {
+  .download-bar {
+    padding: 22px 22px 0;
+  }
+  .download-main {
+    padding: 34px 22px 54px;
+  }
+  .download-button {
+    width: 100%;
+    justify-content: center;
+  }
+  .download-steps {
+    margin-top: 46px;
+    padding: 28px 22px 26px;
   }
 }
