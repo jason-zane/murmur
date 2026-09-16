@@ -154,7 +154,8 @@ With a debug build installed, quit Voice Notes and run
 `/Applications/Murmur.app/Contents/MacOS/Murmur --diagnose-system-audio`.
 It opens the microphone (to exercise Bluetooth call mode), plays a short system sound,
 prints the call-side buffer count and peak level, and quits. It creates no note and stores
-no audio. Add `--browser-audio` to instead listen for 25 seconds and print call-side
+no audio. Add `--exercise-restarts` to test three capture cycles, reopening the microphone
+and restarting call capture between them. Add `--browser-audio` to instead listen for 25 seconds and print call-side
 transcription; play known test speech in Chrome after “Audio diagnostic ready”.
 
 The system-audio aggregate must contain only the process tap. Including the physical

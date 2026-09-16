@@ -33,7 +33,7 @@ struct MainWindow: View {
                     if meetings.state != .idle {
                         RecordingStrip(controller: meetings, onShowNotes: onShowNotepad)
                     }
-                    if let message = meetings.lastError {
+                    if let message = meetings.lastError ?? (meetings.state != .idle ? meetings.warning : nil) {
                         InlineNotice(text: message, tone: .warning) {
                             if meetings.state == .saveFailed {
                                 ActionButton(title: "Retry save", emphasis: .normal) { meetings.retrySave() }

@@ -91,6 +91,7 @@ final class MeetingController {
     private var clockTask: Task<Void, Never>?
     private var bulletSaveTask: Task<Void, Never>?
     private var finishDone = false
+    private var captureIssue: String?
     private var startedAt: Date?
     private var stoppedAt: Date?
     private(set) var systemAudioActive = false
@@ -166,6 +167,7 @@ final class MeetingController {
         warning = nil
         livePartial = ""
         if !resuming {
+            captureIssue = nil
             liveSegments = []
             bullets = []
             elapsed = 0
@@ -269,8 +271,8 @@ final class MeetingController {
                     },
                 ]
                 consumeTasks = [
-                    Task { @MainActor [weak self] in for await event in micEvents { if self?.runID == runID { self?.handle(event) } } },
-                    Task { @MainActor [weak self] in for await event in callEvents { if self?.runID == runID { self?.handle(event) } } },
+                    consume(micEvents, source: .you, for: runID),
+                    consume(callEvents, source: .call, for: runID),
                 ]
 
                 let captureStarted = Date()
@@ -319,7 +321,7 @@ final class MeetingController {
                 case .failure(let error):
                     // Your side still records. Say so, loudly enough to be fixed.
                     systemAudioActive = false
-                    warning = "Recording your side only — \(error.localizedDescription)"
+                    reportCaptureIssue("Recording your side only — \(error.localizedDescription)")
                     Log.audio.error("system audio unavailable: \(error.localizedDescription)")
                 }
                 // A stop that arrived while the tap was coming up (or while the consent
@@ -359,7 +361,7 @@ final class MeetingController {
         Task { @MainActor in
             let drained = await finishWithDeadline()
             if !drained {
-                warning = "The last words before pausing may be missing. Earlier words are saved."
+                reportCaptureIssue("The last words before pausing may be missing. Earlier words are saved.")
             }
             // Retire callbacks from this capture before a fresh pair of transcribers resumes.
             runID = UUID()
@@ -515,6 +517,7 @@ final class MeetingController {
             return
         }
 
+        if lastError == nil { lastError = captureIssue }
         if manifest.app != nil, !segments.isEmpty,
            !segments.contains(where: { $0.source == .call }), lastError == nil {
             lastError = "No call-side speech was transcribed for this note. It may contain only your side."
@@ -559,12 +562,30 @@ final class MeetingController {
         NoteBullet(at: elapsed, text: "")
     }
 
+    private func reportCaptureIssue(_ message: String) {
+        warning = message
+        // Keep the first failure visible after saving, even if earlier call-side words
+        // exist or a later resume succeeds. This note may still have a gap.
+        if captureIssue == nil { captureIssue = message }
+    }
+
+    private func consume(_ events: AsyncStream<MeetingTranscriptEvent>, source: AudioStreamSource,
+                         for token: UUID) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            for await event in events {
+                guard let self, self.runID == token, !Task.isCancelled else { return }
+                self.handle(event)
+            }
+            guard let self, self.runID == token, !Task.isCancelled,
+                  self.state == .recording || self.state == .starting || self.state == .resuming else { return }
+            self.reportCaptureIssue("\(source == .you ? "Microphone" : "Call audio") transcription stopped unexpectedly. Pause and resume to try again; earlier words are saved.")
+        }
+    }
+
     private func handle(_ event: MeetingTranscriptEvent) {
         switch event {
         case .failed(let source, let message):
-            if isRecording {
-                warning = "\(source == .you ? "Your microphone" : "Call audio") couldn't be transcribed: \(message). Earlier words are saved."
-            }
+            reportCaptureIssue("\(source == .you ? "Your microphone" : "Call audio") couldn't be transcribed: \(message). Earlier words are saved.")
         case .partial(let text):
             livePartial = text
         case .final(var segment):
@@ -670,7 +691,7 @@ final class MeetingController {
             isRestartingSystem = false
             if let failure {
                 systemAudioActive = false
-                warning = "Call audio couldn't reconnect: \(failure). Your microphone is still recording."
+                reportCaptureIssue("Call audio couldn't reconnect: \(failure). Your microphone is still recording.")
             }
         }
     }

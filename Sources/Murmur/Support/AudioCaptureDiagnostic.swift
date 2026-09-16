@@ -54,10 +54,22 @@ enum AudioCaptureDiagnostic {
             if browserTest {
                 try await Task.sleep(for: .seconds(25))
             } else {
-                try await Task.sleep(for: .seconds(2))
-                let sound = NSSound(contentsOfFile: "/System/Library/Sounds/Glass.aiff", byReference: true)
-                sound?.play()
-                try await Task.sleep(for: .seconds(5))
+                let cycles = ProcessInfo.processInfo.arguments.contains("--exercise-restarts") ? 3 : 1
+                for cycle in 0..<cycles {
+                    if cycle > 0 {
+                        microphone.stop()
+                        try await Task.sleep(for: .seconds(2))
+                        try await microphone.start(outputFormat: captureFormat, onBuffer: { _ in }, onLevel: { _ in })
+                        try await AsyncDeadline.run(for: .seconds(15)) { try capture.restart() }
+                        measurements.withLock { $0 = (0, 0, 0) }
+                    }
+                    try await Task.sleep(for: .seconds(2))
+                    let sound = NSSound(contentsOfFile: "/System/Library/Sounds/Glass.aiff", byReference: true)
+                    sound?.play()
+                    try await Task.sleep(for: .seconds(5))
+                    let result = measurements.withLock { "buffers=\($0.buffers), frames=\($0.frames), peak=\($0.peak)" }
+                    print("Capture cycle \(cycle + 1): \(result)")
+                }
             }
             microphone.stop()
             await Task.detached { capture.stop() }.value
