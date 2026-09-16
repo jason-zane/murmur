@@ -20,7 +20,7 @@ struct MurmurApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New note") { NotificationCenter.default.post(name: .murmurNewNote, object: nil) }
                     .keyboardShortcut("n", modifiers: .command)
-                Button("Record meeting") { delegate.toggleMeeting() }
+                Button(delegate.meetings.state.isActive ? "Stop" : "Record meeting") { delegate.toggleMeeting() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
             }
             CommandGroup(after: .textEditing) {
@@ -70,6 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func previewDictationBar() { hud?.preview() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--diagnose-system-audio") {
+            Task { await AudioCaptureDiagnostic.run() }
+            return
+        }
+        #endif
         // A regular app now: dock icon, app menu, standard windows. The HUD is still a
         // non-activating panel, so dictating into another app never steals its focus — that
         // property belongs to the panel, not to the activation policy.
@@ -383,7 +389,12 @@ private struct MenuContent: View {
     /// opening a window: sound, start at login and which engine transcribes.
     var body: some View {
         if meetings.state.isActive {
-            Button("Stop recording  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
+            if meetings.isRecording {
+                Button("Pause") { meetings.pause() }
+            } else if meetings.state == .paused {
+                Button("Resume") { meetings.resume() }
+            }
+            Button("Stop  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             Button("Show notes") { delegate.showNotepad() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -463,8 +474,9 @@ private struct StatusLabel: View {
             if meetings.state.isActive {
                 // The one state that must never be ambiguous: an app that can hear a meeting
                 // owes the user an unmistakable sign that it is on.
-                HStack(spacing: 4) {
-                    Image(systemName: "record.circle.fill")
+                HStack(spacing: DS.Space.xs) {
+                    Image(systemName: meetings.isRecording ? "record.circle.fill"
+                          : meetings.state == .paused ? "pause.circle" : "hourglass")
                     Text(TimeFormat.clock(meetings.elapsed))
                         .monospacedDigit()
                 }

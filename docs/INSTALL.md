@@ -78,7 +78,11 @@ the download button appears right there. Until it's downloaded, Apple is used.
   Settings ▸ Dictionary.
 - **Meetings**: when a call starts in Meet, Zoom, Teams and others, a small offer appears at
   the top of the screen. **Record** opens a narrow notes window down the right edge of the
-  screen where you can type as the meeting runs. Stop, and the meeting is in your library
+  screen where you can type as the meeting runs. **Pause** turns off microphone and call
+  capture; **Resume** continues in the same note. **Stop** ends capture and saves the note.
+  These controls sit at the top of the notes window, in the main window and in the menu
+  bar, so you can still stop after closing the notes window. The elapsed time and transcript
+  timestamps follow the meeting clock, including time spent paused. The note is in your library
   with a transcript; **Summarise** writes the note. Or start one yourself from the menu
   bar (⌘⇧R).
 - **Claude Desktop**: Settings ▸ Connections ▸ **Connect Claude Desktop** lets Claude read

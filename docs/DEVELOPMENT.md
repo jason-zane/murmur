@@ -147,3 +147,16 @@ use `40001`, which means a serialisation failure and can trigger automatic retri
 
 Notarisation is deliberately not part of this: it needs the Apple Developer Program.
 [INSTALL.md](INSTALL.md) tells people how to open an un-notarised app.
+
+## Checking Bluetooth call capture
+
+With a debug build installed, quit Voice Notes and run
+`/Applications/Murmur.app/Contents/MacOS/Murmur --diagnose-system-audio`.
+It opens the microphone (to exercise Bluetooth call mode), plays a short system sound,
+prints the call-side buffer count and peak level, and quits. It creates no note and stores
+no audio. Add `--browser-audio` to instead listen for 25 seconds and print call-side
+transcription; play known test speech in Chrome after “Audio diagnostic ready”.
+
+The system-audio aggregate must contain only the process tap. Including the physical
+output as a sub-device can stall IO registration when a Bluetooth headset enters call
+mode, and input-capable devices can put unrelated input buffers before the tap stream.
