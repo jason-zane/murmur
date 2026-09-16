@@ -231,11 +231,11 @@ enum DS {
     /// The "a call started" prompt near the top of the screen.
     enum Offer {
         /// Canvas, not pill — the panel is deliberately larger than the capsule inside it.
-        static let canvas = NSSize(width: 560, height: 72)
-        static let topInset: CGFloat = 10
+        static let canvas = NSSize(width: 480, height: 100)
+        static let progressHeight: CGFloat = 3
+        static let refreshInterval: TimeInterval = 0.05
         static let markSize: CGFloat = 26
         static let borderOpacity = 0.09
-        static let autoDismiss: Duration = .seconds(45)
     }
 
     /// The meeting notepad: a full-height rail down one edge of the screen.

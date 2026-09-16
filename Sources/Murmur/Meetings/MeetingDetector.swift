@@ -50,7 +50,6 @@ struct MeetingCandidate: Identifiable, Equatable, Sendable {
 @Observable
 final class MeetingDetector {
     enum Decision: Equatable {
-        case autoStart(MeetingCandidate)
         case offer(MeetingCandidate, quiet: Bool)
     }
 
@@ -60,6 +59,8 @@ final class MeetingDetector {
     /// The offer currently showing, if any.
     private(set) var offered: MeetingCandidate?
     private(set) var isQuietOffer = false
+    private(set) var offerDeadline: Date?
+    static let offerDuration: TimeInterval = 15
 
     /// Set by the controller while a session records, so the detector can watch for the
     /// call ending rather than offering to record it again.
@@ -108,10 +109,12 @@ final class MeetingDetector {
         guard let offered else { return }
         declined.insert(offered.bundleID)
         self.offered = nil
+        offerDeadline = nil
     }
 
     /// The offer was taken up (or the user pressed Record themselves).
     func dismissOffer() {
+        offerDeadline = nil
         offered = nil
     }
 
@@ -129,6 +132,7 @@ final class MeetingDetector {
     private func evaluate() async {
         let settings = MeetingSettings.shared
         let now = Date()
+        expireOffer(at: now)
         let browserPIDs = Set(monitor.processes.filter {
             MeetingAppRegistry.app(for: $0.bundleID)?.kind == .browser
                 && ($0.isRunningInput || $0.isRunningOutput)
@@ -165,6 +169,10 @@ final class MeetingDetector {
             ($0.isTwoWay || (browserStates[$0.pid] == .active && $0.isRunningOutput))
                 && browserStates[$0.pid] != .preview
                 && !MeetingAppRegistry.ignoredBundleIDs.contains($0.bundleID) && settings.rule(for: $0.bundleID) != .never
+        }
+
+        if let offered, !twoWay.contains(where: { $0.bundleID == offered.bundleID && $0.pid == offered.pid }) {
+            dismissOffer()
         }
 
         // Forget decisions and declines for apps whose calls have ended.
@@ -204,20 +212,28 @@ final class MeetingDetector {
         let delay = current.isKnown ? settings.offerDelay : Self.unknownAppDelay
         guard current.elapsed(at: now) >= delay else { return }
 
+        showOffer(current, at: now)
+    }
+
+    /// Detection only offers. Recording always requires an explicit user action.
+    func showOffer(_ current: MeetingCandidate, at now: Date = Date()) {
+        guard !decided.contains(current.bundleID), !declined.contains(current.bundleID) else { return }
         decided.insert(current.bundleID)
-        let strongEvidence = current.isKnown && current.calendarEvent != nil
-        let explicitRule = settings.appRules[current.bundleID]
-        let autoKnown = settings.autoRecordKnownCalls && current.isKnown && explicitRule == nil
-        let joinedMeet = !current.isBrowser || current.label != "Google Meet" || browserStates[current.pid] == .active
-        if joinedMeet && (rule == .auto || autoKnown || (settings.autoStartOnCalendarMatch && strongEvidence && explicitRule == nil)) {
-            offered = nil
-            onDecision?(.autoStart(current))
-        } else {
-            let quiet = !current.isKnown
-            offered = current
-            isQuietOffer = quiet
-            onDecision?(.offer(current, quiet: quiet))
-        }
+        offered = current
+        offerDeadline = now.addingTimeInterval(Self.offerDuration)
+        isQuietOffer = !current.isKnown
+        onDecision?(.offer(current, quiet: isQuietOffer))
+    }
+
+    func expireOffer(at now: Date = Date()) {
+        if let offerDeadline, now >= offerDeadline { decline() }
+    }
+
+    func acceptOffer(at now: Date = Date()) -> MeetingCandidate? {
+        expireOffer(at: now)
+        let accepted = offered
+        dismissOffer()
+        return accepted
     }
 
     /// Known native apps beat browsers with a meeting title, which beat other browsers, which

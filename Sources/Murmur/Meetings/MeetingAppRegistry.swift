@@ -2,7 +2,7 @@ import Foundation
 
 /// What to do when an app is found holding a two-way call.
 enum MeetingAppRule: String, Codable, CaseIterable, Sendable {
-    /// Start recording without asking.
+    /// Legacy persisted value; treated as Ask. No longer offered in Settings.
     case auto
     /// Show the offer strip.
     case ask
@@ -11,7 +11,7 @@ enum MeetingAppRule: String, Codable, CaseIterable, Sendable {
 
     var displayName: String {
         switch self {
-        case .auto: "Auto"
+        case .auto: "Ask"
         case .ask: "Ask"
         case .never: "Never"
         }

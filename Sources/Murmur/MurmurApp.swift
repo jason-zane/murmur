@@ -156,10 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detector.onDecision = { [weak self] decision in
             guard let self else { return }
             switch decision {
-            case .autoStart(let candidate):
-                self.startMeeting(from: candidate)
-            case .offer(_, let quiet):
-                if !quiet { self.offerStrip?.present() }
+            case .offer:
+                self.offerStrip?.present()
             }
         }
         detector.onCallEnded = { [weak self] in
