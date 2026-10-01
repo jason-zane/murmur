@@ -44,9 +44,10 @@ struct MainWindow: View {
                         .padding([.horizontal, .top], DS.Space.lg)
                     }
                     if page == .notes {
-                        HSplitView {
+                        HStack(spacing: DS.Space.zero) {
                             NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion, onNewNote: newNote)
-                                .frame(minWidth: DS.Layout.sidebarMinWidth, idealWidth: DS.Layout.sidebarWidth, maxWidth: DS.Layout.sidebarMaxWidth)
+                                .frame(width: DS.Layout.sidebarWidth)
+                            Divider()
                             detail.frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     } else { detail }
@@ -56,7 +57,6 @@ struct MainWindow: View {
             .background(DS.Color.surface)
         }
         .toolbar { toolbar }
-        .toolbar(removing: .sidebarToggle)
         .windowMinimizeBehavior(.enabled)
         .windowFullScreenBehavior(.enabled)
         .tint(DS.Color.accent)
