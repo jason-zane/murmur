@@ -5,7 +5,7 @@ import { Brand } from "@/components/brand";
 import { latestMac, megabytes, releasesPage } from "@/lib/release";
 
 export const metadata: Metadata = {
-  title: "Download Voice Notes for Mac",
+  title: "Download Concourse for Mac",
   description:
     "Hold a key and speak anywhere you type. Record a call and keep the notes. A small download for Apple silicon Macs.",
 };
@@ -31,7 +31,7 @@ export default async function Page() {
         <section className="download-hero">
           <span className="eyebrow">FOR MACOS</span>
           <h1>
-            Voice Notes, <em>on your Mac</em>
+            Concourse, <em>on your Mac</em>
           </h1>
           <p>
             Hold a key and speak anywhere you type. Record a call and keep the
@@ -53,7 +53,7 @@ export default async function Page() {
             <li>
               <h3>Drag it to Applications</h3>
               <p>
-                Open the disk image and drop Voice Notes onto the Applications
+                Open the disk image and drop Concourse onto the Applications
                 shortcut beside it. It needs to live there: starting at login
                 and the Claude Desktop connection both point at that location.
               </p>
@@ -61,7 +61,7 @@ export default async function Page() {
             <li>
               <h3>Say yes the first time you open it</h3>
               <p>
-                macOS will say it can&rsquo;t verify the app. Voice Notes is
+                macOS will say it can&rsquo;t verify the app. Concourse is
                 signed, but notarising it needs a paid Apple developer account
                 this project doesn&rsquo;t have. Open{" "}
                 <strong>System Settings ▸ Privacy &amp; Security</strong>,
@@ -75,7 +75,7 @@ export default async function Page() {
               <p>
                 The first run walks you through it. Accessibility is the one
                 macOS won&rsquo;t let an app ask for, so it opens System
-                Settings and you switch Voice Notes on there. Without it, the
+                Settings and you switch Concourse on there. Without it, the
                 push-to-talk key can&rsquo;t be seen and text can&rsquo;t be
                 inserted.
               </p>
