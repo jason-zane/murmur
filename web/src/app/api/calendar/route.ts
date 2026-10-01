@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   try {
     const { client, user } = await requireEditor(
       request,
-      "Sign in to Voice Notes to manage Calendar.",
+      "Sign in to Concourse to manage Calendar.",
     );
     await refreshCalendar(user.id, true).catch(() => {});
     return Response.json(
@@ -44,7 +44,7 @@ export async function DELETE(request: Request) {
   try {
     const { user } = await requireEditor(
       request,
-      "Sign in to Voice Notes to manage Calendar.",
+      "Sign in to Concourse to manage Calendar.",
     );
     const id = new URL(request.url).searchParams.get("connection");
     if (id && !z.uuid().safeParse(id).success)

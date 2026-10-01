@@ -6,6 +6,23 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudSyncWorkflowTests {
+    @Test func completedMeetingsSurviveSyncAndOfflineRestart() async throws {
+        let fixture = try SyncFixture()
+        defer { fixture.remove() }
+        let remote = MemorySyncTransport()
+        let yesterday = Date().addingTimeInterval(-86_400)
+        remote.extraMeetings = [.init(id: "yesterday", title: "Yesterday's planning", starts_at: yesterday,
+            ends_at: yesterday.addingTimeInterval(3_600), meeting_url: nil, attendees: [])]
+        let sync = CloudSync(store: fixture.store, transport: remote, agendaChanged: {})
+        await sync.sync()
+        #expect(remote.paths.contains("api/calendar?workspace=1"))
+        #expect(sync.meetings.map(\.id).contains("yesterday"))
+        remote.networkError = URLError(.notConnectedToInternet)
+        let restarted = CloudSync(store: fixture.store, transport: remote, agendaChanged: {})
+        await restarted.sync()
+        #expect(restarted.meetings.map(\.id).contains("yesterday"))
+        #expect(restarted.meetings.map(\.id).contains("scheduled"))
+    }
     @Test func rejectedCredentialsOfferSignInAndRecoveryKeepsLocalNotes() async throws {
         let fixture = try SyncFixture()
         defer { fixture.remove() }
@@ -139,7 +156,7 @@ struct CloudSyncWorkflowTests {
         await sync.sync()
 
         #expect(remote.userID != nil)
-        #expect(remote.paths == ["api/calendar"])
+        #expect(remote.paths == ["api/calendar?workspace=1"])
         #expect(sync.meetings.isEmpty && !sync.calendarConnected && sync.message == nil)
     }
 
@@ -186,7 +203,7 @@ struct CloudSyncWorkflowTests {
         let anotherAccount = CloudSync(store: fixture.store, transport: remote, agendaChanged: {})
         await anotherAccount.sync()
         #expect(anotherAccount.meetings.isEmpty && !anotherAccount.calendarConnected)
-        #expect(anotherAccount.message?.contains("different Voice Notes account") == true)
+        #expect(anotherAccount.message?.contains("different Concourse account") == true)
         #expect(anotherAccount.state == .signInRequired)
         #expect(remote.paths.isEmpty)
     }
@@ -262,14 +279,15 @@ private final class MemorySyncTransport: CloudSyncTransport {
     var booking: CloudBooking?
     var localBusy: [DateInterval]?
     var busyUploads: [[String]] = []
+    var extraMeetings: [CloudMeeting] = []
 
     func request(_ path: String, method: String, body: Data?) async throws -> Data {
         paths.append(path)
         if let networkError { throw networkError }
         try beforeRequest?(path, method)
         let data: Data
-        if path == "api/calendar" {
-            data = try CloudCoding.encoder.encode(Agenda(events: [.init(id: "scheduled", title: "Fixture meeting", starts_at: Date().addingTimeInterval(600), ends_at: Date().addingTimeInterval(2_400), meeting_url: nil, attendees: [], booking: booking)], bookingEnabled: bookingEnabled))
+        if path == "api/calendar" || path == "api/calendar?workspace=1" {
+            data = try CloudCoding.encoder.encode(Agenda(events: extraMeetings + [.init(id: "scheduled", title: "Fixture meeting", starts_at: Date().addingTimeInterval(600), ends_at: Date().addingTimeInterval(2_400), meeting_url: nil, attendees: [], booking: booking)], bookingEnabled: bookingEnabled))
         } else if path.hasPrefix("api/sync?") {
             data = try CloudCoding.encoder.encode(Index(sessions: rows.values.sorted { $0.id < $1.id }))
         } else if path.hasPrefix("api/sessions/"), method == "GET" {

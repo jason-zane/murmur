@@ -1,4 +1,4 @@
-# Developing Voice Notes
+# Developing Concourse
 
 ## Toolchain
 
@@ -72,6 +72,10 @@ Preview mode (debug builds only) skips the hotkey, cloud, calendar and call dete
 reads notes from the given directory. `MURMUR_PREVIEW_OPEN` raises a screen on launch so a
 screenshot needs no clicking: `settings`, `settings:meetings` (any tab, lower-cased),
 `onboarding`, or `session:<id>`.
+
+Add `--env MURMUR_PREVIEW_CALENDAR_STATUS=unavailable` to check the calendar recovery
+warning with synthetic events. This works only in debug preview mode and never requests
+real calendar or account access.
 
 ## Checks before a change ships
 
@@ -147,3 +151,17 @@ use `40001`, which means a serialisation failure and can trigger automatic retri
 
 Notarisation is deliberately not part of this: it needs the Apple Developer Program.
 [INSTALL.md](INSTALL.md) tells people how to open an un-notarised app.
+
+## Checking Bluetooth call capture
+
+With a debug build installed, quit Concourse and run
+`/Applications/Murmur.app/Contents/MacOS/Murmur --diagnose-system-audio`.
+It opens the microphone (to exercise Bluetooth call mode), plays a short system sound,
+prints the call-side buffer count and peak level, and quits. It creates no note and stores
+no audio. Add `--exercise-restarts` to test three capture cycles, reopening the microphone
+and restarting call capture between them. Add `--browser-audio` to instead listen for 25 seconds and print call-side
+transcription; play known test speech in Chrome after “Audio diagnostic ready”.
+
+The system-audio aggregate must contain only the process tap. Including the physical
+output as a sub-device can stall IO registration when a Bluetooth headset enters call
+mode, and input-capable devices can put unrelated input buffers before the tap stream.

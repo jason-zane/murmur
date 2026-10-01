@@ -37,7 +37,7 @@ final class HUDPanel: NSPanel {
         isFloatingPanel = true
         level = .statusBar
         // Join other apps' full-screen spaces and Stage Manager groups, even though
-        // Voice Notes is a regular app with its own windows.
+        // Concourse is a regular app with its own windows.
         collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary, .stationary]
         hidesOnDeactivate = false
         isMovableByWindowBackground = false

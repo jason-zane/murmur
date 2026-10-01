@@ -2,7 +2,7 @@
 // See LICENSE-cal.diy in this directory. Changes: local dayjs setup and local types only.
 import dayjs, { type Dayjs } from "./dayjs";
 
-/** Dates keyed YYYY-MM-DD. Voice Notes has no out-of-office feature; the shape is kept for parity. */
+/** Dates keyed YYYY-MM-DD. Concourse has no out-of-office feature; the shape is kept for parity. */
 export type IOutOfOfficeData = Record<string, OutOfOfficeEntry>;
 export type OutOfOfficeEntry = {
   fromUser?: { id: number; displayName: string | null } | null;

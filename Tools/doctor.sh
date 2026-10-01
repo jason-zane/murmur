@@ -1,5 +1,5 @@
 #!/bin/sh
-# Toolchain and signing check for building Voice Notes. Prints one line per item and the
+# Toolchain and signing check for building Concourse. Prints one line per item and the
 # fix when something is missing. Exits non-zero if the build cannot succeed.
 status=0
 ok()   { printf '  ✓ %s\n' "$1"; }
@@ -57,7 +57,7 @@ if [ -d /Applications/Murmur.app ]; then
     running=$(ps -o comm= -p "$(pgrep -x Murmur | head -1)")
     case "$running" in
       /Applications/Murmur.app/*) ok "/Applications/Murmur.app is the running copy" ;;
-      *) warn "Voice Notes is running from $running, not /Applications — login item and Claude Desktop point at the Applications copy" ;;
+      *) warn "Concourse is running from $running, not /Applications — login item and Claude Desktop point at the Applications copy" ;;
     esac
   else
     ok "/Applications/Murmur.app installed (not running)"

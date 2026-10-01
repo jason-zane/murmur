@@ -1,19 +1,13 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
-  CalendarDays,
   Check,
-  Cloud,
   FileText,
-  Laptop,
-  LoaderCircle,
   Pin,
   Plus,
   RefreshCw,
   Search,
-  X,
   ChevronLeft,
   Copy,
   Download,
@@ -22,14 +16,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ItemActions } from "./item-actions";
 import { Shell } from "./shell";
-import { BrandMark, Waveform } from "./brand";
+import { WorkspaceList } from "./workspace-list";
+import { FollowUpReview } from "./follow-up-review";
 import {
   matches,
-  meetingURL,
   newDocument,
-  preview,
   type CloudSession,
-  type CalendarMeeting,
   type MeetingDocument,
 } from "@/lib/documents";
 const date = (value: string) =>
@@ -46,17 +38,17 @@ const duration = (s: number) =>
   `${Math.floor(s / 60)}:${Math.floor(s % 60)
     .toString()
     .padStart(2, "0")}`;
-export function Library({ email, userID }: { email: string; userID: string }) {
+export function Library({ email, userID, request = fetch, previewMode = false, previewControls, followUpEnabled=false }: { email: string; userID: string; request?: typeof fetch; previewMode?: boolean; previewControls?: React.ReactNode; followUpEnabled?:boolean }) {
+  const fetch=request;
+  const notesPath=(id:string|null)=>previewMode?`/prototype/follow-up?view=library${id?`&note=${encodeURIComponent(id)}`:""}`:id?`/notes?note=${encodeURIComponent(id)}`:"/notes";
   const [rows, setRows] = useState<CloudSession[]>([]),
-    [events, setEvents] = useState<CalendarMeeting[]>([]),
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<string | null>(null),
     [filter, setFilter] = useState("all"),
     [loading, setLoading] = useState(true),
-    [message, setMessage] = useState(""),
-    [dayLabel, setDayLabel] = useState("Your day"),
-    [calendarConnected, setCalendarConnected] = useState(false);
+    [message, setMessage] = useState("");
   const load = useCallback(async () => {
+    setLoading(true);
     setMessage("");
     try {
       let offset: number | null = 0;
@@ -82,25 +74,11 @@ export function Library({ email, userID }: { email: string; userID: string }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [request]);
   useEffect(() => {
-    setDayLabel(
-      new Date().toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-      }),
-    );
     void load();
     const id = new URLSearchParams(location.search).get("note");
     if (id) setSelected(id);
-    void fetch("/api/calendar").then(async (r) => {
-      if (r.ok) {
-        const b = await r.json();
-        setEvents(b.events || []);
-        setCalendarConnected(Boolean(b.connections?.length ?? b.connection));
-      }
-    });
   }, [load]);
   async function create() {
     setMessage("");
@@ -114,6 +92,7 @@ export function Library({ email, userID }: { email: string; userID: string }) {
       if (!r.ok) throw new Error(row.error);
       setRows((v) => [row, ...v]);
       setSelected(row.id);
+      history.replaceState(null, "", notesPath(row.id));
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : "Could not create your note.",
@@ -122,7 +101,7 @@ export function Library({ email, userID }: { email: string; userID: string }) {
   }
   function replace(row: CloudSession) {
     setRows((v) => row.deleted_at ? v.filter(r => r.id !== row.id) : v.map((r) => (r.id === row.id ? row : r)));
-    if (row.deleted_at) { setSelected(null); history.replaceState(null, "", "/notes"); }
+    if (row.deleted_at) { setSelected(null); history.replaceState(null, "", notesPath(null)); }
   }
   const current = rows.find((r) => r.id === selected),
     visible = rows.filter(
@@ -130,222 +109,44 @@ export function Library({ email, userID }: { email: string; userID: string }) {
         matches(r.document, query) &&
         (filter !== "pinned" || r.document.session.pinned),
     );
-  return (
-    <Shell email={email} onNew={create}>
-      {current ? (
-        <div className="notes-detail-layout">
-          <aside className="note-index" aria-label="Notes list">
-            <label className="search">
-              <Search size={16} />
-              <input
-                aria-label="Search notes"
-                placeholder="Search notes"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
-            {visible.map((n) => (
-              <button
-                key={n.id}
-                className={n.id === current.id ? "selected" : ""}
-                onClick={() => {
-                  if (n.id === current.id) return;
-                  if (
-                    document.querySelector(".note-editor") &&
-                    !confirm(
-                      "Leave this note? An unfinished draft stays in this browser.",
-                    )
-                  )
-                    return;
-                  setSelected(n.id);
-                  history.replaceState(
-                    null,
-                    "",
-                    `/notes?note=${encodeURIComponent(n.id)}`,
-                  );
-                }}
-              >
-                <strong>{n.title}</strong>
-                <small>{date(n.started_at)}</small>
-              </button>
-            ))}
-          </aside>
-          <NoteDetail
-            key={current.id}
-            row={current}
-            userID={userID}
-            onBack={() => {
-              setSelected(null);
-              history.replaceState(null, "", "/notes");
-            }}
-            onSaved={replace}
-          />
-        </div>
-      ) : (
-        <>
-          <header className="page-header">
-            <div className="heading-row">
-              <div>
-                <h1>Notes</h1>
-                <p>Your meetings and ideas, together.</p>
-              </div>
-              <button className="button primary" onClick={create}>
-                <Plus size={16} />
-                New note
-              </button>
-            </div>
-          </header>
-          <div className="notes-workspace">
-            <section className="notes-section">
-              <div className="library-toolbar">
-                <div className="tabs">
-                  <button
-                    className={filter === "all" ? "selected" : ""}
-                    onClick={() => setFilter("all")}
-                  >
-                    All notes <span>{rows.length}</span>
-                  </button>
-                  <button
-                    className={filter === "pinned" ? "selected" : ""}
-                    onClick={() => setFilter("pinned")}
-                  >
-                    <Pin size={14} />
-                    Pinned
-                  </button>
-                </div>
-                <button
-                  className="icon-button"
-                  aria-label="Refresh notes"
-                  onClick={load}
-                >
-                  <RefreshCw size={16} />
-                </button>
-              </div>
-              <label className="search">
-                <Search size={17} />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Find a thought, person or meeting…"
-                  aria-label="Search your library"
-                />
-                {query && (
-                  <button
-                    className="icon-button"
-                    aria-label="Clear search"
-                    onClick={() => setQuery("")}
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </label>
-              {message && (
-                <p className="notice" role="alert">
-                  {message} <button onClick={load}>Try again</button>
-                </p>
-              )}
-              {loading ? (
-                <div className="empty">
-                  <LoaderCircle className="spin" />
-                  <p>Opening your library…</p>
-                </div>
-              ) : visible.length === 0 ? (
-                <div className="empty">
-                  <span className="empty-icon">
-                    <FileText size={26} />
-                  </span>
-                  <h3>
-                    {query
-                      ? "No matching notes yet."
-                      : "Your next thought starts here."}
-                  </h3>
-                  <p>
-                    {query
-                      ? "Try a name, a phrase or a few different words."
-                      : "Connect the Mac app to bring your meeting notes here, or start writing now."}
-                  </p>
-                  <button
-                    className="button"
-                    onClick={query ? () => setQuery("") : create}
-                  >
-                    {query ? "Clear search" : "Write your first note"}
-                    <Plus size={16} />
-                  </button>
-                </div>
-              ) : (
-                <div className="note-list">
-                  {visible.map((row) => (
-                    <button
-                      className="note-row"
-                      key={row.id}
-                      onClick={() => {
-                        setSelected(row.id);
-                        history.replaceState(
-                          null,
-                          "",
-                          `/notes?note=${encodeURIComponent(row.id)}`,
-                        );
-                      }}
-                    >
-                      <span
-                        className={
-                          "note-icon " +
-                          (row.document.session.engine === "Notes"
-                            ? "personal"
-                            : "")
-                        }
-                      >
-                        <FileText size={19} />
-                      </span>
-                      <div className="note-row-content">
-                        <div className="note-meta">
-                          {date(row.started_at)}
-                          <span>·</span>
-                          {row.document.session.app ||
-                            (row.document.session.engine === "Notes"
-                              ? "Personal note"
-                              : "Meeting")}
-                          {row.document.session.pinned && <Pin size={12} />}
-                        </div>
-                        <h3>{row.title}</h3>
-                        <p>
-                          {preview(row.document) ||
-                            "A little space for your ideas."}
-                        </p>
-                        <div className="note-footer">
-                          {row.document.session.speakers
-                            .slice(0, 3)
-                            .join(" · ")}
-                          {row.document.session.duration > 0 && (
-                            <span>
-                              {duration(row.document.session.duration)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <ArrowUpRight className="row-arrow" size={17} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        </>
-      )}
-    </Shell>
-  );
+  function selectNote(id: string | null) {
+    if (id === selected) return;
+    if (document.querySelector(".note-editor") && !confirm("Leave this note? An unfinished draft stays in this browser.")) return;
+    setSelected(id);
+    history.replaceState(null, "", notesPath(id));
+  }
+  return <Shell email={email} layout="notes" previewMode={previewMode} previewControls={previewControls} activePath="/notes">
+    <div className={`notes-detail-layout${current ? " has-note" : ""}`}>
+      <WorkspaceList title="Notes" query={query} onQuery={setQuery} selected={selected}
+        onSelect={selectNote} onNew={create} loading={loading} error={message} onRetry={load}
+        items={visible.map(row=>({id:row.id,title:row.title,meta:`${date(row.started_at)} · ${row.document.session.speakers.join(", ") || (row.document.session.engine==="Notes"?"Personal note":"Meeting")}`,pinned:Boolean(row.document.session.pinned)}))}>
+        <div className="workspace-list-filters" aria-label="Filter notes"><button aria-pressed={filter==="all"} onClick={()=>setFilter("all")}>All notes <span>{rows.length}</span></button><button aria-pressed={filter==="pinned"} onClick={()=>setFilter("pinned")}><Pin size={13}/>Pinned</button><button className="icon-button" aria-label="Refresh notes" onClick={load}><RefreshCw size={15}/></button></div>
+      </WorkspaceList>
+      {current ? <NoteDetail key={current.id} row={current} userID={userID} onBack={()=>selectNote(null)} onSaved={replace} request={request} previewMode={previewMode} followUpEnabled={followUpEnabled}/> : <section className="notes-welcome" aria-label="Notes workspace"><FileText size={28}/><h1>{loading?"Opening your notes":message?"Notes couldn’t open":selected?"Note unavailable":rows.length?"A little space to think":"Your next thought starts here"}</h1><p>{loading?"Your notes are loading…":message?"Your notes could not be loaded. Try again in the notes list.":selected?"This note could not be found in your library. Select another note or create a new one.":rows.length?"Select a note to read, edit or find a moment in its transcript.":"Write a note here, or connect the Mac app to bring your meeting notes together."}</p>{!message && !loading && <button className="button primary" onClick={create}><Plus size={16}/>New note</button>}<p className="fine-print">Your existing notes stay in Concourse. Editing creates a recoverable browser draft before you save.</p></section>}
+    </div>
+  </Shell>;
 }
+
 function NoteDetail({
   row,
   userID,
   onBack,
   onSaved,
+  request,
+  previewMode,
+  followUpEnabled,
 }: {
   row: CloudSession;
   userID: string;
   onBack: () => void;
   onSaved: (r: CloudSession) => void;
+  request: typeof fetch;
+  previewMode: boolean;
+  followUpEnabled: boolean;
 }) {
+  const fetch=request;
+  const [reviewOpen,setReviewOpen]=useState(false);
+  const reviewTrigger=useRef<HTMLButtonElement|null>(null),seenVersion=useRef(row.version);
   const key = `murmur:draft:${userID}:${row.id}`;
   const [title, setTitle] = useState(row.title),
     [text, setText] = useState(row.document.note || ""),
@@ -354,7 +155,8 @@ function NoteDetail({
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [copied, setCopied] = useState(false),
-    [sourceQuery, setSourceQuery] = useState("");
+    [sourceQuery, setSourceQuery] = useState(""),
+    [cancelConfirm,setCancelConfirm]=useState(false);
   useEffect(() => {
     try {
       const saved = localStorage.getItem(key);
@@ -378,6 +180,7 @@ function NoteDetail({
   const [baseVersion, setBaseVersion] = useState(row.version),
     [conflict, setConflict] = useState<CloudSession | null>(null);
   const changed = title !== row.title || text !== (row.document.note || "");
+  useEffect(()=>{if(seenVersion.current===row.version)return;seenVersion.current=row.version;if(!editing){setTitle(row.title);setText(row.document.note || "");setBaseVersion(row.version);}},[row.version,row.title,row.document.note,editing]);
   function change(nextTitle: string, nextText: string) {
     setTitle(nextTitle);
     setText(nextText);
@@ -401,6 +204,12 @@ function NoteDetail({
     window.addEventListener("beforeunload", before);
     return () => window.removeEventListener("beforeunload", before);
   }, [changed]);
+  function cancelEdit(confirmed=false) {
+    if(busy)return;
+    if(changed && !confirmed){setCancelConfirm(true);return;}
+    try { localStorage.removeItem(key); } catch {setMessage("Your browser could not clear this recovery draft. Keep the editor open until you save.");return;}
+    setTitle(row.title);setText(row.document.note || "");setBaseVersion(row.version);setConflict(null);setMessage("");setCancelConfirm(false);setEditing(false);
+  }
   async function save() {
     setBusy(true);
     setMessage("");
@@ -433,7 +242,7 @@ function NoteDetail({
       setTitle(body.title);
       localStorage.removeItem(key);
       setEditing(false);
-      setMessage("Saved. Your Mac will pick this up when it’s online.");
+      setMessage(previewMode?"Saved in this browser’s sample workspace.":"Saved. Your Mac will pick this up when it’s online.");
     } catch (e) {
       setMessage(
         e instanceof Error
@@ -476,7 +285,7 @@ function NoteDetail({
     }
   }
   async function deleteNote() {
-    if (busy || !confirm(`Delete “${row.title}” from your Voice Notes account? It will leave the web library. Copies already stored on your Mac remain there.${changed ? " Your unsaved browser draft will also be removed." : ""}`)) return;
+    if (busy || !confirm(`Delete “${row.title}” from your Concourse account? It will leave the web library. Copies already stored on your Mac remain there.${changed ? " Your unsaved browser draft will also be removed." : ""}`)) return;
     setBusy(true);
     setMessage("");
     try {
@@ -544,6 +353,9 @@ function NoteDetail({
         </div>
       </header>
       <div className="document-inner">
+        {followUpEnabled && !editing && <button ref={reviewTrigger} className="text-link sample-follow-up-link" onClick={()=>setReviewOpen(true)}>Review follow-up <ArrowUpRight size={14}/></button>}
+        {followUpEnabled && !editing && <p className="fine-print sample-source-note">Choose source evidence, write your draft and save it for review. No AI generation or email sending.</p>}
+        {reviewOpen && <FollowUpReview row={row} userID={userID} request={request} previewMode={previewMode} onSource={onSaved} onClose={()=>{setReviewOpen(false);requestAnimationFrame(()=>reviewTrigger.current?.focus());}}/>}
         <div className="eyebrow">
           {date(row.started_at)}
           <span> · </span>
@@ -614,20 +426,21 @@ function NoteDetail({
           </div>
           {tab === "note" &&
             (editing ? (
-              <button
+              <div className="note-edit-actions"><button className="button small" disabled={busy} onClick={()=>cancelEdit()}>Cancel edit</button><button
                 className="button primary small"
                 disabled={busy || !changed}
                 onClick={save}
               >
                 {busy ? "Saving…" : "Save note"}
                 <Check size={15} />
-              </button>
+              </button></div>
             ) : (
               <button className="button small" onClick={() => setEditing(true)}>
                 Edit note
               </button>
             ))}
         </div>
+        {cancelConfirm && <div className="notice" role="alert"><p>Discard these unsaved changes? Your saved note stays unchanged.</p><div className="form-actions"><button className="button small" onClick={()=>setCancelConfirm(false)}>Keep editing</button><button className="button small" onClick={()=>cancelEdit(true)}>Discard changes</button></div></div>}
         {message && (
           <p role="status" className="notice">
             {message}
@@ -652,7 +465,7 @@ function NoteDetail({
                 } catch {}
                 setConflict(null);
                 setMessage(
-                  "Your draft is ready to save as the next revision. The previous cloud version will be kept in history.",
+                  previewMode?"Your draft is ready to save as the next local sample revision.":"Your draft is ready to save as the next revision. The previous cloud version will be kept in history.",
                 );
               }}
             >
@@ -668,10 +481,10 @@ function NoteDetail({
                 setConflict(null);
                 localStorage.removeItem(key);
                 setEditing(false);
-                setMessage("Showing the cloud version.");
+                setMessage(previewMode?"Showing the saved sample version.":"Showing the cloud version.");
               }}
             >
-              Use cloud version
+              {previewMode?"Use saved sample version":"Use cloud version"}
             </button>
           </div>
         )}
@@ -688,7 +501,7 @@ function NoteDetail({
               />
               <p className="editor-hint">
                 {changed
-                  ? "Draft kept in this browser · save to sync it"
+                  ? (previewMode?"Draft kept in this browser · save to the sample workspace":"Draft kept in this browser · save to sync it")
                   : "All changes saved"}
                 <span>Markdown supported</span>
               </p>

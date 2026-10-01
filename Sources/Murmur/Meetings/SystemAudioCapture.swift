@@ -14,7 +14,16 @@ import Foundation
 ///
 /// Sibling to `AudioCapture`, not a mode of it. The two streams are never mixed: the mic is
 /// you, the tap is everyone else, and that split is what makes speaker separation cheap.
-final class SystemAudioCapture: @unchecked Sendable {
+protocol MeetingSystemAudioCapturing: AnyObject, Sendable {
+    func start(outputFormat: AVAudioFormat,
+               onBuffer: @escaping @Sendable (AudioChunk) -> Void,
+               onLevel: @escaping @Sendable (Float) -> Void) throws
+    func stop()
+    func restart() throws
+    var outputDeviceChanged: Bool { get }
+}
+
+final class SystemAudioCapture: MeetingSystemAudioCapturing, @unchecked Sendable {
     enum CaptureError: LocalizedError {
         case tapCreationFailed(OSStatus)
         case noOutputDevice
@@ -79,8 +88,8 @@ final class SystemAudioCapture: @unchecked Sendable {
     private nonisolated(unsafe) var onBuffer: (@Sendable (AudioChunk) -> Void)?
     private nonisolated(unsafe) var onLevel: (@Sendable (Float) -> Void)?
 
-    /// The default output device at start. If it changes mid-session — AirPods connect —
-    /// the tap follows on the next `restart()`; the controller listens for that.
+    /// The default output device at start, used to refresh capture when routing changes.
+    /// It is deliberately not a sub-device of the tap's aggregate.
     private(set) var outputDeviceUID: String?
 
     func start(
@@ -117,8 +126,9 @@ final class SystemAudioCapture: @unchecked Sendable {
         }
         tapFormat = format
 
-        // 3. Wrap the tap in a private aggregate device anchored on the default output, so
-        //    it can be read like any input device.
+        // 3. Give the tap its own private aggregate. Do not add the physical output as a
+        // sub-device: Bluetooth call-mode changes can stall IO registration, and devices
+        // with inputs can put microphone buffers ahead of the tap's actual call audio.
         guard let outputID: AudioDeviceID = Self.read(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice),
               outputID != kAudioObjectUnknown,
               let outputUID = Self.readString(outputID, kAudioDevicePropertyDeviceUID) else {
@@ -128,13 +138,11 @@ final class SystemAudioCapture: @unchecked Sendable {
         outputDeviceUID = outputUID
 
         let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Voice Notes call capture",
+            kAudioAggregateDeviceNameKey: "Concourse call capture",
             kAudioAggregateDeviceUIDKey: "com.jasonhunt.murmur.capture." + UUID().uuidString,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputUID]],
+            kAudioAggregateDeviceTapAutoStartKey: false,
             kAudioAggregateDeviceTapListKey: [[
                 kAudioSubTapDriftCompensationKey: true,
                 kAudioSubTapUIDKey: description.uuid.uuidString,

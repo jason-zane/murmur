@@ -8,6 +8,7 @@ struct HomeView: View {
     let store: SessionStore
     let onRecord: () -> Void
     let onNewNote: () -> Void
+    var canRecord = true
     @State private var schedule = MeetingSchedule.shared
     @State private var settings = MeetingSettings.shared
     @State private var requesting = false
@@ -16,21 +17,45 @@ struct HomeView: View {
     @State private var selectedDay = Calendar.current.startOfDay(for: Date())
     @State private var visibleMonth = HomeView.firstOfMonth(Date())
     @State private var activity = MonthActivity()
+    @State private var calendarStore = CalendarWorkspaceStore()
+    @State private var account = CloudAccount.shared
+    @State private var sync = CloudSync.shared
+    @AppStorage("workspace.today.setupDismissed") private var setupDismissed = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.xxl) {
                 VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    Text("Home").font(DS.Font.title)
-                    Text("Meetings and notes for your day.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                    Text("Today").font(DS.Font.title)
+                    Text("Your schedule and the notes that belong to it.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                }
+                if calendarStore.needsAttention, let message = calendarStore.message {
+                    InlineNotice(text: message, tone: .warning) {
+                        ActionButton(title: "Connected apps", emphasis: .normal) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                    }
                 }
                 HStack(alignment: .top, spacing: DS.Space.xxl) {
                     day.frame(maxWidth: .infinity, alignment: .topLeading)
                     MonthCalendar(month: $visibleMonth, selected: $selectedDay, activity: activity)
                         .frame(width: DS.Layout.monthGridWidth)
                 }
+                if !setupDismissed && !sync.calendarConnected && !calendarStore.needsAttention {
+                HStack(spacing: DS.Space.lg) {
+                    VStack(alignment: .leading, spacing: DS.Space.sm) {
+                        Text(account.isConnected ? "Choose what belongs in your day" : "Make room for your whole day").font(DS.Font.headline)
+                        Hint(account.isConnected ? "Manage your calendars and inboxes in Connected apps." : "Connect your Google calendars and Gmail to bring your day together.")
+                    }
+                    Spacer()
+                    ActionButton(title: "Connected apps", emphasis: .normal) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                    ActionButton(title: "Dismiss", emphasis: .quiet) { setupDismissed = true }
+                }
+                }
+                DisclosureGroup("Calendar status") {
+                    Text(calendarStore.message ?? (calendarStore.loading ? "Updating calendars…" : "Downloaded calendars are available offline.")).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                    ActionButton(title: "Connected apps", emphasis: .quiet) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                }.font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 if !microphoneGranted || !audioGranted { setup }
-                Hint("Voice Notes offers to record when a call starts in Meet, Zoom or Teams. Change this in Settings ▸ Meetings.")
+                Hint("Concourse offers to record when a call starts in Meet, Zoom or Teams. Change this in Settings ▸ Meetings.")
             }
             .padding(DS.Space.xxl)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -38,10 +63,14 @@ struct HomeView: View {
         .onAppear { schedule.refresh(); refreshPermissions(); reload() }
         .onChange(of: visibleMonth) { _, _ in reload() }
         .onReceive(NotificationCenter.default.publisher(for: .murmurNotesChanged)) { _ in reload() }
-        .task {
+        .task(id: "\(visibleMonth.timeIntervalSince1970)-\(CloudAccount.shared.credentials?.userID ?? "")") {
+            let calendar = Calendar.current
+            guard let start = calendar.date(byAdding: .day, value: -7, to: visibleMonth), let end = calendar.date(byAdding: .day, value: 49, to: visibleMonth) else { return }
+            await calendarStore.load(from: start, to: end); reload()
             while !Task.isCancelled {
-                do { try await Task.sleep(for: DS.Timing.refresh) } catch { return }
+                do { try await Task.sleep(for: DS.Timing.calendarRefresh) } catch { return }
                 refreshPermissions()
+                await calendarStore.load(from: start, to: end)
                 reload()
             }
         }
@@ -63,15 +92,11 @@ struct HomeView: View {
                 Text(dayTitle).font(DS.Font.headline)
                 Spacer()
                 if schedule.calendarGranted {
-                    Label(settings.autoOpenMeetings ? "Links open automatically" : "Calendar connected", systemImage: "calendar")
+                    Label(settings.calendarEnabled && settings.autoOpenMeetings ? "Automatic meeting links enabled" : "Calendar account linked", systemImage: "calendar")
                         .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 }
             }
-            if !settings.calendarEnabled {
-                Text("Connect your calendar to see meetings here and open their links on time.")
-                    .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                ActionButton(title: "Use my calendar", emphasis: .normal) { settings.calendarEnabled = true; connectCalendar() }
-            } else if !schedule.calendarGranted && !PreviewEnvironment.isActive {
+            if !schedule.calendarGranted && !PreviewEnvironment.isActive {
                 connectCard
             }
             let entries = activity.entries(on: selectedDay)
@@ -79,12 +104,13 @@ struct HomeView: View {
                 let today = Calendar.current.isDateInToday(selectedDay)
                 EmptyState(
                     icon: "calendar",
-                    label: today ? "Nothing scheduled today" : "Nothing on this day",
-                    detail: today ? "Record a meeting or write a note any time." : "No meetings or notes."
+                    label: calendarStore.needsAttention ? "No downloaded meetings on this day" : calendarStore.loading ? "Checking your calendar…" : today ? "Nothing scheduled today" : "Nothing on this day",
+                    detail: calendarStore.needsAttention ? "Your calendar could not be updated. You can still record a meeting or write a note." : today ? "Record a meeting or write a note any time." : "No meetings or notes."
                 ) {
                     if today {
                         HStack(spacing: DS.Space.sm) {
                             ActionButton(title: "Record meeting", systemImage: "mic", emphasis: .normal, action: onRecord)
+                                .disabled(!canRecord)
                             ActionButton(title: "New note", emphasis: .quiet, action: onNewNote)
                         }
                     }
@@ -110,7 +136,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Image(systemName: "calendar.badge.clock").font(DS.Font.largeSymbol).foregroundStyle(DS.Color.accent)
             Text("Your next meeting, one step closer.").font(DS.Font.headline)
-            Text("Connect the calendars on your Mac. Voice Notes can open meeting links a minute before they begin, then take notes when you enter the call.")
+            Text("Connect the calendars on your Mac. Concourse can open meeting links a minute before they begin, then take notes when you enter the call.")
                 .font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             ActionButton(title: requesting ? "Connecting…" : "Connect calendar", systemImage: "calendar.badge.plus", emphasis: .prominent) { connectCalendar() }
                 .disabled(requesting)
@@ -160,10 +186,19 @@ struct HomeView: View {
         let calendar = Calendar.current
         guard let start = calendar.date(byAdding: .day, value: -7, to: visibleMonth),
               let end = calendar.date(byAdding: .day, value: 49, to: visibleMonth) else { return }
-        let events = settings.calendarEnabled ? CalendarService.shared.events(from: start, to: end) : []
+        let events = CalendarService.shared.events(from: start, to: end, cloudEvents: CloudAccount.shared.isConnected && (calendarStore.hasAuthoritativeSnapshot || !calendarStore.events.isEmpty) ? calendarStore.events : nil)
         let sessions = store.listSessions().filter { $0.startedAt >= start && $0.startedAt < end }
+        var eventsByDay: [Date: [CalendarEvent]] = [:]
+        for event in events {
+            var day = max(start, calendar.startOfDay(for: event.displayStart))
+            while day < end && day < event.displayEnd {
+                eventsByDay[day, default: []].append(event)
+                guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+                day = next
+            }
+        }
         let next = MonthActivity(
-            events: Dictionary(grouping: events) { calendar.startOfDay(for: $0.start) },
+            events: eventsByDay,
             notes: Dictionary(grouping: sessions) { calendar.startOfDay(for: $0.startedAt) }
         )
         if next != activity { activity = next }
@@ -208,10 +243,9 @@ struct MonthActivity: Equatable {
         let dayNotes = notes[day] ?? []
         var linked: Set<String> = []
         var result: [DayEntry] = dayEvents.map { event in
-            let note = dayNotes.first { $0.calendarEventID == event.id }
-                ?? dayNotes.first { !$0.isNoteOnly && $0.title == event.title && abs($0.startedAt.timeIntervalSince(event.start)) < 30 * 60 }
+            let note = dayNotes.first { $0.calendarEventID == event.id || (event.legacyEventID != nil && $0.calendarEventID == event.legacyEventID) }
             if let note { linked.insert(note.id) }
-            return DayEntry(id: event.occurrenceID, time: event.start, event: event, note: note)
+            return DayEntry(id: event.occurrenceID, time: event.displayStart, event: event, note: note)
         }
         result += dayNotes.filter { !linked.contains($0.id) }.map { DayEntry(id: $0.id, time: $0.startedAt, event: nil, note: $0) }
         return result.sorted { $0.time < $1.time }
@@ -244,7 +278,7 @@ private struct DayRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: DS.Space.md) {
-            Readout(entry.time.formatted(.dateTime.hour().minute()), color: DS.Color.text)
+            Readout(entry.event?.isAllDay == true ? "All day" : entry.time.formatted(.dateTime.hour().minute()), color: DS.Color.text)
                 .frame(width: DS.Layout.transcriptTime, alignment: .leading)
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text(entry.event?.title ?? entry.note?.title ?? "").font(DS.Font.bodyEmphasis).lineLimit(2)

@@ -124,14 +124,14 @@ package:
 	@mkdir -p "$(DIST)"
 	@rm -rf "$(STAGE)/dist-staging" && mkdir -p "$(STAGE)/dist-staging"
 	@if [ "$(ZIP)" = "1" ]; then \
-		ditto -c -k --keepParent "$(BUNDLE)" "$(DIST)/VoiceNotes-$(VERSION).zip"; \
-		echo "wrote $(DIST)/VoiceNotes-$(VERSION).zip"; \
+		ditto -c -k --keepParent "$(BUNDLE)" "$(DIST)/Concourse-$(VERSION).zip"; \
+		echo "wrote $(DIST)/Concourse-$(VERSION).zip"; \
 	else \
 		cp -R "$(BUNDLE)" "$(STAGE)/dist-staging/"; \
 		ln -s /Applications "$(STAGE)/dist-staging/Applications"; \
-		hdiutil create -volname "Voice Notes" -srcfolder "$(STAGE)/dist-staging" -format UDZO -ov \
-			"$(DIST)/VoiceNotes-$(VERSION).dmg" >/dev/null; \
-		echo "wrote $(DIST)/VoiceNotes-$(VERSION).dmg"; \
+		hdiutil create -volname "Concourse" -srcfolder "$(STAGE)/dist-staging" -format UDZO -ov \
+			"$(DIST)/Concourse-$(VERSION).dmg" >/dev/null; \
+		echo "wrote $(DIST)/Concourse-$(VERSION).dmg"; \
 	fi
 	@rm -rf "$(STAGE)/dist-staging"
 

@@ -16,6 +16,12 @@ enum PreviewEnvironment {
     }
     static var isActive: Bool { root != nil }
 
+    /// Synthetic connection failure for checking recovery UI without real accounts.
+    static var calendarMessage: String? {
+        guard isActive, ProcessInfo.processInfo.environment["MURMUR_PREVIEW_CALENDAR_STATUS"] == "unavailable" else { return nil }
+        return "Your calendar could not be updated. Check Connected apps and try again."
+    }
+
     /// `MURMUR_PREVIEW_OPEN` names something to raise on launch, so a preview can be
     /// captured without driving the UI: `settings[:tab]`, `onboarding`, or `session:<id>`.
     static var launchAction: String? {

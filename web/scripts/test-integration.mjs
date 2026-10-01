@@ -48,6 +48,7 @@ const exitCode = await new Promise((resolve, reject) => {
       SUPABASE_SECRET_KEY: local.SECRET_KEY || local.SERVICE_ROLE_KEY,
       NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || "https://murmur-rho-pied.vercel.app",
       NEXT_PUBLIC_GOOGLE_ENABLED: "false",
+      FOLLOW_UP_DRAFTS_ENABLED: "true",
     },
   });
   child.on("error", reject); child.on("exit", resolve);

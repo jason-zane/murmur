@@ -23,7 +23,7 @@ final class NotepadWindow: NSWindow, NSWindowDelegate {
         titleVisibility = .hidden
         isMovableByWindowBackground = true
         level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary]
         isReleasedWhenClosed = false
         minSize = NSSize(width: DS.Notepad.minWidth, height: DS.Notepad.minHeight)
         // Height is free; width is not. Past `maxWidth` the rail stops being a companion.
@@ -47,7 +47,7 @@ final class NotepadWindow: NSWindow, NSWindowDelegate {
             makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         } else {
-            orderFront(nil)
+            orderFrontRegardless()
         }
     }
 
@@ -89,6 +89,7 @@ struct NotepadView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
             header
+            if isActive { MeetingControls(controller: controller) }
             if controller.isRecording {
                 CaptureStatus(controller: controller)
                     .padding(DS.Space.md)
@@ -220,7 +221,7 @@ struct NotepadView: View {
         .onTapGesture {
             if let last = controller.bullets.last { focusedBullet = last.id }
         }
-        .disabled(!controller.isRecording)
+        .disabled(!controller.state.isActive)
     }
 
     private var liveTranscript: some View {
@@ -269,27 +270,8 @@ struct NotepadView: View {
                     Hint("Everything stays on this Mac.")
                 }
                 Spacer(minLength: DS.Space.sm)
-                primaryControl
+                if !isActive { RecordButton(isRecording: false, action: onRecord) }
             }
-        }
-    }
-
-    @ViewBuilder
-    private var primaryControl: some View {
-        switch controller.state {
-        case .idle:
-            RecordButton(isRecording: false, action: onRecord)
-        case .starting:
-            ActionButton(title: "Cancel", emphasis: .normal) { controller.stop() }
-        case .recording:
-            RecordButton(isRecording: true) { controller.stop() }
-        case .finalising:
-            HStack(spacing: DS.Space.sm) {
-                ProgressView().controlSize(.small)
-                Readout("Saving…")
-            }
-        case .saveFailed:
-            ActionButton(title: "Retry save", emphasis: .prominent) { controller.retrySave() }
         }
     }
 
@@ -356,6 +338,9 @@ private struct StatePill: View {
         switch state {
         case .idle: "Not recording"
         case .starting: "Starting"
+        case .pausing: "Pausing"
+        case .paused: "Paused · audio off"
+        case .resuming: "Resuming"
         case .recording: "Recording"
         case .finalising: "Saving"
         case .saveFailed: "Not saved"
@@ -364,8 +349,8 @@ private struct StatePill: View {
 
     private var tint: Color {
         switch state {
-        case .idle: DS.Color.textSecondary
-        case .starting, .finalising: DS.Color.accent
+        case .idle, .paused, .pausing: DS.Color.textSecondary
+        case .starting, .resuming, .finalising: DS.Color.accent
         case .recording: DS.Color.record
         case .saveFailed: DS.Color.warning
         }
@@ -373,8 +358,8 @@ private struct StatePill: View {
 
     private var fill: Color {
         switch state {
-        case .idle: DS.Color.selection
-        case .starting, .finalising: DS.Color.accentSoft
+        case .idle, .paused, .pausing: DS.Color.selection
+        case .starting, .resuming, .finalising: DS.Color.accentSoft
         case .recording: DS.Color.recordSoft
         case .saveFailed: DS.Color.warningSoft
         }

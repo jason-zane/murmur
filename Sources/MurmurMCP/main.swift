@@ -5,7 +5,7 @@ import Darwin
 // One JSON-RPC message per line. stdout is exclusively protocol traffic.
 let arguments = Set(CommandLine.arguments.dropFirst())
 if arguments.contains("--help") {
-    print("murmur-mcp [--allow-writes]\nLocal stdio MCP for Voice Notes. MURMUR_SESSIONS_DIR overrides the notes folder.")
+    print("murmur-mcp [--allow-writes]\nLocal stdio MCP for Concourse. MURMUR_SESSIONS_DIR overrides the notes folder.")
     exit(0)
 }
 if !arguments.isSubset(of: ["--allow-writes"]) {

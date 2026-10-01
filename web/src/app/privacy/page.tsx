@@ -8,7 +8,7 @@ export default function Page() {
       <div className="prose">
         <h2>On your Mac</h2>
         <p>
-          Voice Notes records and transcribes on your device. Dictation and your
+          Concourse records and transcribes on your device. Dictation and your
           local note files work without a cloud account. Editor recovery drafts
           stay on the device where you wrote them.
         </p>
@@ -30,8 +30,8 @@ export default function Page() {
         </p>
         <h2>Google Calendar</h2>
         <p>
-          Connecting Google Calendar lets Voice Notes read events from the
-          calendars you choose, across one or more Google accounts. Voice Notes
+          Connecting Google Calendar lets Concourse read events from the
+          calendars you choose, across one or more Google accounts. Concourse
           stores an encrypted refresh token for each account so it can refresh
           your agenda. Disconnecting an account removes its token and its synced
           events.
@@ -56,7 +56,7 @@ export default function Page() {
           Replies go to your own inbox. You can pause sending in Connections.
         </p>
         <p>
-          When you enable private follow-up drafts, Voice Notes copies labelled
+          When you enable private follow-up drafts, Concourse copies labelled
           decisions and actions from a booked meeting’s note into a draft. It does
           not attach the transcript or guest answers. You review and edit the draft
           before sending it. Once Google accepts a message, removing it from Voice

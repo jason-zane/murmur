@@ -10,17 +10,19 @@ struct MurmurApp: App {
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
         // workspace. ⌘N creates a note rather than another copy of the window.
-        Window("Voice Notes", id: "main") {
+        Window("Concourse", id: "main") {
             MainWindow(controller: delegate.controller, meetings: delegate.meetings,
                        onToggleMeeting: delegate.toggleMeeting, onRecordCalendar: delegate.recordCalendarMeeting, onShowNotepad: delegate.showNotepad, onPreviewBar: delegate.previewDictationBar)
         }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New note") { NotificationCenter.default.post(name: .murmurNewNote, object: nil) }
                     .keyboardShortcut("n", modifiers: .command)
-                Button("Record meeting") { delegate.toggleMeeting() }
+                Button(delegate.meetings.state.isActive ? "Stop" : "Record meeting") { delegate.toggleMeeting() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
             }
             CommandGroup(after: .textEditing) {
@@ -70,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func previewDictationBar() { hud?.preview() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--diagnose-system-audio") {
+            Task { await AudioCaptureDiagnostic.run() }
+            return
+        }
+        #endif
         // A regular app now: dock icon, app menu, standard windows. The HUD is still a
         // non-activating panel, so dictating into another app never steals its focus — that
         // property belongs to the panel, not to the activation policy.
@@ -150,10 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         detector.onDecision = { [weak self] decision in
             guard let self else { return }
             switch decision {
-            case .autoStart(let candidate):
-                self.startMeeting(from: candidate)
-            case .offer(_, let quiet):
-                if !quiet { self.offerStrip?.present() }
+            case .offer:
+                self.offerStrip?.present()
             }
         }
         detector.onCallEnded = { [weak self] in
@@ -383,7 +389,12 @@ private struct MenuContent: View {
     /// opening a window: sound, start at login and which engine transcribes.
     var body: some View {
         if meetings.state.isActive {
-            Button("Stop recording  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
+            if meetings.isRecording {
+                Button("Pause") { meetings.pause() }
+            } else if meetings.state == .paused {
+                Button("Resume") { meetings.resume() }
+            }
+            Button("Stop  \(TimeFormat.clock(meetings.elapsed))") { delegate.toggleMeeting() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             Button("Show notes") { delegate.showNotepad() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -399,18 +410,6 @@ private struct MenuContent: View {
 
         Divider()
 
-        Toggle("Sound", isOn: sound)
-        Toggle("Start at login", isOn: $settings.launchAtLogin)
-        Picker("Transcription", selection: $settings.engine) {
-            ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
-                Text(choice == .parakeet && !ParakeetModels.isDownloaded
-                     ? "Parakeet (not downloaded)" : choice.displayName)
-                    .tag(choice)
-            }
-        }
-
-        Divider()
-
         if !Permissions.hasAccessibility || !Permissions.hasMicrophone {
             Button("Permissions needed…") { delegate.showOnboarding() }
         }
@@ -419,11 +418,16 @@ private struct MenuContent: View {
             Button("Update available · \(release.version)") { updates.open(release) }
         }
 
-        Button("Open Voice Notes") {
+        Button("Open Concourse") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
 
+        Button("Connected apps…") {
+            openWindow(id: "main")
+            NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         SettingsLink { Text("Settings…") }
             .keyboardShortcut(",", modifiers: .command)
 
@@ -442,7 +446,7 @@ private struct MenuContent: View {
             }
         }
 
-        Button("Quit Voice Notes") { NSApp.terminate(nil) }
+        Button("Quit Concourse") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }
@@ -463,8 +467,9 @@ private struct StatusLabel: View {
             if meetings.state.isActive {
                 // The one state that must never be ambiguous: an app that can hear a meeting
                 // owes the user an unmistakable sign that it is on.
-                HStack(spacing: 4) {
-                    Image(systemName: "record.circle.fill")
+                HStack(spacing: DS.Space.xs) {
+                    Image(systemName: meetings.isRecording ? "record.circle.fill"
+                          : meetings.state == .paused ? "pause.circle" : "hourglass")
                     Text(TimeFormat.clock(meetings.elapsed))
                         .monospacedDigit()
                 }
@@ -476,6 +481,7 @@ private struct StatusLabel: View {
             openSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { _ in openWindow(id: "main") }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowPage)) { _ in openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
     }
 }
 

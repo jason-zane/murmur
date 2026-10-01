@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// The design system for Voice Notes.
+/// The design system for Concourse.
 ///
 /// Direction: quiet, modern, native. The app should look like it belongs on macOS in 2026 —
 /// system materials, generous whitespace, one accent, depth from soft shadow and hairline
@@ -38,6 +38,18 @@ enum DS {
         static let warning = adaptive(light: 0xB2801A, dark: 0xE0B44A)
         static let warningSoft = adaptive(light: 0xB2801A, dark: 0xE0B44A).opacity(0.14)
 
+        /// User-chosen account instrumentation; interaction keeps the Concourse accent.
+        static func mailbox(_ colour: MailboxColour) -> SwiftUI.Color {
+            switch colour {
+            case .indigo: adaptive(light: 0x4338CA, dark: 0xAAA5FF)
+            case .teal: adaptive(light: 0x0F766E, dark: 0x6ED8C5)
+            case .violet: adaptive(light: 0x6D28D9, dark: 0xC4A7FF)
+            case .amber: adaptive(light: 0x92400E, dark: 0xF5C070)
+            case .slate: adaptive(light: 0x475569, dark: 0xB5C2D1)
+            }
+        }
+        static let mailboxFillOpacity = 0.10
+
         // Text
         static let text = SwiftUI.Color.primary
         static let textSecondary = SwiftUI.Color.secondary
@@ -45,6 +57,7 @@ enum DS {
 
         // Surfaces
         static let window = SwiftUI.Color(nsColor: .windowBackgroundColor)
+        static let calendarEvent = adaptive(light: 0xE8EAF8, dark: 0x30334B)
         static let surface = SwiftUI.Color(nsColor: .controlBackgroundColor)
         static let separator = SwiftUI.Color(nsColor: .separatorColor)
 
@@ -127,8 +140,31 @@ enum DS {
         static let calendarSearchWidth: CGFloat = 280
         static let calendarMonthCellHeight: CGFloat = 132
         static let calendarMonthPreviewCount = 3
-        static let calendarTimeWidth: CGFloat = 112
+        static let calendarTimeWidth: CGFloat = 72
+        static let calendarDayMinimumWidth: CGFloat = 100
         static let calendarDayWidth: CGFloat = 180
+        static let calendarOpeningHour = 8
+        static let calendarHourHeight: CGFloat = 64
+        static let calendarEventDetailHeight: CGFloat = 30
+        static let calendarEventTitleWrapHeight: CGFloat = 56
+        static let calendarDayHeaderHeight: CGFloat = 52
+        static let calendarAllDayMaximumHeight: CGFloat = 96
+        static let calendarMinimumEventHeight: CGFloat = 28
+        static let calendarTimelineHeight: CGFloat = 560
+        static let mailboxAvatar: CGFloat = 24
+        static let mailboxPreferencesWidth: CGFloat = 440
+        static let mailNavigationWidth: CGFloat = 176
+        static let mailListMinimumWidth: CGFloat = 240
+        static let mailListMaximumWidth: CGFloat = 420
+        static let mailListWidth: CGFloat = 300
+        static let mailReaderWidth: CGFloat = 280
+        static let mailComposerWidth: CGFloat = 640
+        static let mailComposerBodyHeight: CGFloat = 260
+        static let mailHTMLHeight: CGFloat = 320
+        static let mailHTMLMinimumHeight: CGFloat = 40
+        static let mailHTMLMaximumHeight: CGFloat = 20_000
+        static let mailReaderFontSize: CGFloat = 15
+        static let mailReaderLineHeight: CGFloat = 1.6
         static let meetingDetailWidth: CGFloat = 480
         static let calendarAccent: CGFloat = 3
         static let windowWidth: CGFloat = 1_180
@@ -179,9 +215,11 @@ enum DS {
     }
 
     enum Timing {
+        static let mailboxRefresh: Duration = .seconds(30)
         static let feedback: Duration = .milliseconds(1_600)
         static let searchDebounce: Duration = .milliseconds(180)
         static let autosave: Duration = .milliseconds(800)
+        static let calendarRefresh: Duration = .seconds(30)
         static let refresh: Duration = .seconds(3)
         static let permissionPoll: Duration = .seconds(1)
         static let captureTimeout: Duration = .seconds(15)
@@ -231,11 +269,11 @@ enum DS {
     /// The "a call started" prompt near the top of the screen.
     enum Offer {
         /// Canvas, not pill — the panel is deliberately larger than the capsule inside it.
-        static let canvas = NSSize(width: 560, height: 72)
-        static let topInset: CGFloat = 10
+        static let canvas = NSSize(width: 480, height: 100)
+        static let progressHeight: CGFloat = 3
+        static let refreshInterval: TimeInterval = 0.05
         static let markSize: CGFloat = 26
         static let borderOpacity = 0.09
-        static let autoDismiss: Duration = .seconds(45)
     }
 
     /// The meeting notepad: a full-height rail down one edge of the screen.
@@ -345,7 +383,9 @@ extension DS.Space {
 }
 
 extension DS.Font {
-    static let brand = SwiftUI.Font.system(size: 16, weight: .semibold, design: .rounded)
+    static let brand = SwiftUI.Font.system(size: WorkspaceTokens.brandSize, weight: .semibold)
+    static let workspaceListTitle = SwiftUI.Font.system(size: WorkspaceTokens.listTitleFontSize, weight: .semibold)
+    static let workspaceListItem = SwiftUI.Font.system(size: WorkspaceTokens.listItemFontSize, weight: .medium)
     static let pageTitle = SwiftUI.Font.system(size: 24, weight: .semibold)
     static let documentTitle = SwiftUI.Font.system(size: 28, weight: .semibold)
     static let documentBody = SwiftUI.Font.system(size: 15, weight: .regular)

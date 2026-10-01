@@ -51,7 +51,7 @@ export default async function Page({ params }: { params: Promise<{ handle: strin
         )}
       </section>
       <p className="book-foot">
-        <BrandMark compact /> Scheduling by Voice Notes
+        <BrandMark compact /> Scheduling by Concourse
       </p>
     </main>
   );

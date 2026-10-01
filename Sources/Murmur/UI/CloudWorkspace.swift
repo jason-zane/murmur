@@ -23,7 +23,7 @@ struct CloudWorkspace: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 EmptyState(icon: "calendar.badge.clock", label: "Your meeting workspace", detail: "Sign in to manage booking links, availability and messages on Mac and web.") {
-                    ActionButton(title: "Sign in to Voice Notes", emphasis: .prominent) { SettingsRouter.shared.open(.connections) }
+                    ActionButton(title: "Sign in to Concourse", emphasis: .prominent) { SettingsRouter.shared.open(.connections) }
                 }
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -46,9 +46,23 @@ private struct SharedWorkspaceWebView: NSViewRepresentable {
         context.coordinator.origin = CloudAccount.shared.siteURL
         Task { @MainActor in
             do {
+                let requested = URLComponents(string: path)
+                let focus = requested?.queryItems?.first { $0.name == "focus" }?.value
+                if requested?.path == "/mail" || focus == "gmail" {
+                    var configRequest = URLRequest(url: CloudAccount.shared.siteURL.appendingPathComponent("api/config"))
+                    configRequest.timeoutInterval = 20
+                    let (data, _) = try await URLSession.shared.data(for: configRequest)
+                    struct Capabilities: Decodable { var workspaceVersion: Int? }
+                    let capabilities = try JSONDecoder().decode(Capabilities.self, from: data)
+                    guard (capabilities.workspaceVersion ?? 0) >= 2 else {
+                        self.error = "Gmail needs the hosted workspace upgrade before it can be connected. Your local notes and calendars are ready to use."
+                        return
+                    }
+                }
                 let token = try await CloudAccount.shared.accessToken()
                 var url = URLComponents(url: CloudAccount.shared.siteURL.appendingPathComponent("api/native/session"), resolvingAgainstBaseURL: false)!
-                url.queryItems = [URLQueryItem(name: "page", value: path)]
+                url.queryItems = [URLQueryItem(name: "page", value: requested?.path ?? path)]
+                if let focus { url.queryItems?.append(URLQueryItem(name: "focus", value: focus)) }
                 var request = URLRequest(url: url.url!)
                 request.httpMethod = "POST"
                 request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
@@ -66,7 +80,31 @@ private struct SharedWorkspaceWebView: NSViewRepresentable {
             guard let url = action.request.url else { return .cancel }
             if url.scheme == origin?.scheme && url.host == origin?.host && url.port == origin?.port {
                 if url.path.hasPrefix("/api/google/connect") {
-                    NSWorkspace.shared.open(url)
+                    var browserURL = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                    if let userID = CloudAccount.shared.credentials?.userID {
+                        let items = (browserURL?.queryItems ?? []).filter { $0.name != "expected_user" }
+                        browserURL?.queryItems = items + [URLQueryItem(name: "expected_user", value: userID)]
+                    }
+                    Task { @MainActor in
+                        do {
+                            var exchangeURL = URLComponents(url: CloudAccount.shared.siteURL.appendingPathComponent("api/native/session"), resolvingAgainstBaseURL: false)!
+                            let destination = browserURL?.url ?? url
+                            exchangeURL.queryItems = [URLQueryItem(name: "external", value: "1"), URLQueryItem(name: "next", value: destination.path + (destination.query.map { "?" + $0 } ?? ""))]
+                            var request = URLRequest(url: exchangeURL.url!)
+                            request.httpMethod = "POST"
+                            request.setValue("Bearer " + (try await CloudAccount.shared.accessToken()), forHTTPHeaderField: "Authorization")
+                            let (data, response) = try await URLSession.shared.data(for: request)
+                            struct Handoff: Decodable { let url: URL }
+                            if (response as? HTTPURLResponse)?.statusCode == 200, let handoff = try? JSONDecoder().decode(Handoff.self, from: data), handoff.url.scheme == origin?.scheme, handoff.url.host == origin?.host, handoff.url.path == "/api/native/session" {
+                                NSWorkspace.shared.open(handoff.url)
+                            } else {
+                                // Older servers cannot transfer a session to a second browser.
+                                var login = URLComponents(url: CloudAccount.shared.siteURL.appendingPathComponent("login"), resolvingAgainstBaseURL: false)!
+                                login.queryItems = [URLQueryItem(name: "next", value: "/connections"), URLQueryItem(name: "error", value: "Sign in to the same Concourse account as your Mac to connect Google. Your Mac is already signed in.")]
+                                NSWorkspace.shared.open(login.url!)
+                            }
+                        } catch { self.error = "Couldn’t open Google setup. Check your connection and try again." }
+                    }
                     return .cancel
                 }
                 return .allow
@@ -92,7 +130,7 @@ private struct SharedWorkspaceWebView: NSViewRepresentable {
             return nil
         }
         func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable (Bool) -> Void) {
-            let alert = NSAlert(); alert.messageText = "Voice Notes"; alert.informativeText = message
+            let alert = NSAlert(); alert.messageText = "Concourse"; alert.informativeText = message
             alert.addButton(withTitle: "Continue"); alert.addButton(withTitle: "Cancel")
             guard let window = webView.window else { completionHandler(false); return }
             alert.beginSheetModal(for: window) { response in completionHandler(response == .alertFirstButtonReturn) }

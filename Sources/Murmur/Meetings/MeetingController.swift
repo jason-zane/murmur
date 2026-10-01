@@ -3,6 +3,7 @@ import AppKit
 import Foundation
 import MurmurSessions
 import Observation
+import Synchronization
 
 /// Runs one meeting: both captures, both transcribers, the session on disk, and the
 /// notepad's bullets. One instance for the app; one session at a time.
@@ -18,10 +19,13 @@ final class MeetingController {
         case idle
         case starting
         case recording
+        case pausing
+        case paused
+        case resuming
         case finalising
         case saveFailed
 
-        var isActive: Bool { self == .starting || self == .recording }
+        var isActive: Bool { self == .starting || self == .recording || self == .pausing || self == .paused || self == .resuming }
     }
 
     /// What detection (or the user) knew when the session began.
@@ -58,10 +62,14 @@ final class MeetingController {
         didSet { scheduleBulletSave() }
     }
 
-    let store = SessionStore()
+    let store: SessionStore
+    private let requestMicrophone: @MainActor () async -> Bool
+    private let transcriberFactory: () -> any MeetingTranscriber
+    private let systemFactory: () -> any MeetingSystemAudioCapturing
 
-    private let mic = AudioCapture()
-    private var system = SystemAudioCapture()
+    private let mic: any DictationAudioCapturing
+    private var system: any MeetingSystemAudioCapturing
+    private var captureGate = MeetingCaptureGate()
     private var runID = UUID()
     private var timeline = CaptureTimeline()
     private var startTask: Task<Void, Never>?
@@ -72,6 +80,7 @@ final class MeetingController {
     private var callTranscriber: (any MeetingTranscriber)?
     /// Present only when speaker separation is on and its models are on disk.
     private var diarizer: CallDiarizer?
+    private var diarizerOffset: TimeInterval = 0
     /// Call-side segments finalised by the transcriber but not yet covered by diarization.
     /// Their words are already durable; only labels wait for speaker recognition.
     private var pendingCall: [TranscriptSegment] = []
@@ -82,6 +91,7 @@ final class MeetingController {
     private var clockTask: Task<Void, Never>?
     private var bulletSaveTask: Task<Void, Never>?
     private var finishDone = false
+    private var captureIssue: String?
     private var startedAt: Date?
     private var stoppedAt: Date?
     private(set) var systemAudioActive = false
@@ -94,7 +104,17 @@ final class MeetingController {
     /// Ceiling on the finish path. An engine that never returns must not hold the session.
     private static let finishDeadline: Duration = .seconds(20)
 
-    init() {
+    init(store: SessionStore = SessionStore(),
+         mic: any DictationAudioCapturing = AudioCapture(),
+         systemFactory: @escaping () -> any MeetingSystemAudioCapturing = { SystemAudioCapture() },
+         transcriberFactory: @escaping () -> any MeetingTranscriber = { MeetingController.makeTranscriber() },
+         requestMicrophone: @escaping @MainActor () async -> Bool = { await Permissions.requestMicrophone() }) {
+        self.store = store
+        self.mic = mic
+        self.systemFactory = systemFactory
+        self.system = systemFactory()
+        self.transcriberFactory = transcriberFactory
+        self.requestMicrophone = requestMicrophone
         let recovered = store.recoverInterrupted()
         if !recovered.isEmpty {
             Log.app.info("recovered \(recovered.count) interrupted meeting session(s)")
@@ -115,36 +135,53 @@ final class MeetingController {
     // MARK: - Start
 
     func start(_ context: StartContext = StartContext()) {
-        guard state == .idle else { return }
-        state = .starting
+        begin(context, resuming: false)
+    }
+
+    func resume() {
+        begin(StartContext(), resuming: true)
+    }
+
+    private func begin(_ context: StartContext, resuming: Bool) {
+        guard resuming ? state == .paused : state == .idle else { return }
+        state = resuming ? .resuming : .starting
         let runID = UUID()
         self.runID = runID
         let timeline = CaptureTimeline()
         self.timeline = timeline
-        system = SystemAudioCapture()
+        system = systemFactory()
+        captureGate = MeetingCaptureGate()
+        let captureGate = self.captureGate
         let system = self.system
         systemAudioActive = false
-        speakerPreparationTask?.cancel()
-        speakerPreparationTask = nil
-        diarizer = nil
+        if !resuming {
+            speakerPreparationTask?.cancel()
+            speakerPreparationTask = nil
+            diarizer = nil
+            diarizerOffset = 0
+        }
         isRestartingSystem = false
         pendingCall = []
         isLabeling = false
         lastError = nil
         warning = nil
         livePartial = ""
-        liveSegments = []
-        bullets = []
+        if !resuming {
+            captureIssue = nil
+            liveSegments = []
+            bullets = []
+            elapsed = 0
+            stoppedAt = nil
+        }
         youLevel = 0
         callLevel = 0
         callSilentSince = nil
-        elapsed = 0
 
         startTask = Task { @MainActor in
             var preparedMic: (any MeetingTranscriber)?
             var preparedCall: (any MeetingTranscriber)?
             do {
-                guard await Permissions.requestMicrophone() else {
+                guard await requestMicrophone() else {
                     throw StartError.microphoneDenied
                 }
                 try Task.checkCancellation()
@@ -167,20 +204,20 @@ final class MeetingController {
                     attendees: context.calendarEvent?.attendees ?? [],
                     engine: engineName
                 )
-                if let booking = context.calendarEvent?.booking {
+                if resuming, let existing = session { manifest = existing }
+                if !resuming, let booking = context.calendarEvent?.booking {
                     manifest.booking = BookingContext(
                         eventType: booking.event_type, guestName: booking.guest_name, guestEmail: booking.guest_email,
                         answers: booking.answers.map { .init(question: $0.question, answer: $0.answer) }, bookingID: booking.id)
                     // The meeting type the guest booked decides how its notes are written.
                     manifest.summaryTemplate = booking.template.flatMap(SummaryTemplate.init(rawValue:))?.rawValue
                 }
-                try store.create(manifest)
-                manifest.duration = 0
+                if !resuming { try store.create(manifest) }
                 session = manifest
 
                 // Two transcribers, one per stream, so the far side never bleeds into yours.
-                let micT = Self.makeTranscriber()
-                let callT = Self.makeTranscriber()
+                let micT = transcriberFactory()
+                let callT = transcriberFactory()
                 preparedMic = micT
                 preparedCall = callT
                 micTranscriber = micT
@@ -188,7 +225,7 @@ final class MeetingController {
 
                 // Speaker recognition warms independently. Waiting for CoreML compilation
                 // here used to cost the first half-minute of a meeting.
-                if MeetingSettings.shared.speakerSeparation, ModelKind.speakers.isDownloaded {
+                if !resuming, MeetingSettings.shared.speakerSeparation, ModelKind.speakers.isDownloaded {
                     let d = CallDiarizer()
                     diarizer = d
                     speakerPreparationTask = Task {
@@ -200,6 +237,9 @@ final class MeetingController {
                     }
                 }
                 let diarizer = self.diarizer
+                // The diarizer keeps its voice identities and a continuous audio clock;
+                // each resumed transcriber starts at zero on the wall-clock timeline.
+                diarizerOffset = await diarizer?.coveredThrough ?? 0
 
                 let micEvents = try await AsyncDeadline.run(for: .seconds(45)) { try await micT.start(source: .you, offset: 0) }
                 try Task.checkCancellation()
@@ -223,6 +263,7 @@ final class MeetingController {
                     Task.detached(priority: .userInitiated) { [weak self] in
                         for await chunk in callStream {
                             await callT.feed(chunk)
+                            guard !Task.isCancelled else { break }
                             if let diarizer, await diarizer.feed(chunk) != nil {
                                 await self?.labelPending(force: false, for: runID)
                             }
@@ -230,26 +271,27 @@ final class MeetingController {
                     },
                 ]
                 consumeTasks = [
-                    Task { @MainActor [weak self] in for await event in micEvents { if self?.runID == runID { self?.handle(event) } } },
-                    Task { @MainActor [weak self] in for await event in callEvents { if self?.runID == runID { self?.handle(event) } } },
+                    consume(micEvents, source: .you, for: runID),
+                    consume(callEvents, source: .call, for: runID),
                 ]
 
                 let captureStarted = Date()
-                timeline.begin(at: captureStarted)
-                manifest.startedAt = captureStarted
+                if resuming, let current = session { manifest = current }
+                timeline.begin(at: resuming ? manifest.startedAt : captureStarted)
+                if !resuming { manifest.startedAt = captureStarted }
                 session = manifest
                 try store.save(manifest)
                 try await mic.start(
                     outputFormat: micFormat,
-                    onBuffer: { timeline.observe(.you); micCont.yield($0) },
-                    onLevel: { [weak self] level in Task { @MainActor in if self?.runID == runID { self?.youLevel = level } } }
+                    onBuffer: { chunk in captureGate.deliver { timeline.observe(.you); micCont.yield(chunk) } },
+                    onLevel: { [weak self] level in Task { @MainActor in if self?.runID == runID, self?.isRecording == true { self?.youLevel = level } } }
                 )
                 try Task.checkCancellation()
                 guard self.runID == runID else { throw CancellationError() }
 
                 // The mic is live; the session can be considered started from here even if
                 // the tap takes a moment (or a consent dialog) to come up.
-                startedAt = captureStarted
+                startedAt = manifest.startedAt
                 state = .recording
                 startClock()
 
@@ -260,8 +302,8 @@ final class MeetingController {
                     do {
                         try system.start(
                             outputFormat: callFormat,
-                            onBuffer: { timeline.observe(.call); callCont.yield($0) },
-                            onLevel: { [weak self] level in Task { @MainActor in if self?.runID == runID { self?.observeCallLevel(level) } } }
+                            onBuffer: { chunk in captureGate.deliver { timeline.observe(.call); callCont.yield(chunk) } },
+                            onLevel: { [weak self] level in Task { @MainActor in if self?.runID == runID, self?.isRecording == true { self?.observeCallLevel(level) } } }
                         )
                         return .success(())
                     } catch {
@@ -279,7 +321,7 @@ final class MeetingController {
                 case .failure(let error):
                     // Your side still records. Say so, loudly enough to be fixed.
                     systemAudioActive = false
-                    warning = "Recording your side only — \(error.localizedDescription)"
+                    reportCaptureIssue("Recording your side only — \(error.localizedDescription)")
                     Log.audio.error("system audio unavailable: \(error.localizedDescription)")
                 }
                 // A stop that arrived while the tap was coming up (or while the consent
@@ -296,15 +338,55 @@ final class MeetingController {
                     ? "The speech engine took too long to get ready. No audio was recorded. Try again after the speech model has finished preparing."
                     : error.localizedDescription
                 Log.app.error("meeting start failed: \(error.localizedDescription)")
-                await abandon()
+                if resuming {
+                    state = .pausing
+                    stopCaptures()
+                    _ = await finishWithDeadline()
+                    self.runID = UUID()
+                    if state == .finalising { await completeSession() }
+                    else { state = .paused }
+                } else {
+                    await abandon()
+                }
             }
         }
     }
 
-    // MARK: - Stop
+    // MARK: - Pause and stop
+
+    func pause() {
+        guard state == .recording else { return }
+        state = .pausing
+        stopCaptures()
+        Task { @MainActor in
+            let drained = await finishWithDeadline()
+            if !drained {
+                reportCaptureIssue("The last words before pausing may be missing. Earlier words are saved.")
+            }
+            // Retire callbacks from this capture before a fresh pair of transcribers resumes.
+            runID = UUID()
+            livePartial = ""
+            if state == .finalising {
+                await completeSession()
+            } else {
+                state = .paused
+            }
+        }
+    }
+
+    private func stopCaptures() {
+        captureGate.close()
+        mic.stop()
+        let system = self.system
+        Task.detached { system.stop() }
+        systemAudioActive = false
+        youLevel = 0
+        callLevel = 0
+        callSilentSince = nil
+    }
 
     func stop() {
-        guard state == .recording else {
+        guard state == .recording || state == .paused || state == .pausing || state == .resuming else {
             if state == .starting {
                 runID = UUID()
                 startTask?.cancel()
@@ -313,20 +395,24 @@ final class MeetingController {
             }
             return
         }
+        let previousState = state
         state = .finalising
+        if previousState == .resuming {
+            runID = UUID()
+            startTask?.cancel()
+        }
         stoppedAt = Date()
+        if let startedAt, let stoppedAt { elapsed = stoppedAt.timeIntervalSince(startedAt) }
         if var manifest = session {
             manifest.state = .finalising
             session = manifest
             do { try store.save(manifest) } catch { warning = error.localizedDescription }
         }
-        mic.stop()
-        let system = self.system
-        Task.detached { system.stop() }
-        youLevel = 0
-        callLevel = 0
+        stopCaptures()
         clockTask?.cancel()
         clockTask = nil
+        // The pause drain owns finalisation if Stop is pressed before it finishes.
+        if previousState == .pausing { return }
 
         Task { @MainActor in
             let drained = await finishWithDeadline()
@@ -341,6 +427,7 @@ final class MeetingController {
     /// Drop the current session entirely. Used only when a start fails.
     private func abandon() async {
         speakerPreparationTask?.cancel(); speakerPreparationTask = nil
+        captureGate.close()
         mic.stop()
         let system = self.system
         Task.detached { system.stop() }
@@ -430,6 +517,11 @@ final class MeetingController {
             return
         }
 
+        if lastError == nil { lastError = captureIssue }
+        if manifest.app != nil, !segments.isEmpty,
+           !segments.contains(where: { $0.source == .call }), lastError == nil {
+            lastError = "No call-side speech was transcribed for this note. It may contain only your side."
+        }
         lastFinishedSessionID = manifest.id
         Log.app.info("meeting finished · \(manifest.id, privacy: .public) · \(segments.count) segments · \(TimeFormat.clock(manifest.duration), privacy: .public)")
         if MeetingSettings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
@@ -470,12 +562,30 @@ final class MeetingController {
         NoteBullet(at: elapsed, text: "")
     }
 
+    private func reportCaptureIssue(_ message: String) {
+        warning = message
+        // Keep the first failure visible after saving, even if earlier call-side words
+        // exist or a later resume succeeds. This note may still have a gap.
+        if captureIssue == nil { captureIssue = message }
+    }
+
+    private func consume(_ events: AsyncStream<MeetingTranscriptEvent>, source: AudioStreamSource,
+                         for token: UUID) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            for await event in events {
+                guard let self, self.runID == token, !Task.isCancelled else { return }
+                self.handle(event)
+            }
+            guard let self, self.runID == token, !Task.isCancelled,
+                  self.state == .recording || self.state == .starting || self.state == .resuming else { return }
+            self.reportCaptureIssue("\(source == .you ? "Microphone" : "Call audio") transcription stopped unexpectedly. Pause and resume to try again; earlier words are saved.")
+        }
+    }
+
     private func handle(_ event: MeetingTranscriptEvent) {
         switch event {
         case .failed(let source, let message):
-            if isRecording {
-                warning = "\(source == .you ? "Your microphone" : "Call audio") couldn't be transcribed: \(message). Earlier words are saved."
-            }
+            reportCaptureIssue("\(source == .you ? "Your microphone" : "Call audio") couldn't be transcribed: \(message). Earlier words are saved.")
         case .partial(let text):
             livePartial = text
         case .final(var segment):
@@ -498,7 +608,7 @@ final class MeetingController {
         guard let session else { return }
         do { try store.append([segment], to: session.id) }
         catch {
-            warning = "Couldn't save the latest words. Keep Voice Notes open and free some disk space; the transcript is still in memory."
+            warning = "Couldn't save the latest words. Keep Concourse open and free some disk space; the transcript is still in memory."
             Log.app.error("transcript append failed: \(error.localizedDescription)")
         }
     }
@@ -513,7 +623,7 @@ final class MeetingController {
         defer { if runID == token { isLabeling = false } }
         let batch = pendingCall
         pendingCall = []
-        let offset = timeline.offset(for: .call)
+        let offset = timeline.offset(for: .call) - diarizerOffset
         let covered = await diarizer.coveredThrough + offset
         guard runID == token else { return }
         var remaining: [TranscriptSegment] = []
@@ -581,7 +691,7 @@ final class MeetingController {
             isRestartingSystem = false
             if let failure {
                 systemAudioActive = false
-                warning = "Call audio couldn't reconnect: \(failure). Your microphone is still recording."
+                reportCaptureIssue("Call audio couldn't reconnect: \(failure). Your microphone is still recording.")
             }
         }
     }
@@ -611,4 +721,16 @@ final class MeetingController {
             "Microphone access is off. Enable it in System Settings ▸ Privacy & Security ▸ Microphone."
         }
     }
+}
+
+/// A synchronous boundary for both audio callbacks. Closing it prevents late process-tap
+/// startup and in-flight buffers from admitting audio after Pause or Stop was pressed.
+final class MeetingCaptureGate: Sendable {
+    private let open = Mutex(true)
+
+    func deliver(_ body: () -> Void) {
+        open.withLock { if $0 { body() } }
+    }
+
+    func close() { open.withLock { $0 = false } }
 }

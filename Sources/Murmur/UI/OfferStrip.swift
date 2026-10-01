@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The "a call started — want notes?" prompt, shown as a pill near the top of the screen.
+/// A timed, non-recording offer at the chosen dictation-bar edge.
 ///
 /// Like the HUD, this is a **transparent canvas larger than the pill inside it**, and
 /// nothing in it casts a SwiftUI shadow. A shadow under a `.regularMaterial` background
@@ -12,12 +12,13 @@ import SwiftUI
 @MainActor
 final class OfferStrip: NSPanel {
     private static let canvas = DS.Offer.canvas
-    private static let topInset = DS.Offer.topInset
-    private static let autoDismiss = DS.Offer.autoDismiss
+    private let detector: MeetingDetector
 
+    private var offerScreen: NSScreen?
     private var dismissTask: Task<Void, Never>?
 
     init(detector: MeetingDetector, onStart: @escaping (MeetingCandidate) -> Void) {
+        self.detector = detector
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.canvas),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -26,7 +27,7 @@ final class OfferStrip: NSPanel {
         )
         isFloatingPanel = true
         level = .statusBar
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary, .stationary]
         hidesOnDeactivate = false
         isMovableByWindowBackground = false
         isOpaque = false
@@ -36,7 +37,8 @@ final class OfferStrip: NSPanel {
 
         let hosting = TransparentHostingView(rootView: OfferView(
             detector: detector,
-            onStart: { [weak self] candidate in
+            onStart: { [weak self] _ in
+                guard let candidate = detector.acceptOffer() else { self?.dismiss(); return }
                 self?.dismiss()
                 onStart(candidate)
             },
@@ -56,13 +58,18 @@ final class OfferStrip: NSPanel {
 
     func present() {
         dismissTask?.cancel()
+        offerScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main
         reposition()
         alphaValue = 1
         orderFrontRegardless()
         dismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.autoDismiss)
-            guard !Task.isCancelled else { return }
-            self?.dismiss()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled, let self else { return }
+                self.detector.expireOffer()
+                guard self.detector.offered != nil else { self.dismiss(); return }
+                self.reposition()
+            }
         }
     }
 
@@ -73,13 +80,8 @@ final class OfferStrip: NSPanel {
     }
 
     private func reposition() {
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
-                ?? NSScreen.main ?? NSScreen.screens.first else { return }
-        let visible = screen.visibleFrame
-        setFrameOrigin(NSPoint(
-            x: visible.midX - Self.canvas.width / 2,
-            y: visible.maxY - Self.canvas.height - Self.topInset
-        ))
+        guard let screen = offerScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        setFrame(Settings.shared.dictationBarPosition.frame(in: screen.visibleFrame, canvas: Self.canvas), display: true)
     }
 }
 
@@ -89,35 +91,47 @@ struct OfferView: View {
     let onDecline: () -> Void
 
     var body: some View {
-        HStack(spacing: DS.Space.md) {
+        VStack(spacing: DS.Space.sm) {
             if let candidate = detector.offered {
-                mark
-                VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    Text(headline(candidate))
-                        .font(DS.Font.bodyEmphasis)
-                        .foregroundStyle(DS.Color.text)
-                        .lineLimit(1)
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Readout(candidate.evidence(at: context.date), color: DS.Color.textTertiary)
+                HStack(spacing: DS.Space.md) {
+                    mark
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                        Text("Record meeting?")
+                            .font(DS.Font.bodyEmphasis)
+                            .foregroundStyle(DS.Color.text)
+                        Text(headline(candidate))
+                            .font(DS.Font.caption)
+                            .foregroundStyle(DS.Color.textSecondary)
+                            .lineLimit(1)
                     }
+                    Spacer(minLength: DS.Space.sm)
+                    ActionButton(title: "Not now", emphasis: .quiet, action: onDecline)
+                    ActionButton(title: "Record", emphasis: .prominent) { onStart(candidate) }
                 }
-                Spacer(minLength: DS.Space.sm)
-                ActionButton(title: "Not now", emphasis: .quiet, action: onDecline)
-                ActionButton(title: "Record", emphasis: .prominent) { onStart(candidate) }
+                TimelineView(.periodic(from: .now, by: DS.Offer.refreshInterval)) { context in
+                    let remaining = max(0, (detector.offerDeadline ?? context.date).timeIntervalSince(context.date))
+                    GeometryReader { geometry in
+                        Capsule().fill(DS.Color.accentSoft)
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(DS.Color.accent)
+                                    .frame(width: geometry.size.width * min(1, remaining / MeetingDetector.offerDuration))
+                            }
+                    }
+                    .frame(height: DS.Offer.progressHeight)
+                    .accessibilityLabel("Offer closes without recording")
+                    .accessibilityValue("\(Int(remaining.rounded(.up))) seconds remaining")
+                }
             }
         }
-        .padding(.leading, DS.Space.md)
-        .padding(.trailing, DS.Space.sm)
-        .padding(.vertical, DS.Space.sm)
-        .background(.regularMaterial, in: .capsule)
+        .padding(DS.Space.md)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Space.lg))
         .overlay {
-            Capsule().strokeBorder(.primary.opacity(DS.Offer.borderOpacity), lineWidth: DS.Stroke.hairline)
+            RoundedRectangle(cornerRadius: DS.Space.lg)
+                .strokeBorder(.primary.opacity(DS.Offer.borderOpacity), lineWidth: DS.Stroke.hairline)
         }
-        // Clip rather than shadow: everything the pill draws stays inside the capsule, so
-        // there is no rectangle of anything left over the desktop.
-        .clipShape(.capsule)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, DS.Space.sm)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Space.lg))
+        .padding(DS.HUD.edgeInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Settings.shared.dictationBarPosition.alignment)
     }
 
     /// A soft accent disc rather than a lamp: at notification size a glowing dot reads as

@@ -10,8 +10,33 @@ struct CloudMeeting: Codable, Sendable, Identifiable {
     let ends_at: Date
     let meeting_url: URL?
     let attendees: [Attendee]
-    /// Present when a guest booked this meeting through a Voice Notes booking link.
+    /// Present when a guest booked this meeting through a Concourse booking link.
     var booking: CloudBooking? = nil
+    var connection_id: String? = nil
+    var calendar_id: String? = nil
+    var stable_id: String? = nil
+    var legacy_id_unique: Bool? = nil
+    var details: CloudCalendarDetails? = nil
+    var calendarIdentity: String {
+        if let stable_id { return stable_id }
+        guard let connection_id, let calendar_id else { return "google-" + id }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")
+        return "google:" + connection_id + ":" + (calendar_id.addingPercentEncoding(withAllowedCharacters: allowed) ?? calendar_id) + ":" + (id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id)
+    }
+}
+struct CloudCalendarDetails: Codable, Sendable {
+    var etag: String? = nil
+    var recurring_id: String? = nil
+    var show_in_calendar: Bool? = nil
+    var meeting_suggestions: Bool? = nil
+    var all_day: Bool? = nil
+    var start_date: String? = nil
+    var end_date: String? = nil
+    var time_zone: String? = nil
+    var response: String? = nil
+    var availability: String? = nil
+    var location: String? = nil
+    var description: String? = nil
 }
 
 /// What the guest gave when booking. Their answers are their own words, written before the meeting.
@@ -34,7 +59,7 @@ protocol CloudSyncTransport {
 }
 
 @MainActor
-private struct AccountSyncTransport: CloudSyncTransport {
+struct AccountSyncTransport: CloudSyncTransport {
     var userID: String? { CloudAccount.shared.credentials?.userID }
 
     func request(_ path: String, method: String, body: Data?) async throws -> Data {
@@ -212,7 +237,7 @@ final class CloudSync {
         guard index == nil || index?.userID == userID else {
             needsAttention = true
             requiresSignIn = true
-            message = "This Mac’s library is linked to a different Voice Notes account. Sign in to that account to continue syncing. Your notes stay on this Mac."
+            message = "This Mac’s library is linked to a different Concourse account. Sign in to that account to continue syncing. Your notes stay on this Mac."
             return
         }
         let run = Run(userID: userID, generation: generation)
@@ -226,7 +251,7 @@ final class CloudSync {
             var calendarWarning: String?
             // A rejected note must never prevent the calendar from refreshing.
             do {
-                let agenda: CalendarPage = try await request("api/calendar", run: run)
+                let agenda: CalendarPage = try await request("api/calendar?workspace=1", run: run)
                 applyAgenda(agenda)
                 saveAgenda(agenda, for: userID)
                 calendarWarning = agenda.connection?.error
@@ -398,7 +423,9 @@ final class CloudSync {
         applyAgenda(value.page)
     }
     private func applyAgenda(_ agenda: CalendarPage) {
-        meetings = agenda.events.filter { $0.ends_at > Date() }
+        // Calendar browsing includes completed meetings. Detection and automatic opening
+        // apply their own near-now windows; history must also survive cache restoration.
+        meetings = agenda.events
         calendarConnected = agenda.connection != nil
         calendarEmail = agenda.connection?.email
         calendarError = agenda.connection?.error

@@ -29,8 +29,8 @@ struct GeneralSettings: View {
                 VStack(alignment: .leading, spacing: DS.Space.md) {
                     SectionLabel(text: "General")
                     ToggleRow(
-                        title: "Start Voice Notes at login",
-                        hint: "The push-to-talk key and call detection only work while Voice Notes is running.",
+                        title: "Start Concourse at login",
+                        hint: "The push-to-talk key and call detection only work while Concourse is running.",
                         isOn: $settings.launchAtLogin
                     )
                     if LoginItem.state == .requiresApproval {
@@ -106,7 +106,7 @@ struct GeneralSettings: View {
                     SectionLabel(text: "About")
                     HStack(spacing: DS.Space.md) {
                         VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                            Text("Voice Notes " + Self.version).font(DS.Font.body).foregroundStyle(DS.Color.text)
+                            Text("Concourse " + Self.version).font(DS.Font.body).foregroundStyle(DS.Color.text)
                             Hint(updates.lastChecked.map { "Checked for updates " + $0.formatted(.relative(presentation: .named)) + "." }
                                  ?? "Not checked for updates yet.")
                         }

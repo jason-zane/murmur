@@ -1,3 +1,4 @@
+import { calendarContext } from "./calendar-context";
 import {
   createCipheriv,
   createDecipheriv,
@@ -9,6 +10,7 @@ import { adminClient } from "./supabase/server";
 import { meetingURL, type CalendarMeeting } from "./documents";
 import {
   canListCalendars,
+  canReadEvents,
   GoogleError,
   google,
   type GoogleCalendar,
@@ -122,6 +124,8 @@ export type CalendarSource = {
   is_primary: boolean;
   can_write: boolean;
   selected: boolean;
+  blocks_availability?: boolean;
+  meeting_suggestions?: boolean;
 };
 
 /** Stores or refreshes one account. The same address reconnecting updates its existing row. */
@@ -129,23 +133,25 @@ export async function saveConnection(
   userID: string,
   email: string | null,
   scopes: string[],
-  refreshToken: string,
+  refreshToken: string | undefined,
+  subject?: string,
 ) {
   const db = adminClient();
   const { data: existing, error } = await db
     .from("calendar_connections")
-    .select("id,email")
+    .select("id,email,provider_subject")
     .eq("user_id", userID)
     .eq("provider", "google");
   if (error) throw error;
   const match = existing?.find(
-    (c) => (c.email || "").toLowerCase() === (email || "").toLowerCase(),
+    (c) => subject && c.provider_subject === subject || !c.provider_subject && email && c.email?.toLowerCase() === email.toLowerCase(),
   );
   let id = match?.id as string | undefined;
+  if (!id && !refreshToken) throw new Error("Google did not grant offline access. Reconnect this account.");
   if (id) {
     const { error: update } = await db
       .from("calendar_connections")
-      .update({ email, scopes, error: null, updated_at: null })
+      .update({ email, scopes, ...(subject ? {provider_subject:subject}:{}), error: null, updated_at: null })
       .eq("id", id);
     if (update) throw update;
   } else {
@@ -154,6 +160,7 @@ export async function saveConnection(
       .insert({
         user_id: userID,
         provider: "google",
+        ...(subject ? {provider_subject:subject}:{}),
         email,
         scopes,
         updated_at: null,
@@ -162,6 +169,12 @@ export async function saveConnection(
       .single();
     if (insert) throw insert;
     id = data.id as string;
+  }
+  if (!refreshToken) {
+    const {data,error}=await db.from("calendar_credentials").select("connection_id").eq("connection_id",id).maybeSingle();
+    if(error) throw error;
+    if(!data) throw new Error("Google did not grant offline access. Reconnect this account.");
+    return id!;
   }
   const { error: credentials } = await db.from("calendar_credentials").upsert({
     connection_id: id,
@@ -207,14 +220,14 @@ const writable = (c: GoogleCalendar) =>
   c.accessRole === "owner" || c.accessRole === "writer";
 
 /** Mirrors the account's calendar list, keeping each calendar's selection. */
-async function syncSources(
+export async function syncSources(
   connection: CalendarConnection,
   calendars: GoogleCalendar[],
 ) {
   const db = adminClient();
   const { data: existing, error } = await db
     .from("calendar_sources")
-    .select("calendar_id,selected")
+    .select("calendar_id,selected,blocks_availability,meeting_suggestions")
     .eq("connection_id", connection.id);
   if (error) throw error;
   const previous = new Map(
@@ -223,7 +236,8 @@ async function syncSources(
       s.selected as boolean,
     ]),
   );
-  const rows: CalendarSource[] = calendars.slice(0, 200).map((c) => ({
+  const preferences = new Map((existing ?? []).map(s=>[s.calendar_id,s]));
+  const rows: CalendarSource[] = calendars.map((c) => ({
     connection_id: connection.id,
     user_id: connection.user_id,
     calendar_id: c.id,
@@ -233,6 +247,8 @@ async function syncSources(
     is_primary: Boolean(c.primary),
     can_write: writable(c),
     selected: previous.get(c.id) ?? Boolean(c.primary),
+    blocks_availability: preferences.get(c.id)?.blocks_availability ?? Boolean(c.primary),
+    meeting_suggestions: preferences.get(c.id)?.meeting_suggestions ?? Boolean(c.primary),
   }));
   if (rows.length) {
     const { error: upsert } = await db
@@ -270,13 +286,15 @@ export async function refreshConnection(connection: CalendarConnection) {
           accessRole: "owner",
         },
       ]);
+  const {workspaceEvent}=await import("./calendar-workspace");
   const now = new Date(),
     until = new Date(now.getTime() + 90 * 86400000);
   const events: (CalendarMeeting & {
     calendar_id: string;
     ical_uid: string | null;
+    details?: Record<string,unknown>;
   })[] = [];
-  for (const source of sources.filter((s) => s.selected).slice(0, 25)) {
+  for (const source of sources.filter((s) => s.selected || s.meeting_suggestions)) {
     let items: GoogleEvent[];
     try {
       items = await api.events(
@@ -292,7 +310,7 @@ export async function refreshConnection(connection: CalendarConnection) {
       throw error;
     }
     for (const item of items) {
-      const event = normalizeEvent(item);
+      const event = workspaceEvent(item,connection.id,source.calendar_id,source.time_zone || "UTC");
       if (event)
         events.push({
           ...event,
@@ -301,11 +319,14 @@ export async function refreshConnection(connection: CalendarConnection) {
         });
     }
   }
-  const { error } = await adminClient().rpc("replace_calendar_events", {
-    p_connection_id: connection.id,
-    p_events: events,
-  });
-  if (error) throw error;
+  for (const source of sources.filter(s=>s.selected || s.meeting_suggestions)) {
+    const {error}=await adminClient().rpc("merge_calendar_range",{p_connection_id:connection.id,p_calendar_id:source.calendar_id,
+      p_start:new Date(now.getTime()-90*86400000).toISOString(),p_end:until.toISOString(),p_events:events.filter(e=>e.calendar_id===source.calendar_id)});
+
+    if(error) throw error;
+  }
+  const {error}=await adminClient().from("calendar_connections").update({updated_at:new Date().toISOString(),error:null}).eq("id",connection.id);
+  if(error) throw error;
 }
 
 export async function connectionsFor(userID: string) {
@@ -360,7 +381,7 @@ export async function agenda(
     client
       .from("calendar_events")
       .select(
-        "id,ical_uid,connection_id,calendar_id,title,starts_at,ends_at,meeting_url,attendees",
+        "id,ical_uid,connection_id,calendar_id,title,starts_at,ends_at,meeting_url,attendees,details",
       )
       .gt(
         "ends_at",
@@ -376,7 +397,7 @@ export async function agenda(
     client
       .from("calendar_sources")
       .select(
-        "connection_id,calendar_id,name,color,is_primary,can_write,selected",
+        "connection_id,calendar_id,name,color,is_primary,can_write,selected,blocks_availability,meeting_suggestions",
       )
       .order("is_primary", { ascending: false })
       .order("name"),
@@ -384,62 +405,38 @@ export async function agenda(
   ]);
   if (events.error) throw events.error;
   if (connections.error) throw connections.error;
+  if (sources.error) throw sources.error;
+  const preferences = new Map((sources.data ?? []).map(s=>[`${s.connection_id}|${s.calendar_id}`,s]));
   const seen = new Set<string>();
   const unique = (events.data ?? []).filter((e) => {
-    const key = e.ical_uid ? `${e.ical_uid}@${e.starts_at}` : e.id;
+    const source=preferences.get(`${e.connection_id}|${e.calendar_id}`);
+    if(!source || !source.selected && !source.meeting_suggestions) return false;
+    const key = `${e.connection_id}|${e.calendar_id}|${e.id}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-  const ids = unique.map((e) => e.id);
-  const bookings = ids.length
-    ? await client
-        .from("bookings")
-        .select(
-          "id,provider_event_id,title,summary_template,guest_name,guest_email,answers,event_types(title)",
-        )
-        .eq("status", "confirmed")
-        .in("provider_event_id", ids.slice(0, 500))
-    : { data: [], error: null };
-  const byEvent = new Map(
-    (bookings.data ?? []).map((b) => [b.provider_event_id as string, b]),
-  );
-  const list: AgendaEvent[] = unique
-    .slice(0, history ? 750 : 250)
-    .map(({ ical_uid: _, ...e }) => {
-      const b = byEvent.get(e.id);
-      return b
-        ? {
-            ...e,
-            booking: {
-              id: b.id,
-              event_type:
-                (b.event_types as unknown as { title?: string } | null)
-                  ?.title || b.title,
-              template: b.summary_template,
-              guest_name: b.guest_name,
-              guest_email: b.guest_email,
-              answers: b.answers as { question: string; answer: string }[],
-            },
-          }
-        : e;
-    });
+  const list: AgendaEvent[] = await calendarContext(client,unique.slice(0,history?750:250).map(({ical_uid:_,...record})=>{
+    const source=preferences.get(`${record.connection_id}|${record.calendar_id}`);
+    return {...record,details:{...record.details,show_in_calendar:source?.selected,meeting_suggestions:source?.meeting_suggestions}};
+  }));
   const all = connections.data ?? [];
+  const calendarAccounts = all.filter(c => canReadEvents(c.scopes));
   return {
     events: list,
     connections: all,
     calendars: sources.data ?? [],
     bookingEnabled: Boolean(profile.data),
     // Earlier Mac builds read a single connection.
-    connection: all.length
+    connection: calendarAccounts.length
       ? {
-          email: all[0].email,
+          email: calendarAccounts[0].email,
           updated_at:
-            all
+            calendarAccounts
               .map((c) => c.updated_at)
               .filter(Boolean)
               .sort()[0] ?? null,
-          error: all.find((c) => c.error)?.error ?? null,
+          error: calendarAccounts.find((c) => c.error)?.error ?? null,
         }
       : null,
   };

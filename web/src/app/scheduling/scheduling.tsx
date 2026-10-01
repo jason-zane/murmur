@@ -1458,7 +1458,7 @@ function TypeEditor({
         </button>
       )}
       <p className="fine-print">
-        Answers appear with the meeting in Voice Notes and in the calendar
+        Answers appear with the meeting in Concourse and in the calendar
         event.
       </p>
 

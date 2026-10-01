@@ -3,7 +3,7 @@ import MurmurSessions
 import SwiftUI
 
 /// What the detail column shows when no note is selected.
-enum MainPage: Hashable { case home, calendar, notes, dictation, booking, connections, settings }
+enum MainPage: Hashable { case home, calendar, mail, notes, dictation, booking, connections, settings }
 
 struct MainWindow: View {
     @Bindable var controller: DictationController
@@ -13,6 +13,8 @@ struct MainWindow: View {
     let onShowNotepad: () -> Void
     let onPreviewBar: () -> Void
     @State private var page: MainPage = .home
+    @AppStorage("workspace.welcome.v2") private var welcomed = false
+    @State private var showingWelcome = false
     @State private var selectedSession: String?
     @State private var selectedMatch: SessionMatch?
     @State private var libraryVersion = 0
@@ -33,7 +35,7 @@ struct MainWindow: View {
                     if meetings.state != .idle {
                         RecordingStrip(controller: meetings, onShowNotes: onShowNotepad)
                     }
-                    if let message = meetings.lastError {
+                    if let message = meetings.lastError ?? (meetings.state != .idle ? meetings.warning : nil) {
                         InlineNotice(text: message, tone: .warning) {
                             if meetings.state == .saveFailed {
                                 ActionButton(title: "Retry save", emphasis: .normal) { meetings.retrySave() }
@@ -42,9 +44,10 @@ struct MainWindow: View {
                         .padding([.horizontal, .top], DS.Space.lg)
                     }
                     if page == .notes {
-                        HSplitView {
-                            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion)
-                                .frame(minWidth: DS.Layout.sidebarMinWidth, idealWidth: DS.Layout.sidebarWidth, maxWidth: DS.Layout.sidebarMaxWidth)
+                        HStack(spacing: DS.Space.zero) {
+                            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion, onNewNote: newNote)
+                                .frame(width: DS.Layout.sidebarWidth)
+                            Divider()
                             detail.frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     } else { detail }
@@ -54,12 +57,23 @@ struct MainWindow: View {
             .background(DS.Color.surface)
         }
         .toolbar { toolbar }
+        .windowMinimizeBehavior(.enabled)
+        .windowFullScreenBehavior(.enabled)
         .tint(DS.Color.accent)
         .frame(minWidth: DS.Layout.minWindowWidth, minHeight: DS.Layout.minWindowHeight)
         .transaction { if reduceMotion { $0.animation = nil } }
         .alert("Couldn't create note", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: { Text(error ?? "") }
+        .onAppear {
+            if !welcomed && OnboardingWindow.isCompleted && !PreviewEnvironment.isActive { showingWelcome = true }
+        }
+        .sheet(isPresented: $showingWelcome, onDismiss: { welcomed = true }) {
+            WorkspaceWelcome { target in
+                welcomed = true; showingWelcome = false
+                if let target { page = target; selectedSession = nil }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { note in
             page = .notes
             selectedSession = note.object as? String
@@ -80,14 +94,16 @@ struct MainWindow: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            if page == .home || page == .notes || page == .dictation {
             Button("New note", systemImage: "square.and.pencil") { newNote() }
                 .labelStyle(.titleAndIcon)
                 .help("Create a new note")
+            }
         }
         ToolbarItem(placement: .primaryAction) {
             if meetings.state.isActive {
                 Button("Show notes", systemImage: "note.text", action: onShowNotepad).labelStyle(.titleAndIcon)
-            } else {
+            } else if page == .home || page == .calendar || page == .notes {
                 Button("Record meeting", systemImage: "mic", action: onToggleMeeting)
                     .labelStyle(.titleAndIcon)
                     .disabled(meetings.state != .idle)
@@ -103,7 +119,7 @@ struct MainWindow: View {
                     .foregroundStyle(DS.Color.accent)
                     .frame(width: DS.Layout.brandMark, height: DS.Layout.brandMark)
                     .background(DS.Color.accentSoft, in: .rect(cornerRadius: DS.Radius.md))
-                Text("Voice Notes").font(DS.Font.brand).lineLimit(1)
+                Text("Concourse").font(DS.Font.brand).lineLimit(1)
                 Spacer(minLength: DS.Space.zero)
             }
             .padding(.horizontal, DS.Space.lg)
@@ -111,13 +127,17 @@ struct MainWindow: View {
             .padding(.bottom, DS.Space.sm)
 
             VStack(spacing: DS.Space.xxs) {
-                navigation("Home", "house", .home)
+                navigation("Today", "sun.max", .home)
                 navigation("Calendar", "calendar", .calendar)
+                navigation("Mail", "envelope", .mail)
                 navigation("Notes", "book.closed", .notes)
-                navigation("Dictation", "waveform", .dictation)
                 navigation("Booking links", "calendar.badge.clock", .booking)
+                navigation("Dictation history", "waveform", .dictation)
                 Spacer()
-                navigation("Connections", "link", .connections)
+                navigation("Connected apps", "link", .connections)
+                Button("Set up your workspace") { showingWelcome = true }
+                    .buttonStyle(.plain).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                    .padding(DS.Space.sm)
                 navigation("Settings", "gearshape", .settings)
             }.padding(DS.Space.md)
 
@@ -145,7 +165,10 @@ struct MainWindow: View {
                     .help("Open Settings ▸ Connections")
                 }
                 if CloudAccount.shared.isConnected {
-                    Text(CloudAccount.shared.email).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
+                    Text("Concourse account").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                    Text(CloudAccount.shared.email).font(DS.Font.caption).foregroundStyle(DS.Color.text).lineLimit(1)
+                } else {
+                    Text("Local workspace").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 }
                 Text("Hold " + settings.triggerSummary + " to dictate")
                     .font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary)
@@ -165,6 +188,8 @@ struct MainWindow: View {
             ).id(id)
         } else if page == .calendar {
             CalendarWorkspace(store: meetings.store, onRecord: onRecordCalendar, canRecord: meetings.state == .idle)
+        } else if page == .mail {
+            MailWorkspace()
         } else if page == .booking {
             CloudWorkspace(path: "/scheduling")
         } else if page == .connections {
@@ -178,7 +203,7 @@ struct MainWindow: View {
         } else if page == .dictation {
             DictationList(controller: controller)
         } else {
-            HomeView(store: meetings.store, onRecord: onToggleMeeting, onNewNote: newNote)
+            HomeView(store: meetings.store, onRecord: onToggleMeeting, onNewNote: newNote, canRecord: meetings.state == .idle)
         }
     }
 
@@ -197,22 +222,23 @@ private struct RecordingStrip: View {
 
     var body: some View {
         HStack(spacing: DS.Space.md) {
-            if !controller.isRecording { ProgressView().controlSize(.small) }
+
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text(controller.session?.title ?? "Preparing your meeting…").font(DS.Font.bodyEmphasis).lineLimit(1)
                 if controller.isRecording {
                     CaptureStatus(controller: controller)
                 } else {
                     Text(controller.state == .saveFailed ? "Save needs attention"
+                         : controller.state == .paused ? "Paused · microphone and call audio are off"
+                         : controller.state == .pausing ? "Pausing · finishing the last words…"
+                         : controller.state == .resuming ? "Resuming…"
                          : controller.state == .starting ? "Preparing on-device transcription…" : "Saving your note…")
                         .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 }
             }
             Spacer()
             Readout(TimeFormat.clock(controller.elapsed), color: DS.Color.text)
-            if controller.isRecording {
-                ActionButton(title: "Stop", systemImage: "stop.fill", emphasis: .normal) { controller.stop() }
-            }
+            MeetingControls(controller: controller)
         }
         .padding(DS.Space.md)
         .background(controller.isRecording ? DS.Color.recordSoft : DS.Color.hover, in: .rect(cornerRadius: DS.Radius.md))

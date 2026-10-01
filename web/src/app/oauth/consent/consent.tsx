@@ -34,7 +34,7 @@ export function Consent({
     <main id="main" className="consent">
       <Brand />
       <span className="eyebrow">YOUR PERMISSION, YOUR CHOICE</span>
-      <h1>Connect {details.client.name || "this app"} to Voice Notes?</h1>
+      <h1>Connect {details.client.name || "this app"} to Concourse?</h1>
       <p>
         You’re signed in as <strong>{email}</strong>.
       </p>

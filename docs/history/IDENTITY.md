@@ -105,3 +105,8 @@ The recording controls should always be easy to read and predictable.
 
 The resource names created so far are provisional infrastructure names. They do not
 determine the final product brand.
+
+
+## 30 September 2026 — Concourse
+
+The owner selected Concourse for the broader calendar, inbox, notes and dictation workspace. Human-facing product and connection names now use Concourse. Murmur technical identities remain stable to preserve installed permissions, login items, stored data and existing OAuth connections. The name has existing software uses and has not received legal or domain clearance.

@@ -10,9 +10,9 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
 }
 export function Brand() {
   return (
-    <Link href="/" className="brand" aria-label="Voice Notes home">
+    <Link href="/" className="brand" aria-label="Concourse Today">
       <BrandMark />
-      Voice Notes
+      Concourse
     </Link>
   );
 }

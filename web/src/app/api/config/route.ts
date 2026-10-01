@@ -2,6 +2,7 @@ import { cloudReady, googleReady, siteURL } from "@/lib/config";
 export function GET() {
   return Response.json({
     ready: cloudReady(),
+    workspaceVersion: 2,
     siteURL: siteURL(),
     supabaseURL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
     publishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "",

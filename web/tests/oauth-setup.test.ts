@@ -12,7 +12,7 @@ describe("production OAuth setup compatibility", () => {
     }
   });
   it("checks later pages before allowing a new registration", async () => {
-    const client = { client_id: "existing-mac", client_name: "Voice Notes for Mac", redirect_uris: ["murmur://oauth/callback"] };
+    const client = { client_id: "existing-mac", client_name: "Concourse for Mac", redirect_uris: ["murmur://oauth/callback"] };
     const pages: number[] = [];
     expect(await findDesktopClient({ listClients: async ({ page }: { page: number }) => {
       pages.push(page);

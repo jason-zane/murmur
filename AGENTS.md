@@ -18,7 +18,7 @@ backend in `web/`.
 It replaces a Wispr Flow subscription, so "as good as Wispr for daily use" is the bar —
 not "a demo that transcribes."
 
-Product name **Voice Notes**; bundle id `com.jasonhunt.murmur`, executable `Murmur`,
+Product name **Concourse**; bundle id `com.jasonhunt.murmur`, executable `Murmur`,
 `Murmur.app`, `murmur://`, Keychain service `com.jasonhunt.murmur.cloud`. Those are TCC and
 Keychain identity on installed copies and don't change.
 
@@ -138,7 +138,7 @@ accent, depth from soft shadow and hairline separators. Not negotiable:
   Identifiers and persisted raw values stay as they are.
 - **One word per thing**: note (never session/conversation/recording in copy), Record
   meeting / Stop, New note, "notes window" (not notepad), dictation bar, dictation(s),
-  push-to-talk key, Transcription · Apple / Parakeet, Voice Notes account, Connected apps,
+  push-to-talk key, Transcription · Apple / Parakeet, Concourse account, Connected apps,
   Claude Desktop. Settings paths use `▸`.
 
 Panels that float (dictation bar, the meeting offer, the notes rail) use a transparent

@@ -72,12 +72,12 @@ jobs:
             signing="Ad-hoc signed: macOS will reset the Accessibility permission after each update. Not notarised — see the install notes."
           fi
           cat > notes.md <<EOF
-          ## Voice Notes $version
+          ## Concourse $version
 
-          Download the disk image, drag Voice Notes to Applications, then right-click ▸ Open.
+          Download the disk image, drag Concourse to Applications, then right-click ▸ Open.
           If macOS refuses, open System Settings ▸ Privacy & Security and choose **Open Anyway**.
           Full instructions: https://github.com/${{ github.repository }}/blob/master/docs/INSTALL.md
 
           $signing
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/VoiceNotes-"$version".dmg --title "Voice Notes $version" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" dist/Concourse-"$version".dmg --title "Concourse $version" --notes-file notes.md

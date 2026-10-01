@@ -1,6 +1,21 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "regions": ["syd1"],
-  "crons": [{ "path": "/api/messages/dispatch", "schedule": "* * * * *" }]
+  "regions": [
+    "syd1"
+  ],
+  "crons": [
+    {
+      "path": "/api/messages/dispatch",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/mail/dispatch",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/calendar/dispatch",
+      "schedule": "* * * * *"
+    }
+  ]
 }
