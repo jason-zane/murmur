@@ -42,6 +42,10 @@ describe("Concourse and Gmail draft saving",()=>{
  it("does not bind a workspace draft to a different sender or another owner's UUID",async()=>{
   await save();await expect(save(message({connection_id:other}),1)).rejects.toThrow("separate draft");rows.get(id).user_id="another-owner";await expect(save()).rejects.toThrow("changed in another session");expect(mocks.draft).toHaveBeenCalledTimes(1);
  });
+ it("keeps an existing disconnected sender’s draft editable in Concourse without requesting Gmail",async()=>{
+  await save();rows.get(id).connection_id=null;mocks.connections.mockResolvedValue([]);mocks.own.mockRejectedValueOnce(Error("Sender disconnected"));
+  const result=await save(message({id:"provider-draft",revision:"revision-1",text:"Kept without Gmail"}),1);expect(result).toMatchObject({concourse_saved:true,gmail_saved:false});expect(rows.get(id).document.text).toBe("Kept without Gmail");expect(rows.get(id).connection_id).toBeNull();
+ });
  it("supports updating a matching draft and recording the latest verified provider revision",async()=>{
   await save();const result=await save(message({id:"provider-draft",revision:"revision-1",text:"Updated wording"}),1);expect(result.workspace_version).toBe(2);expect(rows.get(id).document.text).toBe("Updated wording");expect(mocks.draft).toHaveBeenCalledTimes(2);
  });
@@ -52,6 +56,6 @@ describe("Concourse and Gmail draft saving",()=>{
   expect((await POST(request())).status).toBe(200);
  });
  it("bounds recoverable payloads and denies disconnected senders",async()=>{
-  expect(editableDraftSchema.safeParse(message({to:Array(101).fill("incomplete")})).success).toBe(false);mocks.connections.mockResolvedValue([]);await expect(save()).rejects.toThrow("no longer connected");expect(mocks.from).not.toHaveBeenCalled();
+  expect(editableDraftSchema.safeParse(message({to:Array(101).fill("incomplete")})).success).toBe(false);mocks.connections.mockResolvedValue([]);await expect(save()).rejects.toThrow("no longer connected");expect(rows.size).toBe(0);
  });
 });

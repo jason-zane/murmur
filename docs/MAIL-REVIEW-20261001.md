@@ -17,15 +17,15 @@ This batch implements Jason’s Mail review without changing the selected worksp
 
 A provider creation whose acknowledgement is interrupted is retained as uncertain and is not silently repeated. A changed Gmail revision or a second-session Concourse version preserves device edits and requires review/new-copy recovery. Provider IDs are retained as soon as acknowledged. No general ChatGPT authentication or AI generation is added.
 
-Local migration: `20261001074953_mail_draft_workspace.sql`. Applied production migration: `20261001081258_mail_draft_workspace`, project `olxjfdsslbpdvywsnzrc`.
+Local migration: `20261001074953_mail_draft_workspace.sql`. Applied production migration: `20261001081258_mail_draft_workspace`, project `olxjfdsslbpdvywsnzrc`. A second additive migration, `20261001083658_preserve_disconnected_mail_drafts.sql`, keeps owner drafts when a provider connection is removed; the composite mailbox-owner link becomes null while owner/content remain intact. Disconnected drafts remain editable in Concourse and require choosing a connected From account before sending.
 
 ## Verification
 
 - TypeScript: passed.
-- Web tests: 336 passed, 2 pre-existing skipped, 32 files.
+- Web tests: 337 passed, 2 pre-existing skipped, 32 files.
 - Next production build: passed.
 - Eight actual local browser scenarios: sender switching, Back/save, reload/reopen, Escape, email-to-note source context, inline forward, mobile width/toolbar/sender access, decoded embedded and HTTPS remote images. Synthetic transports only; sending disabled. Mobile screenshot review found and corrected a pre-existing folders-open/grid interaction that otherwise narrowed the conversation to 140 px.
-- Actual production SQL transaction: owner read, other-owner denial, connected-client denial, anonymous denial, direct-write denial, stale-version CAS and mailbox-owner foreign-key checks passed. All synthetic rows rolled back; remaining fixture Auth rows: zero. No live provider tokens or private messages used.
+- Actual production SQL transaction: owner read, other-owner denial, connected-client denial, anonymous denial, direct-write denial, stale-version CAS and mailbox-owner foreign-key and draft retention after disconnection checks passed. All synthetic rows rolled back; remaining fixture Auth rows: zero. No live provider tokens or private messages used.
 - Security advisor: no new draft-table findings; existing service-only RLS/no-policy informational findings and existing leaked-password warning remain unchanged.
 
 Not run: live Gmail draft creation/update, real sends, private email rendering, two real browser sessions against Gmail, native capture/VoiceOver. Mail changes are hosted web components; the previously installed native checkpoint remains unchanged. This is not a claim of complete Gmail parity.

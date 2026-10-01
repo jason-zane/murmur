@@ -16,15 +16,17 @@ export const editableDraftSchema = z.object({
  attachments:z.array(z.object({name:z.string().min(1).max(255),type:z.string().max(100),cid:z.string().max(998).optional(),data:z.string().max(28000000).regex(/^[A-Za-z0-9+/]*={0,2}$/)})).max(20),
 }).refine(v=>v.to.length+v.cc.length+v.bcc.length<=100).refine(v=>v.attachments.reduce((n,a)=>n+Buffer.from(a.data,"base64").length,0)<=18000000);
 export const workspaceSaveSchema=z.object({workspace_id:z.uuid(),workspace_version:z.number().int().min(0),message:editableDraftSchema});
-export type WorkspaceDraft={id:string;connection_id:string;document:Compose;version:number;gmail_state:string;gmail_error:string|null;updated_at:string};
+export type WorkspaceDraft={id:string;connection_id:string|null;document:Compose;version:number;gmail_state:string;gmail_error:string|null;updated_at:string};
 class DraftChangedDuringSave extends HttpError {constructor(){super(409,"This Concourse draft changed during saving. Your device edits are kept; reopen it or keep them as a new draft.");}}
 export async function saveWorkspaceDraft(userID:string,input:z.infer<typeof workspaceSaveSchema>) {
  const db=adminClient(),{workspace_id:id,workspace_version:expected}=input;
  let message=JSON.parse(JSON.stringify(input.message)) as Compose;
- if(!(await connectionsFor(userID)).some(c=>c.id===message.connection_id&&canMail(c.scopes)))throw new HttpError(403,"This sender is no longer connected. Your device copy is retained.");
  const lookup=()=>db.from("mail_drafts").select("*").eq("id",id).eq("user_id",userID).maybeSingle();
  const {data:current,error:readError}=await lookup();if(readError)throw readError;
- if(current&&current.connection_id!==message.connection_id)throw new HttpError(409,"Choose a separate draft for this sender.");
+ const connected=(await connectionsFor(userID)).some(c=>c.id===message.connection_id&&canMail(c.scopes));
+ const disconnected=current?.connection_id===null&&current.document.connection_id===message.connection_id;
+ if(!connected&&!disconnected)throw new HttpError(403,"This sender is no longer connected. Your device copy is retained.");
+ if(current&&current.connection_id!==message.connection_id&&!disconnected)throw new HttpError(409,"Choose a separate draft for this sender.");
  if(current?.gmail_state==="pending"&&!isDeepStrictEqual(current.document,message))throw new HttpError(409,"A Gmail save is in progress. Your latest edits stay on this device; retry shortly.");
  const content=(v:Compose)=>({...v,id:undefined,revision:undefined});
  if(current?.document.id&&!message.id)message={...message,id:current.document.id,revision:current.document.revision};
