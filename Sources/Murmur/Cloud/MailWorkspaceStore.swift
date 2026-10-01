@@ -7,6 +7,10 @@ struct MailAccount: Codable, Identifiable, Sendable {
     let id: String
     let email: String?
     var signature: String? = nil
+    var identity_colour: String? = nil
+    var identity_icon: String? = nil
+    var colour: MailboxColour { identity_colour.flatMap(MailboxColour.init(rawValue:)) ?? MailboxColour.defaultColour(id) }
+    var icon: MailboxIcon { identity_icon.flatMap(MailboxIcon.init(rawValue:)) ?? .initials }
     var label: String { email ?? "Gmail account" }
 }
 struct MailThread: Codable, Identifiable, Sendable {
@@ -118,6 +122,7 @@ final class MailWorkspaceStore {
     private var generation = UUID()
     private var readerGeneration = UUID()
     private var submitting: Set<String> = []
+    private var preferenceSaves: [String: UUID] = [:]
     private let transport: any CloudSyncTransport
     private let root: URL
     private struct AccountsPage: Codable { let accounts: [MailAccount]; let outbox: [MailOutboxItem] }
@@ -128,7 +133,7 @@ final class MailWorkspaceStore {
         self.transport = transport ?? AccountSyncTransport(); self.root = root
     }
     func reset() {
-        generation = UUID(); readerGeneration = UUID(); owner = nil
+        generation = UUID(); readerGeneration = UUID(); preferenceSaves = [:]; owner = nil
         providerDrafts = []; providerPages = [:]; accounts = []; threads = []; messages = []; drafts = []; outbox = []; pages = [:]
         loading = false; notice = nil; offline = false
     }
@@ -211,6 +216,22 @@ final class MailWorkspaceStore {
             let page = try CloudCoding.decoder.decode(ReaderPage.self, from: data)
             messages = page.messages; try write(messages, name: cacheKey, userID: userID)
         } catch { if readerGeneration == run && current(userID) { notice = messages.isEmpty ? "This conversation has not been downloaded. Reconnect to open it." : "Showing your downloaded conversation." } }
+    }
+    /// A first-party preference update, never a provider call or mail dispatch.
+    func saveIdentity(accountID: String, colour: MailboxColour?, icon: MailboxIcon) async throws {
+        guard let userID = transport.userID, accounts.contains(where: { $0.id == accountID }) else { throw CloudHTTPError(status: 401, message: "Sign in and choose a connected mailbox.") }
+        guard preferenceSaves[accountID] == nil else { throw CloudHTTPError(status: 409, message: "Mailbox preferences are already saving.") }
+        let run = UUID(); preferenceSaves[accountID] = run
+        defer { if preferenceSaves[accountID] == run { preferenceSaves.removeValue(forKey: accountID) } }
+        let body: [String: Any] = ["action": "preferences", "account": accountID, "identity_colour": colour?.rawValue as Any? ?? NSNull(), "identity_icon": icon.rawValue]
+        _ = try await transport.request("api/mail", method: "POST", body: JSONSerialization.data(withJSONObject: body))
+        guard current(userID), preferenceSaves[accountID] == run, !Task.isCancelled else { throw CancellationError() }
+        // Prevent an older in-flight inbox load from overwriting the confirmed preference.
+        generation = UUID(); loading = false
+        if let index = accounts.firstIndex(where: { $0.id == accountID }) {
+            accounts[index].identity_colour = colour?.rawValue; accounts[index].identity_icon = icon.rawValue
+            try write(AccountsPage(accounts: accounts, outbox: outbox), name: "accounts", userID: userID)
+        }
     }
     func action(_ action: String, thread: MailThread) async throws {
         guard let userID = transport.userID, let account = thread.accountID else { throw CloudHTTPError(status: 401, message: "Sign in to manage Gmail.") }

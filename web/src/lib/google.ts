@@ -31,6 +31,19 @@ export class GoogleError extends Error {
   }
 }
 
+function calendarErrorMessage(status: number, reasons: string[]) {
+  if (status === 412) return "This event changed in another app. Reload it before trying again.";
+  if (status === 429 || reasons.some(reason => ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "dailyLimitExceeded"].includes(reason)))
+    return "Google Calendar has reached a usage limit. Wait a little, then try again.";
+  if (status === 401) return "Google could not verify Calendar access. Try Refresh in Connected apps; reconnect this account if it continues.";
+  if (status === 403 && reasons.includes("forbiddenForNonOrganizer"))
+    return "Only the meeting organiser can change these event details. Reload the event or ask the organiser to update it.";
+  if (status === 403 && reasons.includes("insufficientPermissions"))
+    return "Google did not allow Calendar access. Review this account’s permissions in Connected apps.";
+  if (status === 403) return "Google refused this calendar request. Check calendar sharing and account access in Connected apps.";
+  return "Google Calendar did not respond. Try again shortly.";
+}
+
 export type GoogleCalendar = {
   id: string;
   summary?: string;
@@ -78,11 +91,12 @@ export function google(accessToken: string) {
     if (allowMissing && (response.status === 404 || response.status === 410)) return null;
     if (!response.ok) {
       const status = response.status;
+      const body = await response.json().catch(() => null);
+      const reasons = Array.isArray(body?.error?.errors)
+        ? body.error.errors.flatMap((error: { reason?: unknown }) => typeof error?.reason === "string" ? [error.reason] : []) : [];
       throw new GoogleError(
         status,
-        status === 412 ? "This event changed in another app. Reload it before trying again." : status === 401 || status === 403
-          ? "Google Calendar access was revoked or is missing a permission. Reconnect this account in Connections."
-          : "Google Calendar did not respond. Try again shortly.",
+        calendarErrorMessage(status, reasons),
       );
     }
     return response.status === 204 ? null : ((await response.json()) as T);

@@ -41,7 +41,7 @@ export function Connections({
   mcpURL,
   accounts: initialAccounts,
   calendars: initialCalendars,
-  calendarUnavailable,
+  calendarUnavailable: initialCalendarUnavailable,
   googleReady,
 }: {
   email: string;
@@ -52,6 +52,7 @@ export function Connections({
   googleReady: boolean;
 }) {
   const [accounts, setAccounts] = useState(initialAccounts);
+  const [calendarUnavailable, setCalendarUnavailable] = useState(initialCalendarUnavailable);
   const calendarAccounts = accounts.filter(a => canReadEvents(a.scopes));
   const [calendars, setCalendars] = useState(initialCalendars);
   const [pending, setPending] = useState<string | null>(null);
@@ -91,15 +92,19 @@ export function Connections({
   function apply(body: { connections: Account[]; calendars: Source[] }) {
     setAccounts(body.connections);
     setCalendars(body.calendars);
+    setCalendarUnavailable(false);
   }
   async function refresh() {
     setBusy(true);
+    setMessage("Updating calendars…");
     try {
       const r = await fetch("/api/calendar", { method: "POST" });
       const body = await r.json();
       if (!r.ok) throw new Error(body.error);
       apply(body);
-      setMessage(`Calendar refreshed. ${body.events.length} upcoming events.`);
+      setMessage(body.connections.some((account: Account) => account.error)
+        ? "Some calendars could not be updated. Check the affected accounts below."
+        : `Calendar refreshed. ${body.events.length} upcoming events.`);
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : "Could not refresh Calendar.",
@@ -186,6 +191,11 @@ export function Connections({
             <ArrowUpRight size={14} />
           </Link>
         </div>
+        {message && (
+          <p className="notice" role="status">
+            {message}
+          </p>
+        )}
         <section className="connection-row" id="connect-calendar">
           <span className="connection-symbol">
             <CalendarDays size={25} />
@@ -210,7 +220,8 @@ export function Connections({
                 <div className="calendar-account" key={account.id}>
                   <div className="calendar-account-head">
                     <strong>{account.email ?? "Google account"}</strong>
-                    {canBook(account.scopes) && (
+                    {account.error && <span className="chip">Needs attention</span>}
+                    {!account.error && canBook(account.scopes) && (
                       <span className="chip">Booking allowed</span>
                     )}
                   </div>
@@ -246,6 +257,7 @@ export function Connections({
                     </ul>
                   )}
                   <div className="calendar-account-actions">
+                    {account.error && <a className={"text-link " + (!googleReady ? "disabled" : "")} aria-disabled={!googleReady} href={googleReady ? `/api/google/connect?reconnect=${encodeURIComponent(account.id)}` : undefined}>Reconnect this account <ArrowUpRight size={14} /></a>}
                     {!account.scopes.includes("https://www.googleapis.com/auth/calendar.events") && <a className="text-link" href={`/api/google/connect?booking=1&account=${encodeURIComponent(account.email || "")}`}>Allow calendar editing</a>}
                     <a className="text-link" href={`/api/google/connect?inbox=1&account=${encodeURIComponent(account.email || "")}`}>Connect Gmail inbox</a>
                     {!canListCalendars(account.scopes) && (
@@ -267,6 +279,7 @@ export function Connections({
                     </button>
                     </ItemActions>
                   </div>
+                  {account.error && <p className="fine-print">Try Refresh first. Reconnecting asks Google to restore this account’s existing access. Choose the same account and review Google’s consent screen.</p>}
                 </div>
               );
             })}
@@ -453,11 +466,6 @@ export function Connections({
             </p>
           )}
         </section>
-        {message && (
-          <p className="notice" role="status">
-            {message}
-          </p>
-        )}
         <details className="connection-automation"><summary>Booking emails and follow-up drafts</summary><EmailConnection /></details>
       </div>
     </Shell>

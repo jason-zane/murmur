@@ -11,6 +11,7 @@ struct NotesSidebar: View {
     @Binding var match: SessionMatch?
     /// Bumped by the window when a note changed somewhere it can't observe.
     let reloadToken: Int
+    let onNewNote: () -> Void
     @State private var sessions: [MeetingSession] = []
     @State private var query = ""
     @State private var matches: [String: SessionMatch] = [:]
@@ -24,22 +25,33 @@ struct NotesSidebar: View {
     var body: some View {
         VStack(spacing: DS.Space.zero) {
             VStack(spacing: DS.Space.md) {
+                HStack(spacing: DS.Space.sm) {
+                    Text("Notes").font(DS.Font.workspaceListTitle).foregroundStyle(DS.Color.text)
+                    Spacer()
+                    Button(action: onNewNote) { Image(systemName: "plus").font(DS.Font.symbol) }
+                        .buttonStyle(.plain).foregroundStyle(DS.Color.textSecondary)
+                        .accessibilityLabel("New note").help("Create a new note")
+                }
                 SearchField(text: $query, placeholder: "Search all notes")
                     .focused($searchFocused)
                 HStack(spacing: DS.Space.sm) {
-                    Text("Notes").font(DS.Font.label).foregroundStyle(DS.Color.textTertiary)
+                    Button("All notes") { pinnedOnly = false }
+                        .buttonStyle(.plain).font(DS.Font.callout)
+                        .foregroundStyle(pinnedOnly ? DS.Color.textSecondary : DS.Color.accent)
+                        .accessibilityValue(pinnedOnly ? "" : "Selected")
                     Spacer()
                     Button { pinnedOnly.toggle() } label: {
                         Image(systemName: pinnedOnly ? "pin.fill" : "pin")
                             .font(DS.Font.smallSymbol)
                             .foregroundStyle(pinnedOnly ? DS.Color.accent : DS.Color.textTertiary)
                     }.buttonStyle(.plain).help(pinnedOnly ? "Show all notes" : "Show pinned notes")
+                        .accessibilityLabel("Pinned notes").accessibilityValue(pinnedOnly ? "Selected" : "Not selected")
                     if searching { ProgressView().controlSize(.mini) }
                     else { Readout(String(filtered.count), color: DS.Color.textTertiary) }
                 }
             }
             .padding(.horizontal, DS.Space.lg)
-            .padding(.vertical, DS.Space.sm)
+            .padding(.vertical, DS.Space.lg)
             if let error {
                 InlineNotice(text: error, tone: .warning).padding(.horizontal, DS.Space.lg)
             }
@@ -159,7 +171,7 @@ private struct NoteRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
-                Text(session.title).font(DS.Font.bodyEmphasis).foregroundStyle(DS.Color.text).lineLimit(2)
+                Text(session.title).font(DS.Font.workspaceListItem).foregroundStyle(DS.Color.text).lineLimit(2)
                 Spacer(minLength: DS.Space.zero)
                 if session.isPinned { Image(systemName: "pin.fill").font(DS.Font.smallSymbol).foregroundStyle(DS.Color.accent) }
             }

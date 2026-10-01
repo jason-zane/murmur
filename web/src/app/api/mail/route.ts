@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireEditor,failure,HttpError,limitedJSON } from "@/lib/http";
 import { connectionsFor } from "@/lib/calendar";
 import { adminClient } from "@/lib/supabase/server";
+import { mailboxColours,mailboxIcons } from "@/lib/mail/identity";
 import { canMail,composeSchema,composeMIME,readMessage } from "@/lib/mail/model";
 import { ownMailbox,draftRevision } from "@/lib/mail/gmail";
 import { queueMail,dispatchOutbox } from "@/lib/mail/outbox";
@@ -17,8 +18,8 @@ export async function GET(request:Request) {
   }
   if(!accountID) {
    const connected=(await connectionsFor(user.id)).filter(c=>canMail(c.scopes));
-   const {data:preferences,error:preferencesError}=await client.from("mail_preferences").select("connection_id,signature");if(preferencesError) throw preferencesError;
-   const accounts=connected.map(account=>({...account,signature:preferences?.find(p=>p.connection_id===account.id)?.signature || ""}));
+   const {data:preferences,error:preferencesError}=await client.from("mail_preferences").select("connection_id,signature,identity_colour,identity_icon");if(preferencesError) throw preferencesError;
+   const accounts=connected.map(account=>{const preference=preferences?.find(p=>p.connection_id===account.id);return {...account,signature:preference?.signature || "",identity_colour:preference?.identity_colour ?? null,identity_icon:preference?.identity_icon ?? null};});
    const {data:outbox,error}=await client.from("mail_outbox").select("id,connection_id,subject,status,due_at,error,created_at").order("created_at",{ascending:false}).limit(100);
    if(error) throw error;
    return Response.json({accounts,outbox:outbox || []},{headers});
@@ -53,9 +54,10 @@ export async function POST(request:Request) {
  try {
   const {user}=await requireEditor(request),body=await limitedJSON(request,30000000,"This message is too large.");
   if(body.action==="preferences") {
-   const account=z.uuid().parse(body.account),signature=z.string().max(5000).parse(body.signature);
+   const preference=z.object({action:z.literal("preferences"),account:z.uuid(),signature:z.string().max(5000).optional(),identity_colour:z.enum(mailboxColours).nullable().optional(),identity_icon:z.enum(mailboxIcons).nullable().optional()}).strict().refine(p=>p.signature!==undefined||p.identity_colour!==undefined||p.identity_icon!==undefined,"Choose a mailbox preference to save.").parse(body);
+   const {account,action:_,...patch}=preference;
    if(!(await connectionsFor(user.id)).some(c=>c.id===account&&canMail(c.scopes))) throw new HttpError(404,"Gmail account not found.");
-   const {error}=await adminClient().from("mail_preferences").upsert({connection_id:account,user_id:user.id,signature},{onConflict:"connection_id"});if(error) throw error;
+   const {error}=await adminClient().from("mail_preferences").upsert({connection_id:account,user_id:user.id,...patch},{onConflict:"connection_id"});if(error) throw error;
    return Response.json({saved:true},{headers});
   }
   if(body.action==="dispatch") return Response.json(await dispatchOutbox(user.id),{headers});

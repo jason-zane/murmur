@@ -38,6 +38,18 @@ enum DS {
         static let warning = adaptive(light: 0xB2801A, dark: 0xE0B44A)
         static let warningSoft = adaptive(light: 0xB2801A, dark: 0xE0B44A).opacity(0.14)
 
+        /// User-chosen account instrumentation; interaction keeps the Concourse accent.
+        static func mailbox(_ colour: MailboxColour) -> SwiftUI.Color {
+            switch colour {
+            case .indigo: adaptive(light: 0x4338CA, dark: 0xAAA5FF)
+            case .teal: adaptive(light: 0x0F766E, dark: 0x6ED8C5)
+            case .violet: adaptive(light: 0x6D28D9, dark: 0xC4A7FF)
+            case .amber: adaptive(light: 0x92400E, dark: 0xF5C070)
+            case .slate: adaptive(light: 0x475569, dark: 0xB5C2D1)
+            }
+        }
+        static let mailboxFillOpacity = 0.10
+
         // Text
         static let text = SwiftUI.Color.primary
         static let textSecondary = SwiftUI.Color.secondary
@@ -139,6 +151,8 @@ enum DS {
         static let calendarAllDayMaximumHeight: CGFloat = 96
         static let calendarMinimumEventHeight: CGFloat = 28
         static let calendarTimelineHeight: CGFloat = 560
+        static let mailboxAvatar: CGFloat = 24
+        static let mailboxPreferencesWidth: CGFloat = 440
         static let mailNavigationWidth: CGFloat = 176
         static let mailListMinimumWidth: CGFloat = 240
         static let mailListMaximumWidth: CGFloat = 420
@@ -369,7 +383,9 @@ extension DS.Space {
 }
 
 extension DS.Font {
-    static let brand = SwiftUI.Font.system(size: 16, weight: .semibold, design: .rounded)
+    static let brand = SwiftUI.Font.system(size: WorkspaceTokens.brandSize, weight: .semibold)
+    static let workspaceListTitle = SwiftUI.Font.system(size: WorkspaceTokens.listTitleFontSize, weight: .semibold)
+    static let workspaceListItem = SwiftUI.Font.system(size: WorkspaceTokens.listItemFontSize, weight: .medium)
     static let pageTitle = SwiftUI.Font.system(size: 24, weight: .semibold)
     static let documentTitle = SwiftUI.Font.system(size: 28, weight: .semibold)
     static let documentBody = SwiftUI.Font.system(size: 15, weight: .regular)

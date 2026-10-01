@@ -73,6 +73,10 @@ reads notes from the given directory. `MURMUR_PREVIEW_OPEN` raises a screen on l
 screenshot needs no clicking: `settings`, `settings:meetings` (any tab, lower-cased),
 `onboarding`, or `session:<id>`.
 
+Add `--env MURMUR_PREVIEW_CALENDAR_STATUS=unavailable` to check the calendar recovery
+warning with synthetic events. This works only in debug preview mode and never requests
+real calendar or account access.
+
 ## Checks before a change ships
 
 ```bash

@@ -1,0 +1,53 @@
+# Authenticated follow-up draft contract
+
+This is core server groundwork for moving a reviewed meeting follow-up between devices. The Notes review/save/conflict UI now uses this contract. Production access is disabled by default through the server-side `FOLLOW_UP_DRAFTS_ENABLED` flag until migration and integration review are approved. Both HTTP methods return a private, uncached 404 before Auth/database access when the flag is unset or is not exactly `true`. It is not an AI generation endpoint or a mail-provider draft. The development preview runs the same component against a browser-local synthetic contract transport. No migration has been applied to a persistent database or deployment.
+
+## API and source lineage
+
+`GET /api/sessions/:id/follow-up` requires a verified Concourse user and a first-party editor connection. It returns `{ draft, sourceVersion, sourceChanged }` from one database snapshot. A missing, deleted or other user's note returns 404. If the note revision changed, the saved wording and original evidence are retained, but effective `reviewed` becomes false. The raw saved approval is historical; it must never be displayed as current without comparing source revisions.
+
+`PUT /api/sessions/:id/follow-up` accepts only `{ document, expectedVersion }`. The document has `sourceVersion`, recipe `meeting-follow-up/v1`, editable `fields: { recipient, subject, body }`, `evidence`, `unknowns`, and `reviewed`. Missing recipient/wording/evidence and partially typed recipient addresses can be saved as unfinished work; valid address format is required at approval. Header newlines are always rejected. Reviewed work requires all of these and no unresolved details. Source evidence names a note (`id: note`), transcript segment or bullet and quotes its text exactly. The database validates each quote and ID against the owned current note revision. Exact evidence validation proves lineage, **not semantic correctness of free-form wording**; human review remains necessary.
+
+Ownership is derived from Auth, never a request body field. No sender, provider, credentials, dispatch status or send instruction is accepted. The recipe is shared with the existing synthetic prototype. This contract does not generate suggestions, detect facts, inspect a live mailbox, send mail or create calendar events.
+
+## Versions and recovery
+
+- A database trigger assigns a new monotonic source revision for every material note UPDATE, including existing owner table grants and upserts. Document, title, start time, delete and restore changes count; supplied versions cannot reset it, and content reverts do not revive old approval. Note identity is immutable. Ordinary `put_session` and equal retries keep their existing once-per-change behaviour.
+- One draft per owned note; a first save uses expected version 0.
+- An identical retry returns the current record without incrementing the version or creating a duplicate. This handles a response lost after a successful save.
+- Changed content requires the exact current draft version. Old source or draft revisions return HTTP 409 (`PT409`), with no automatic retry or overwrite.
+- A source row lock prevents its revision changing between evidence validation and save; an advisory lock serialises draft creation/update for that user and note.
+- Source changes do not destroy old saved edits. The UI must retain unsaved local edits on errors/cancel/navigation and offer an explicit latest-copy/conflict decision. Closing a view is not approval.
+- Deleted notes hide their follow-up through both the API and direct table reads. Account/hard note deletion cascades. There is no dispatch lifecycle in this table.
+
+## Database boundary
+
+`follow_up_drafts` has RLS and a read-only owner/editor policy. Authenticated clients have no direct INSERT, UPDATE or DELETE grant, so bypassing the version/lineage operation is denied.
+
+The public write RPC is a security-invoker wrapper. Its narrow helper lives in `concourse_private`, outside the exposed API schemas, and uses definer rights **only to write a table that client roles cannot mutate directly**. It has an empty search path, qualified relations, explicit execute grants, and independently checks `auth.uid()`, first-party editor status, owned source and revision. It accepts no owner argument. Calling the helper directly does not bypass those checks. New private functions do not receive default PUBLIC execution rights. This privileged boundary needs review before release; it is covered by real role/ownership tests, not assumed safe because the HTTP route validates inputs.
+
+Third-party MCP/AI connections are denied both draft reads and writes, including SQL calls to the private helper. Existing permissions on the note library are unchanged. The source trigger is security invoker, reads no other relations, has an empty search path and grants clients no direct EXECUTE. It assigns revisions under the existing row lock. Direct source writes still do not create `session_revisions` history; that existing behaviour is separate from draft freshness. No service-role credential is needed by either HTTP handler.
+
+## Local verification and release dependencies
+
+With the existing local `supabase_db_murmur` test stack running, `cd web && npm run test:follow-up-contract` executes the proposed migration and synthetic fixture in **one transaction, then rolls everything back**. It refuses to replace an already-existing draft schema, uses no signing keys, creates no Auth tokens, reads no env file and contacts no hosted project. The fixture also joins the normal integration suite once the migration is applied to a deliberately disposable stack. Use Docker access where required by the executor's sandbox. The source trigger is part of this **still-unapplied** migration and must be installed before the draft schema is enabled. Apply the complete migration atomically; do not copy only its draft table/RPC section. If a draft schema already exists, stop and plan a separate forward migration rather than rerun this file.
+
+The actual PostgreSQL fixture checks owner isolation, connected-AI denial, native editor access, direct-write denial, source revisions through direct owner INSERT/UPDATE/upsert/revert/metadata/delete/restore and normal RPC/retry paths, trigger ACLs, note/transcript/bullet evidence, malformed inputs, incomplete work, explicit review, dedupe, stale update/source conflicts, deleted sources and no outbox effects. Unit tests execute the real HTTP Auth/CSRF/editor/body-limit/schema/response boundary with the Auth/database transport stubbed. That is not a real-token HTTP/PostgREST integration test.
+
+Before release: obtain an independent recheck of the amended migration, source trigger and privileged helper; apply only to an approved isolated stack; run database advisors plus real-token/PostgREST and simultaneous-request tests; then explicitly approve migration, feature enablement and deployment. The rollback-only transaction is invisible to a separate advisor connection, so advisors for this proposed schema are **unrun**. The existing full integration runner issues disposable tokens and therefore was not run under the current no-new-credentials constraint. Database deployment, real providers, private source QA and final sending remain separate decisions.
+
+## Implemented review and recovery
+
+The real Notes component opens the owned note, lets the user select exact source excerpts, write recipient/subject/body, retain missing details and save incomplete work. No recipient is inferred. Human approval requires valid fields, current evidence, no listed unresolved details, and a successful current server snapshot. The UI explains that exact excerpts establish lineage, not correctness of every claim. Staging selected excerpts never overwrites wording until explicitly accepted; Undo restores the previous wording in the current review.
+
+Each user/note/tab has a versioned local recovery envelope with the document and the last saved version. Fresh tabs receive separate identities. Browser-cloned tabs may inherit the same identity; recovery compare-and-swap detects another writer and preserves its original bytes while warning the unsaved view. This retains incomplete work on Back, Escape, navigation and reload. Corrupt storage, quota failure or an unexpected recovery writer preserves the existing stored bytes, shows the durability limit and guards leaving unsafe unsaved work. Recovery is browser-local, unencrypted and contingent on browser retention; it is not a cross-device save. Undo and unaccepted staging are current-view only.
+
+The HTTP adapter excludes disposed, aborted and out-of-order responses. Save is guarded against repeated clicks. Cancellation retains the working copy and explicitly warns that the server may already have saved; refresh/retry reconciles matching work or exposes a conflict. A conflict compares both wordings and requires an explicit Keep my edits / Use saved wording choice before any further save. Neither choice writes immediately. Changed source revisions retain wording and old evidence, clear approval, block saves and offer a deliberate rebase that clears old evidence for reselection. Source fetches are schema/identity checked and require a consistent version pair.
+
+Desktop, intermediate and mobile rendering use the existing shared review dialog and tokens. Header/source identity stay visible while source/editor panes scroll. The development route is unavailable in production. No environment file or deployed feature flag was changed.
+
+Clean refreshes adopt newer saved copies without raising conflicts. Version 2 recovery records the last clean document as well as local wording and expected version; dirty refresh/reload preserves edits and exposes a conflict. Legacy version 1 recovery lacks that baseline and is retained conservatively. Oversized selected-excerpt replacements are rejected before changing wording or recovery; exactly 10,000 characters remains allowed.
+
+## Separate privilege and race review
+
+See [FOLLOW-UP-DRAFTS-REVIEW.md](FOLLOW-UP-DRAFTS-REVIEW.md) for the review findings, actual PostgreSQL role/ACL evidence, remaining concurrency limits and exact ephemeral integration action requiring approval. It records the separate implementer pass and subsequent parent independent findings. The amended code has not yet received the independent recheck. No release is recommended until those remaining checks and decisions are complete.

@@ -11,12 +11,13 @@ import {
 } from "@/lib/calendar";
 import { canBook, canReadEvents } from "@/lib/google";
 import { siteURL } from "@/lib/config";
+import { googleReconnection, isReconnectedAccount } from "@/lib/google-reconnect";
 export async function GET(request: Request) {
   let bookingFlow = false;
   let mailFlow = false;
   let inboxFlow = false;
   try {
-    const { user } = await requestAuth(request),
+    const { user, client } = await requestAuth(request),
       params = new URL(request.url).searchParams,
       jar = await cookies(),
       stored = jar.get("murmur-google")?.value;
@@ -34,6 +35,7 @@ export async function GET(request: Request) {
       booking?: boolean;
       mail?: boolean;
       inbox?: boolean;
+      reconnectID?: string;
     };
     bookingFlow = Boolean(expected.booking);
     mailFlow = Boolean(expected.mail);
@@ -44,6 +46,7 @@ export async function GET(request: Request) {
       throw new Error("This connection request has expired. Please try again.");
     if (!expected.userID || expected.userID !== user.id)
       throw new Error("Your Concourse account changed during connection. Restart from Connected apps in the account you want to use.");
+    const reconnect = expected.reconnectID ? await googleReconnection(client, user.id, expected.reconnectID) : null;
     const token = await googleToken({
       grant_type: "authorization_code",
       code,
@@ -51,7 +54,7 @@ export async function GET(request: Request) {
       code_verifier: expected.verifier,
     });
     const granted = token.scope?.split(" ").filter(Boolean) ?? [];
-    if (!inboxFlow && !canReadEvents(granted))
+    if (!reconnect && !inboxFlow && !canReadEvents(granted))
       throw new Error("Allow read-only Calendar access to show your agenda.");
     const response = await fetch(
       "https://openidconnect.googleapis.com/v1/userinfo",
@@ -63,6 +66,10 @@ export async function GET(request: Request) {
     if(!response.ok) throw new Error("Could not confirm this Google account. Try connecting again.");
     const profile=await response.json();
     if(!profile.sub || !profile.email || !profile.email_verified) throw new Error("Connect a verified Google account.");
+    if (reconnect && !isReconnectedAccount(reconnect, profile))
+      throw new Error("Choose the same Google account to reconnect it. No connection was changed.");
+    if (reconnect && reconnect.scopes.filter(scope => scope.startsWith("https://www.googleapis.com/auth/") && !scope.includes("userinfo.")).some(scope => !granted.includes(scope)))
+      throw new Error("Google did not restore the account’s existing access. No connection was changed. Try again from Connected apps and review the permissions.");
     if(inboxFlow && !granted.includes("https://www.googleapis.com/auth/gmail.modify")) throw new Error("Allow mailbox access to connect Gmail.");
     const id = await saveConnection(
       user.id,

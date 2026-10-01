@@ -4,6 +4,41 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct CalendarWorkspaceStoreTests {
+    @Test func olderRangeResponseCannotReplaceNewerEventsOrWarnings() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PausedCalendarTransport(), store = CalendarWorkspaceStore(transport: transport, root: root)
+        let old = Task { await store.load(from: .distantPast, to: Date()) }
+        while transport.responses.isEmpty { await Task.yield() }
+        let latest = Task { await store.load(from: Date(), to: .distantFuture) }
+        while transport.responses.count < 2 { await Task.yield() }
+        transport.responses[1].resume(returning: Data(#"{"events":[],"calendars":[],"complete":false,"failures":[{"message":"Latest range unavailable"}]}"#.utf8))
+        await latest.value
+        transport.responses[0].resume(returning: Data(#"{"events":[],"calendars":[],"complete":true,"failures":[]}"#.utf8))
+        await old.value
+        #expect(store.needsAttention && store.message == "Latest range unavailable" && !store.complete && !store.loading)
+    }
+    @Test func duplicateProviderFailuresAreVisibleAndClearAfterRecovery() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = CalendarRangeTransport(), store = CalendarWorkspaceStore(transport: transport, root: root)
+        transport.failures = true
+        await store.load(from: .distantPast, to: .distantFuture)
+        #expect(store.needsAttention)
+        #expect(store.message == "Reconnect this account in Connected apps.")
+        transport.failures = false
+        transport.pending = true
+        await store.load(from: .distantPast, to: .distantFuture)
+        #expect(!store.needsAttention && store.updating)
+        transport.pending = false
+        await store.load(from: .distantPast, to: .distantFuture)
+        #expect(!store.needsAttention && store.message == nil)
+        transport.offline = true
+        await store.load(from: .distantPast, to: .distantFuture)
+        #expect(store.needsAttention && store.events.map(\.id) == ["past"])
+        store.reset()
+        #expect(!store.needsAttention && store.message == nil)
+    }
     @Test func historyCacheIsIsolatedAndRestoresOffline() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -72,11 +107,19 @@ struct CalendarWorkspaceStoreTests {
         #expect(store.events.isEmpty && !store.loading && !store.complete)
     }
 }
+@MainActor private final class PausedCalendarTransport: CloudSyncTransport {
+    var userID: String? = "calendar-owner"
+    var responses: [CheckedContinuation<Data, Never>] = []
+    func request(_ path: String, method: String, body: Data?) async throws -> Data {
+        await withCheckedContinuation { responses.append($0) }
+    }
+}
 @MainActor private final class CalendarRangeTransport: CloudSyncTransport {
     var userID: String? = "calendar-owner"
     var offline = false
     var empty = false
     var pending = false
+    var failures = false
     var onRequest: (() -> Void)?
     var missingEndpoint = false
     var signOutDuringRequest = false
@@ -87,6 +130,7 @@ struct CalendarWorkspaceStoreTests {
         if missingEndpoint { throw CloudHTTPError(status: 404, message: "Not found") }
         if offline { throw URLError(.notConnectedToInternet) }
         if signOutDuringRequest { userID = nil }
+        if failures { return Data(#"{"events":[],"calendars":[],"complete":false,"failures":[{"message":"Reconnect this account in Connected apps."},{"message":"Reconnect this account in Connected apps."}]}"#.utf8) }
         if pending { return Data(#"{"events":[],"calendars":[],"complete":false,"pending":1,"failures":[]}"#.utf8) }
         if empty { return Data(#"{"events":[],"calendars":[],"complete":true,"failures":[]}"#.utf8) }
         return Data(#"{"events":[{"id":"past","title":"Historic meeting","starts_at":"2025-01-01T00:00:00Z","ends_at":"2025-01-01T01:00:00Z","attendees":[]}],"calendars":[],"complete":true,"failures":[]}"#.utf8)

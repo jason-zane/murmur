@@ -12,6 +12,7 @@ struct MailWorkspace: View {
     @State private var selected: MailThread?
     @State private var composing: MailDraft?
     @State private var error: String?
+    @State private var preferences: MailAccount?
     @State private var fullMailbox = false
     @State private var formatted = true
     private let folders = [("Inbox", "in:inbox"), ("Starred", "is:starred"), ("Sent", "in:sent"), ("Archive", "in:all -in:inbox -in:trash -in:spam"), ("Spam", "in:spam"), ("Bin", "in:trash")]
@@ -26,6 +27,7 @@ struct MailWorkspace: View {
                     .disabled(mailbox.accounts.isEmpty)
                 ActionButton(title: "Full mailbox", emphasis: .normal) { fullMailbox = true }
                 Menu("Mail options") {
+                    Menu("Mailbox appearance") { ForEach(mailbox.accounts) { account in Button(account.label) { preferences = account } } }
                     Button("Clear downloaded mail") { do { try mailbox.clearDownloaded(); selected = nil } catch { self.error = error.localizedDescription } }
                     Button("Manage connected accounts") { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
                 }
@@ -63,11 +65,12 @@ struct MailWorkspace: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onChange(of: accountID) { _, _ in selected = nil; search = ""; query = "" }
         .onChange(of: folder) { _, _ in selected = nil; search = ""; query = "" }
-        .onChange(of: CloudAccount.shared.credentials?.userID) { _, _ in selected = nil; composing = nil; mailbox.reset() }
+        .onChange(of: CloudAccount.shared.credentials?.userID) { _, _ in selected = nil; composing = nil; preferences = nil; mailbox.reset() }
         .task(id: refreshID) { await monitor() }
         .sheet(item: $composing) { draft in
             NativeMailComposer(initial: draft, mailbox: mailbox) { composing = nil; Task { await refresh() } }
         }
+        .sheet(item: $preferences) { account in MailboxPreferences(account: account, mailbox: mailbox) { preferences = nil } }
         .sheet(isPresented: $fullMailbox) { CloudWorkspace(path: "/mail").frame(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight) }
     }
     private var folderTitle: String { folders.first { $0.1 == folder }?.0 ?? (folder == "drafts" ? "Drafts" : "Outbox") }
@@ -78,8 +81,9 @@ struct MailWorkspace: View {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     Text("Gmail accounts").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).padding(.horizontal, DS.Space.sm)
                     ForEach(mailbox.accounts) { account in
-                        accountNavigationItem(account.label, active: accountID == account.id) { accountID = account.id; folder = "in:inbox" }
+                        accountNavigationItem(account, active: accountID == account.id) { accountID = account.id; folder = "in:inbox" }
                             .help(account.label)
+                            .contextMenu { Button("Mailbox appearance…") { preferences = account } }
                     }
                 }
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -94,11 +98,12 @@ struct MailWorkspace: View {
             }.padding(.vertical, DS.Space.md).padding(.trailing, DS.Space.sm)
         }
     }
-    private func accountNavigationItem(_ label: String, active: Bool, action: @escaping () -> Void) -> some View {
+    private func accountNavigationItem(_ account: MailAccount, active: Bool, action: @escaping () -> Void) -> some View {
+        let label = account.label
         let parts = label.split(separator: "@", maxSplits: 1).map(String.init)
         return Button(action: action) {
             HStack(spacing: DS.Space.sm) {
-                Image(systemName: "person.crop.circle")
+                MailboxAvatar(account: account)
                 VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     Text(parts.first ?? label).font(DS.Font.body)
                     if parts.count > 1 { Text("@" + parts[1]).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary) }
@@ -146,7 +151,7 @@ struct MailWorkspace: View {
                             HStack { Text(thread.from).font(DS.Font.caption).lineLimit(1); Spacer(); if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) } }
                             Text(thread.subject).font(thread.unread ? DS.Font.bodyEmphasis : DS.Font.body).lineLimit(2)
                             Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
-                            if accountID.isEmpty { Text(mailbox.accounts.first { $0.id == thread.accountID }?.label ?? "").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).padding(.horizontal, DS.Space.xs).padding(.vertical, DS.Space.xxs).background(DS.Color.surface, in: .rect(cornerRadius: DS.Radius.sm)).lineLimit(1) }
+                            if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { MailboxBadge(account: account) }
                         }.padding(DS.Space.md).frame(maxWidth: .infinity, alignment: .leading)
                             .background(selected?.identity == thread.identity ? DS.Color.accentSoft : .clear, in: RoundedRectangle(cornerRadius: DS.Radius.sm))
                     }.buttonStyle(.plain)
@@ -174,7 +179,7 @@ struct MailWorkspace: View {
                 Divider()
                 ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.lg) {
-                    Text(mailbox.accounts.first { $0.id == selected.accountID }?.label ?? "Gmail").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                    if let account = mailbox.accounts.first(where: { $0.id == selected.accountID }) { MailboxBadge(account: account) }
                     Text(selected.subject).font(DS.Font.title)
                     Menu("Message view") {
                         Toggle("Formatted messages", isOn: $formatted)

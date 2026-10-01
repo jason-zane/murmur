@@ -63,8 +63,10 @@ struct CalendarWorkspace: View {
                             .onChange(of: date) { _, _ in choosingDate = false }
                     }
                     Button { showingStatus.toggle() } label: {
-                        Image(systemName: calendarStore.message == nil ? "info.circle" : "exclamationmark.circle")
-                            .foregroundStyle(DS.Color.textSecondary)
+                        Label(calendarStore.needsAttention ? "Needs attention" : "Calendar status", systemImage: calendarStore.needsAttention ? "exclamationmark.triangle" : "info.circle")
+                            .labelStyle(.titleAndIcon)
+                            .font(DS.Font.caption)
+                            .foregroundStyle(calendarStore.needsAttention ? DS.Color.warning : DS.Color.textSecondary)
                     }.buttonStyle(.plain).help("Calendar status and time zone")
                     .popover(isPresented: $showingStatus) {
                         VStack(alignment: .leading, spacing: DS.Space.sm) {

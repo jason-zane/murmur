@@ -18,6 +18,8 @@ struct HomeView: View {
     @State private var visibleMonth = HomeView.firstOfMonth(Date())
     @State private var activity = MonthActivity()
     @State private var calendarStore = CalendarWorkspaceStore()
+    @State private var account = CloudAccount.shared
+    @State private var sync = CloudSync.shared
     @AppStorage("workspace.today.setupDismissed") private var setupDismissed = false
 
     var body: some View {
@@ -27,16 +29,21 @@ struct HomeView: View {
                     Text("Today").font(DS.Font.title)
                     Text("Your schedule and the notes that belong to it.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
                 }
+                if calendarStore.needsAttention, let message = calendarStore.message {
+                    InlineNotice(text: message, tone: .warning) {
+                        ActionButton(title: "Connected apps", emphasis: .normal) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                    }
+                }
                 HStack(alignment: .top, spacing: DS.Space.xxl) {
                     day.frame(maxWidth: .infinity, alignment: .topLeading)
                     MonthCalendar(month: $visibleMonth, selected: $selectedDay, activity: activity)
                         .frame(width: DS.Layout.monthGridWidth)
                 }
-                if !setupDismissed {
+                if !setupDismissed && !sync.calendarConnected && !calendarStore.needsAttention {
                 HStack(spacing: DS.Space.lg) {
                     VStack(alignment: .leading, spacing: DS.Space.sm) {
-                        Text("Make room for your whole day").font(DS.Font.headline)
-                        Hint("Connect your Google calendars and Gmail to bring your day together.")
+                        Text(account.isConnected ? "Choose what belongs in your day" : "Make room for your whole day").font(DS.Font.headline)
+                        Hint(account.isConnected ? "Manage your calendars and inboxes in Connected apps." : "Connect your Google calendars and Gmail to bring your day together.")
                     }
                     Spacer()
                     ActionButton(title: "Connected apps", emphasis: .normal) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
@@ -44,7 +51,7 @@ struct HomeView: View {
                 }
                 }
                 DisclosureGroup("Calendar status") {
-                    Text(calendarStore.message ?? "Your calendar is up to date.").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                    Text(calendarStore.message ?? (calendarStore.loading ? "Updating calendars…" : "Downloaded calendars are available offline.")).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                     ActionButton(title: "Connected apps", emphasis: .quiet) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
                 }.font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 if !microphoneGranted || !audioGranted { setup }
@@ -85,7 +92,7 @@ struct HomeView: View {
                 Text(dayTitle).font(DS.Font.headline)
                 Spacer()
                 if schedule.calendarGranted {
-                    Label(settings.autoOpenMeetings ? "Links open automatically" : "Calendar connected", systemImage: "calendar")
+                    Label(settings.calendarEnabled && settings.autoOpenMeetings ? "Automatic meeting links enabled" : "Calendar account linked", systemImage: "calendar")
                         .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 }
             }
@@ -97,8 +104,8 @@ struct HomeView: View {
                 let today = Calendar.current.isDateInToday(selectedDay)
                 EmptyState(
                     icon: "calendar",
-                    label: today ? "Nothing scheduled today" : "Nothing on this day",
-                    detail: today ? "Record a meeting or write a note any time." : "No meetings or notes."
+                    label: calendarStore.needsAttention ? "No downloaded meetings on this day" : calendarStore.loading ? "Checking your calendar…" : today ? "Nothing scheduled today" : "Nothing on this day",
+                    detail: calendarStore.needsAttention ? "Your calendar could not be updated. You can still record a meeting or write a note." : today ? "Record a meeting or write a note any time." : "No meetings or notes."
                 ) {
                     if today {
                         HStack(spacing: DS.Space.sm) {

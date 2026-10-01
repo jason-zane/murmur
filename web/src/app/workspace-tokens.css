@@ -2,11 +2,13 @@
 :root {
   --workspace-accent-light: #4F46E5;
   --workspace-accent-dark: #8B8BF5;
-  --workspace-navigation-width: 224px;
+  --workspace-navigation-width: 208px;
   --workspace-page-inset: 32px;
   --workspace-workspace-title: 24px;
-  --workspace-control-radius: 8px;
-  --workspace-navigation-row-height: 36px;
-  --workspace-navigation-font-size: 13px;
-  --workspace-brand-size: 16px;
+  --workspace-control-radius: 6px;
+  --workspace-navigation-row-height: 40px;
+  --workspace-navigation-font-size: 14px;
+  --workspace-brand-size: 17px;
+  --workspace-list-title-font-size: 18px;
+  --workspace-list-item-font-size: 14px;
 }

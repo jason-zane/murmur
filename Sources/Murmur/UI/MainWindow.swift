@@ -45,7 +45,7 @@ struct MainWindow: View {
                     }
                     if page == .notes {
                         HSplitView {
-                            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion)
+                            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion, onNewNote: newNote)
                                 .frame(minWidth: DS.Layout.sidebarMinWidth, idealWidth: DS.Layout.sidebarWidth, maxWidth: DS.Layout.sidebarMaxWidth)
                             detail.frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
@@ -56,6 +56,9 @@ struct MainWindow: View {
             .background(DS.Color.surface)
         }
         .toolbar { toolbar }
+        .toolbar(removing: .sidebarToggle)
+        .windowMinimizeBehavior(.enabled)
+        .windowFullScreenBehavior(.enabled)
         .tint(DS.Color.accent)
         .frame(minWidth: DS.Layout.minWindowWidth, minHeight: DS.Layout.minWindowHeight)
         .transaction { if reduceMotion { $0.animation = nil } }
@@ -162,7 +165,10 @@ struct MainWindow: View {
                     .help("Open Settings ▸ Connections")
                 }
                 if CloudAccount.shared.isConnected {
-                    Text(CloudAccount.shared.email).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
+                    Text("Concourse account").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                    Text(CloudAccount.shared.email).font(DS.Font.caption).foregroundStyle(DS.Color.text).lineLimit(1)
+                } else {
+                    Text("Local workspace").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 }
                 Text("Hold " + settings.triggerSummary + " to dictate")
                     .font(DS.Font.caption).foregroundStyle(DS.Color.textTertiary)

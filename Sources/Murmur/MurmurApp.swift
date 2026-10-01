@@ -14,6 +14,8 @@ struct MurmurApp: App {
             MainWindow(controller: delegate.controller, meetings: delegate.meetings,
                        onToggleMeeting: delegate.toggleMeeting, onRecordCalendar: delegate.recordCalendarMeeting, onShowNotepad: delegate.showNotepad, onPreviewBar: delegate.previewDictationBar)
         }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight)
         .windowResizability(.contentMinSize)
         .commands {

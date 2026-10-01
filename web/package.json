@@ -8,7 +8,8 @@
     "start": "next start --hostname 127.0.0.1",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:integration": "node scripts/test-integration.mjs"
+    "test:integration": "node scripts/test-integration.mjs",
+    "test:follow-up-contract": "node scripts/test-follow-up-contract.mjs"
   },
   "dependencies": {
     "@fontsource/dm-sans": "5.3.0",

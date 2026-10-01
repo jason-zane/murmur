@@ -4,6 +4,7 @@ export const draftRevision=(payload:unknown)=>createHash("sha256").update(JSON.s
 import { accessToken,connectionsFor } from "../calendar";
 import { HttpError } from "../http";
 import { canMail,readMessage,type GmailMessage,type MailPart } from "./model";
+import { INLINE_IMAGE_TYPES, MAX_INLINE_IMAGE_BYTES } from "./html";
 export async function ownMailbox(userID:string,accountID:string) {
  const account=(await connectionsFor(userID)).find(c=>c.id===accountID);
  if(!account || !canMail(account.scopes)) throw new HttpError(403,"Connect this Gmail inbox in Mail first.");
@@ -20,10 +21,22 @@ export function gmail(token:string) {
  }
  const enc=encodeURIComponent;
  async function hydrate(message:GmailMessage) {
+  let imageBudget=4_000_000,imageCount=8;
   async function visit(part:MailPart) {
    if(!part.filename && ["text/plain","text/html"].includes(part.mimeType || "") && part.body?.attachmentId) {
     if((part.body.size || 0)>2000000) throw new HttpError(413,"This message body is too large to open here. Open it in Gmail.");
     const body=await call<{data:string;size:number}>(`messages/${enc(message.id)}/attachments/${enc(part.body.attachmentId)}`);part.body={...part.body,data:body.data};
+   }
+   const hasCID=part.headers?.some(header=>header.name.toLowerCase()==="content-id");
+   if(hasCID && INLINE_IMAGE_TYPES.has((part.mimeType || "").toLowerCase()) && part.body?.attachmentId && !part.body.data) {
+    const size=part.body.size || MAX_INLINE_IMAGE_BYTES;
+    if(size<=MAX_INLINE_IMAGE_BYTES && size<=imageBudget && imageCount>0) {
+     imageBudget-=size;imageCount--;
+     try {
+      const body=await call<{data:string;size:number}>(`messages/${enc(message.id)}/attachments/${enc(part.body.attachmentId)}`);
+      if(body.size<=size && body.size<=MAX_INLINE_IMAGE_BYTES && body.data.length<=Math.ceil(size/3)*4)part.body={...part.body,data:body.data};
+     } catch { /* Optional image failure must not discard the readable message. */ }
+    }
    }
    for(const child of part.parts || []) await visit(child);
   }

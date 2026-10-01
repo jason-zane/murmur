@@ -11,10 +11,12 @@ import {
   Link2,
   Settings,
   Plus,
+  Info,
+  ArrowRight,
   Menu,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog } from "./dialog";
 import { Brand } from "./brand";
 const destinations = [
@@ -31,16 +33,34 @@ export function Shell({
   children,
   onNew,
   layout,
+  activePath,
+  previewMode=false,
+  previewControls,
 }: {
   email: string;
   children: React.ReactNode;
   onNew?: () => void;
-  layout?: "mail";
+  layout?: "mail" | "notes";
+  activePath?: string;
+  previewMode?: boolean;
+  previewControls?: React.ReactNode;
 }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
+  const navigationButton = useRef<HTMLButtonElement>(null);
   const [welcome, setWelcome] = useState(false);
   const welcomeKey = `voice-notes:workspace-v2:${email}`;
+  useEffect(() => { setOpen(false); }, [path]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      navigationButton.current?.focus();
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [open]);
   useEffect(() => {
     if (path !== "/" || document.documentElement.classList.contains("native-workspace")) return;
     try { if (!localStorage.getItem(welcomeKey)) setWelcome(true); } catch { /* Storage is optional. */ }
@@ -52,35 +72,37 @@ export function Shell({
   const nav = (href: string, label: string, Icon: typeof Home) => (
     <Link
       key={href}
-      href={href}
+      href={previewMode && href === "/notes" ? "/prototype/follow-up?view=library" : previewMode && href === "/mail" ? "/prototype/follow-up?view=mail" : href}
       onClick={() => setOpen(false)}
-      className={"nav" + (path === href ? " active" : "")}
-      aria-current={path === href ? "page" : undefined}
+      className={"nav" + ((activePath || path) === href ? " active" : "")}
+      aria-current={(activePath || path) === href ? "page" : undefined}
     >
       <Icon size={18} />
       {label}
     </Link>
   );
   return (
-    <div className={layout === "mail" ? "shell shell-mail" : "shell"}>
+    <div className={`shell${layout ? ` shell-${layout}` : ""}`}>
       <header className="mobile-bar">
         <Brand />
         <button
+          ref={navigationButton}
           className="icon-button"
           aria-label={open ? "Close navigation" : "Open navigation"}
           aria-expanded={open}
+          aria-controls="workspace-navigation"
           onClick={() => setOpen(!open)}
         >
           {open ? <X /> : <Menu />}
         </button>
       </header>
-      <aside className={"sidebar" + (open ? " mobile-open" : "")}>
+      <aside id="workspace-navigation" className={"sidebar" + (open ? " mobile-open" : "")}>
         <Brand />
         <nav aria-label="Main navigation">
           {destinations.map(([href, label, Icon]) => nav(href, label, Icon))}
         </nav>
         {onNew && (
-          <button className="new-note" onClick={onNew}>
+          <button className="new-note" onClick={() => { setOpen(false); onNew(); }}>
             <Plus size={17} />
             New note
           </button>
@@ -89,10 +111,11 @@ export function Shell({
           <nav aria-label="Preferences">
             {nav("/connections", "Connected apps", Link2)}
             {nav("/settings", "Settings", Settings)}
-            <button className="workspace-guide" onClick={() => setWelcome(true)}>Set up your workspace</button>
+            <button className="workspace-guide" onClick={() => { setOpen(false); setWelcome(true); }}>Set up your workspace</button>
           </nav>
           <Link
             href="/settings"
+            onClick={() => setOpen(false)}
             className="account"
             aria-label={`Account settings, ${email}`}
           >
@@ -118,6 +141,7 @@ export function Shell({
         <button className="button" onClick={closeWelcome}>Start with my workspace</button>
       </Dialog>}
       <main id="main" className="workspace">
+        {previewMode && <div className="workspace-preview-strip"><Info size={16}/><span>Synthetic preview · local sample edits · no live AI or sending</span>{previewControls}<Link href={(activePath || path)==="/mail"?"/prototype/follow-up?view=library&note=launch":"/prototype/follow-up?view=mail"}>{(activePath || path)==="/mail"?"Preview Notes":"Preview Mail"}<ArrowRight size={14}/></Link></div>}
         {children}
       </main>
     </div>
