@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { saveWorkspaceDraft,workspaceSaveSchema } from "@/lib/mail/workspace-drafts";
 import { requireEditor,failure,HttpError,limitedJSON } from "@/lib/http";
 import { connectionsFor } from "@/lib/calendar";
 import { adminClient } from "@/lib/supabase/server";
@@ -12,6 +13,12 @@ const identifier=z.string().min(1).max(1024);
 export async function GET(request:Request) {
  try {
   const {client,user}=await requireEditor(request),p=new URL(request.url).searchParams,accountID=p.get("account");
+  if(p.has("workspace_drafts") || p.has("workspace_draft")) {
+   let query=client.from("mail_drafts").select("id,connection_id,document,version,gmail_state,gmail_error,updated_at").is("outbox_id",null).order("updated_at",{ascending:false}).limit(100);
+   if(p.has("workspace_draft"))query=query.eq("id",z.uuid().parse(p.get("workspace_draft")));
+   const {data,error}=await query;if(error)throw error;
+   return Response.json(p.has("workspace_draft")?{draft:data?.[0] || null}:{drafts:data || []},{headers});
+  }
   if(p.get("operation")) {
    const {data,error}=await client.from("mail_outbox").select("id,status").eq("id",z.uuid().parse(p.get("operation"))).maybeSingle();if(error) throw error;
    return Response.json({operation:data},{headers});
@@ -53,6 +60,10 @@ export async function GET(request:Request) {
 export async function POST(request:Request) {
  try {
   const {user}=await requireEditor(request),body=await limitedJSON(request,30000000,"This message is too large.");
+  if(body.action==="workspace_draft") {
+   const parsed=workspaceSaveSchema.safeParse(body);if(!parsed.success)throw new HttpError(400,parsed.error.issues[0].message);
+   return Response.json(await saveWorkspaceDraft(user.id,parsed.data),{headers});
+  }
   if(body.action==="preferences") {
    const preference=z.object({action:z.literal("preferences"),account:z.uuid(),signature:z.string().max(5000).optional(),identity_colour:z.enum(mailboxColours).nullable().optional(),identity_icon:z.enum(mailboxIcons).nullable().optional()}).strict().refine(p=>p.signature!==undefined||p.identity_colour!==undefined||p.identity_icon!==undefined,"Choose a mailbox preference to save.").parse(body);
    const {account,action:_,...patch}=preference;
@@ -85,12 +96,20 @@ export async function POST(request:Request) {
     if(lookup) throw lookup;
     if(current?.status!=="cancelled") throw new HttpError(409,"This message has already started sending. Check its status.");
    }
+   const {error:draftError}=await adminClient().from("mail_drafts").update({outbox_id:null}).eq("outbox_id",id).eq("user_id",user.id);if(draftError)throw draftError;
    return Response.json({cancelled:true},{headers});
   }
   if(body.action==="draft" || body.action==="send") {
    const parsed=composeSchema.safeParse(body.message);if(!parsed.success) throw new HttpError(400,parsed.error.issues[0].message);
    const v=parsed.data;
-   if(body.action==="send") return Response.json(await queueMail(user.id,z.uuid().parse(body.operation_id),v,body.due_at?z.iso.datetime().parse(body.due_at):undefined),{headers});
+   if(body.action==="send") {
+    const workspaceID=body.workspace_id?z.uuid().parse(body.workspace_id):null;
+    if(workspaceID){const {data,error}=await adminClient().from("mail_drafts").select("connection_id").eq("id",workspaceID).eq("user_id",user.id).maybeSingle();if(error)throw error;if(data?.connection_id!==v.connection_id)throw new HttpError(409,"Reopen this sender’s saved draft before sending.");}
+    const queued=await queueMail(user.id,z.uuid().parse(body.operation_id),v,body.due_at?z.iso.datetime().parse(body.due_at):undefined);
+    if(queued.status==="cancelled")throw new HttpError(409,"This send was cancelled. Reopen your draft before sending again.");
+    if(workspaceID){const {error}=await adminClient().from("mail_drafts").update({outbox_id:queued.id}).eq("id",workspaceID).eq("user_id",user.id);if(error)throw error;}
+    return Response.json(queued,{headers});
+   }
    const {account,api}=await ownMailbox(user.id,v.connection_id);
    if(!account.email) throw new HttpError(409,"Reconnect this sender.");
    if(v.id) {
