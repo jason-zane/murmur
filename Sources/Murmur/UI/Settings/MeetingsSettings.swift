@@ -45,17 +45,10 @@ struct MeetingsSettings: View {
                 ToggleRow(
                     title: "Detect calls automatically",
                     hint: "Voice Notes notices when an app has two-way audio — a mic in use and sound "
-                        + "coming out — and offers to record. Music, Siri and voice memos never qualify.",
+                        + "coming out — and offers to record. Choose Record within 15 seconds, or the offer closes without recording.",
                     isOn: $settings.detectionEnabled
                 )
                 if settings.detectionEnabled {
-                    ToggleRow(
-                        title: "Start recording when I enter a known meeting",
-                        hint: "Starts after a sustained call in Meet, Zoom, Teams and other recognised apps. "
-                            + "A per-app rule below takes priority.",
-                        isOn: $settings.autoRecordKnownCalls
-                    )
-                    Divider().padding(.vertical, DS.Space.xs)
                     VStack(alignment: .leading, spacing: DS.Space.sm) {
                         HStack {
                             Text("Confirm a call after").font(DS.Font.body).foregroundStyle(DS.Color.text)
@@ -92,8 +85,8 @@ struct MeetingsSettings: View {
                 )
                 ToggleRow(
                     title: "Open scheduled meeting links automatically",
-                    hint: "A minute before the start. Google Meet opens in Chrome. Recording starts only "
-                        + "when the call is detected; skip a meeting from Up next.",
+                    hint: "A minute before the start. Google Meet opens in Chrome. You can choose to record "
+                        + "when a call is detected; skip a meeting from Up next.",
                     isOn: $settings.autoOpenMeetings,
                     isEnabled: settings.calendarEnabled
                 )
@@ -116,13 +109,6 @@ struct MeetingsSettings: View {
                         if calendarDenied { CalendarService.openSettings() }
                         else { Task { calendarGranted = await CalendarService.shared.requestAccess(); calendarDenied = CalendarService.shared.isDenied } }
                     }
-                    Divider().padding(.vertical, DS.Space.xs)
-                    ToggleRow(
-                        title: "Start without asking when the calendar agrees",
-                        hint: "A matching calendar event can start recording even when automatic recording of "
-                            + "known calls is off. Per-app rules still take priority.",
-                        isOn: $settings.autoStartOnCalendarMatch
-                    )
                 }
             }
         }
@@ -236,7 +222,7 @@ struct AppRulesList: View {
     }
 
     private func rule(for ids: [String]) -> MeetingAppRule? {
-        ids.compactMap { settings.appRules[$0] }.first
+        ids.compactMap { settings.appRules[$0] }.first.map { $0 == .auto ? .ask : $0 }
     }
 
     private func set(_ rule: MeetingAppRule?, for ids: [String]) {
@@ -258,7 +244,7 @@ struct AppRulesList: View {
                     }
                     Spacer()
                     Menu(rule(for: group.ids)?.displayName ?? "") {
-                        ForEach(MeetingAppRule.allCases, id: \.self) { option in
+                        ForEach([MeetingAppRule.ask, .never], id: \.self) { option in
                             Button(option.displayName) { set(option, for: group.ids) }
                         }
                         Divider()
@@ -271,7 +257,7 @@ struct AppRulesList: View {
                 Menu("Add rule…") {
                     ForEach(unruled, id: \.label) { group in
                         Menu(group.label) {
-                            ForEach(MeetingAppRule.allCases, id: \.self) { option in
+                            ForEach([MeetingAppRule.ask, .never], id: \.self) { option in
                                 Button(option.displayName) { set(option, for: group.ids) }
                             }
                         }

@@ -36,9 +36,9 @@ enum HUDPosition: String, CaseIterable, Sendable {
     }
 
     /// Uses macOS's usable area so the bar stays clear of the menu bar and a visible Dock.
-    func frame(in visible: NSRect) -> NSRect {
-        let size = NSSize(width: min(DS.HUD.canvas.width, visible.width),
-                          height: min(DS.HUD.canvas.height, visible.height))
+    func frame(in visible: NSRect, canvas: NSSize = DS.HUD.canvas) -> NSRect {
+        let size = NSSize(width: min(canvas.width, visible.width),
+                          height: min(canvas.height, visible.height))
         let centered = NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
         let origin: NSPoint
         switch self {

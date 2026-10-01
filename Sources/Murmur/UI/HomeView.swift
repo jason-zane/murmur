@@ -8,6 +8,7 @@ struct HomeView: View {
     let store: SessionStore
     let onRecord: () -> Void
     let onNewNote: () -> Void
+    var canRecord = true
     @State private var schedule = MeetingSchedule.shared
     @State private var settings = MeetingSettings.shared
     @State private var requesting = false
@@ -85,6 +86,7 @@ struct HomeView: View {
                     if today {
                         HStack(spacing: DS.Space.sm) {
                             ActionButton(title: "Record meeting", systemImage: "mic", emphasis: .normal, action: onRecord)
+                                .disabled(!canRecord)
                             ActionButton(title: "New note", emphasis: .quiet, action: onNewNote)
                         }
                     }

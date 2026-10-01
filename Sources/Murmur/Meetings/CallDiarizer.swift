@@ -76,7 +76,7 @@ actor CallDiarizer {
         return coveredThrough
     }
 
-    /// Runs whatever is left. Called once, at the end of the session.
+    /// Runs whatever is left at a pause or the end of the note.
     func flush() {
         guard isReady else { return }
         let seconds = Double(buffer.count) / Double(Self.sampleRate)
@@ -84,6 +84,7 @@ actor CallDiarizer {
             run(buffer, at: bufferStart)
         }
         coveredThrough = bufferStart + seconds
+        bufferStart = coveredThrough
         buffer.removeAll()
     }
 

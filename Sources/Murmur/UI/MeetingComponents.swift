@@ -15,13 +15,13 @@ struct CaptureStatus: View {
             LevelMeter(
                 level: max(controller.youLevel, controller.callLevel),
                 isActive: controller.isRecording,
-                tint: situation == .notCaptured ? DS.Color.warning : DS.Color.accent
+                tint: (situation == .notCaptured || situation == .callSilent) ? DS.Color.warning : DS.Color.accent
             )
             .frame(width: DS.Layout.compactMeterWidth, height: DS.Layout.meterHeight)
             if let text {
                 Text(text)
                     .font(DS.Font.caption)
-                    .foregroundStyle(situation == .notCaptured ? DS.Color.warning : DS.Color.textTertiary)
+                    .foregroundStyle((situation == .notCaptured || situation == .callSilent) ? DS.Color.warning : DS.Color.textTertiary)
                     .lineLimit(1)
                     .transition(.opacity)
             }
@@ -48,8 +48,8 @@ struct CaptureStatus: View {
     private var text: String? {
         switch situation {
         case .notCaptured: "Call audio isn't being captured"
-        case .callSilent: "No call audio yet"
-        case .settling: "Hearing you and the call"
+        case .callSilent: "No call audio heard recently"
+        case .settling: "Listening for you and the call"
         case .idle, .fine: nil
         }
     }
@@ -155,5 +155,36 @@ struct NoteStatusLine: View {
             .padding(.vertical, DS.Space.md)
             .animation(DS.Motion.quick, value: transient)
         }
+    }
+}
+
+/// The same explicit controls in the main window and floating notes window.
+struct MeetingControls: View {
+    let controller: MeetingController
+
+    var body: some View {
+        HStack(spacing: DS.Space.sm) {
+            switch controller.state {
+            case .recording:
+                ActionButton(title: "Pause", systemImage: "pause.fill", emphasis: .normal) { controller.pause() }
+                RecordButton(isRecording: true) { controller.stop() }
+            case .paused:
+                ActionButton(title: "Resume", systemImage: "play.fill", emphasis: .prominent) { controller.resume() }
+                ActionButton(title: "Stop", systemImage: "stop.fill", emphasis: .normal) { controller.stop() }
+            case .pausing, .resuming:
+                ProgressView().controlSize(.small)
+                ActionButton(title: "Stop", systemImage: "stop.fill", emphasis: .normal) { controller.stop() }
+            case .starting:
+                ActionButton(title: "Cancel", emphasis: .normal) { controller.stop() }
+            case .finalising:
+                ProgressView().controlSize(.small)
+                Readout("Saving…")
+            case .saveFailed:
+                ActionButton(title: "Retry save", emphasis: .prominent) { controller.retrySave() }
+            case .idle:
+                EmptyView()
+            }
+        }
+        .fixedSize()
     }
 }

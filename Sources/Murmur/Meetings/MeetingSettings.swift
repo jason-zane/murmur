@@ -15,10 +15,6 @@ final class MeetingSettings {
     /// Read the Mac's calendar for meeting names and attendees. Needs the Calendars grant.
     var calendarEnabled: Bool { didSet { defaults.set(calendarEnabled, forKey: Keys.calendarEnabled) } }
 
-    /// When a known app has a two-way call *and* the calendar agrees a meeting is on, start
-    /// without asking. Off by default: trust is granted after detection has been right.
-    var autoStartOnCalendarMatch: Bool { didSet { defaults.set(autoStartOnCalendarMatch, forKey: Keys.autoStart) } }
-
     /// How long two-way audio must persist before anything is offered. A ringing call you
     /// decline never becomes a session.
     var offerDelay: TimeInterval { didSet { defaults.set(offerDelay, forKey: Keys.offerDelay) } }
@@ -47,7 +43,6 @@ final class MeetingSettings {
     /// disk; the controller checks, so a stale toggle is harmless.
     var speakerSeparation: Bool { didSet { defaults.set(speakerSeparation, forKey: Keys.speakerSeparation) } }
 
-    var autoRecordKnownCalls: Bool { didSet { defaults.set(autoRecordKnownCalls, forKey: Keys.autoRecordKnownCalls) } }
     var autoOpenMeetings: Bool { didSet { defaults.set(autoOpenMeetings, forKey: Keys.autoOpenMeetings) } }
     var autoSummarize: Bool { didSet { defaults.set(autoSummarize, forKey: Keys.autoSummarize) } }
     var defaultTemplate: SummaryTemplate { didSet { defaults.set(defaultTemplate.rawValue, forKey: Keys.defaultTemplate) } }
@@ -57,7 +52,8 @@ final class MeetingSettings {
     /// Rule for an app, falling back to the registry default: known meeting apps and
     /// browsers ask; anything unknown asks quietly (handled by the detector, not here).
     func rule(for bundleID: String) -> MeetingAppRule {
-        appRules[bundleID] ?? .ask
+        let saved = appRules[bundleID] ?? .ask
+        return saved == .auto ? .ask : saved
     }
 
     func setRule(_ rule: MeetingAppRule?, for bundleID: String) {
@@ -71,7 +67,6 @@ final class MeetingSettings {
     private enum Keys {
         static let detectionEnabled = "meeting.detectionEnabled"
         static let calendarEnabled = "meeting.calendarEnabled"
-        static let autoStart = "meeting.autoStartOnCalendarMatch"
         static let offerDelay = "meeting.offerDelay"
         static let autoStopAfter = "meeting.autoStopAfter"
         static let appRules = "meeting.appRules"
@@ -79,7 +74,6 @@ final class MeetingSettings {
         static let showLiveTranscript = "meeting.showLiveTranscript"
         static let soundEnabled = "meeting.soundEnabled"
         static let speakerSeparation = "meeting.speakerSeparation"
-        static let autoRecordKnownCalls = "meeting.autoRecordKnownCalls"
         static let autoOpenMeetings = "meeting.autoOpenMeetings"
         static let autoSummarize = "meeting.autoSummarize"
         static let defaultTemplate = "meeting.defaultTemplate"
@@ -89,7 +83,6 @@ final class MeetingSettings {
     private init() {
         detectionEnabled = defaults.object(forKey: Keys.detectionEnabled) as? Bool ?? true
         calendarEnabled = defaults.object(forKey: Keys.calendarEnabled) as? Bool ?? true
-        autoStartOnCalendarMatch = defaults.object(forKey: Keys.autoStart) as? Bool ?? false
         offerDelay = defaults.object(forKey: Keys.offerDelay) as? Double ?? 8
         autoStopAfter = defaults.object(forKey: Keys.autoStopAfter) as? Double ?? 60
         if let data = defaults.data(forKey: Keys.appRules),
@@ -102,7 +95,6 @@ final class MeetingSettings {
         showLiveTranscript = defaults.object(forKey: Keys.showLiveTranscript) as? Bool ?? false
         soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         speakerSeparation = defaults.object(forKey: Keys.speakerSeparation) as? Bool ?? true
-        autoRecordKnownCalls = defaults.object(forKey: Keys.autoRecordKnownCalls) as? Bool ?? true
         autoOpenMeetings = defaults.object(forKey: Keys.autoOpenMeetings) as? Bool ?? true
         autoSummarize = defaults.object(forKey: Keys.autoSummarize) as? Bool ?? true
         defaultTemplate = SummaryTemplate(rawValue: defaults.string(forKey: Keys.defaultTemplate) ?? "") ?? .meeting

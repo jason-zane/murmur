@@ -33,7 +33,7 @@ struct MainWindow: View {
                     if meetings.state != .idle {
                         RecordingStrip(controller: meetings, onShowNotes: onShowNotepad)
                     }
-                    if let message = meetings.lastError {
+                    if let message = meetings.lastError ?? (meetings.state != .idle ? meetings.warning : nil) {
                         InlineNotice(text: message, tone: .warning) {
                             if meetings.state == .saveFailed {
                                 ActionButton(title: "Retry save", emphasis: .normal) { meetings.retrySave() }
@@ -178,7 +178,7 @@ struct MainWindow: View {
         } else if page == .dictation {
             DictationList(controller: controller)
         } else {
-            HomeView(store: meetings.store, onRecord: onToggleMeeting, onNewNote: newNote)
+            HomeView(store: meetings.store, onRecord: onToggleMeeting, onNewNote: newNote, canRecord: meetings.state == .idle)
         }
     }
 
@@ -197,22 +197,23 @@ private struct RecordingStrip: View {
 
     var body: some View {
         HStack(spacing: DS.Space.md) {
-            if !controller.isRecording { ProgressView().controlSize(.small) }
+
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text(controller.session?.title ?? "Preparing your meeting…").font(DS.Font.bodyEmphasis).lineLimit(1)
                 if controller.isRecording {
                     CaptureStatus(controller: controller)
                 } else {
                     Text(controller.state == .saveFailed ? "Save needs attention"
+                         : controller.state == .paused ? "Paused · microphone and call audio are off"
+                         : controller.state == .pausing ? "Pausing · finishing the last words…"
+                         : controller.state == .resuming ? "Resuming…"
                          : controller.state == .starting ? "Preparing on-device transcription…" : "Saving your note…")
                         .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 }
             }
             Spacer()
             Readout(TimeFormat.clock(controller.elapsed), color: DS.Color.text)
-            if controller.isRecording {
-                ActionButton(title: "Stop", systemImage: "stop.fill", emphasis: .normal) { controller.stop() }
-            }
+            MeetingControls(controller: controller)
         }
         .padding(DS.Space.md)
         .background(controller.isRecording ? DS.Color.recordSoft : DS.Color.hover, in: .rect(cornerRadius: DS.Radius.md))
