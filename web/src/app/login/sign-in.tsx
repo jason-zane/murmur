@@ -98,7 +98,7 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
             <div className="note-top">
               <BrandMark compact />
               <span>From conversation to clarity</span>
-              <span className="tag">VOICE NOTES</span>
+              <span className="tag">CONCOURSE</span>
             </div>
             <Waveform />
             <div className="note-line">
@@ -241,7 +241,7 @@ export function Login({ ready, google }: { ready: boolean; google: boolean }) {
           </p>
           <p className="privacy-foot">
             Your notes belong to you.{" "}
-            <Link href="/privacy">How Voice Notes handles your data</Link>
+            <Link href="/privacy">How Concourse handles your data</Link>
           </p>
         </div>
       </main>

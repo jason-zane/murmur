@@ -17,7 +17,7 @@ export async function findDesktopClient(oauth) {
     if (error) throw error;
     const clients = clientsFromResponse(data);
     const desktop = clients.find((client) =>
-      ["Voice Notes for Mac", "Murmur for Mac"].includes(client.client_name) &&
+      ["Concourse for Mac", "Voice Notes for Mac", "Murmur for Mac"].includes(client.client_name) &&
       client.redirect_uris?.includes("murmur://oauth/callback"),
     );
     if (desktop) return desktop;

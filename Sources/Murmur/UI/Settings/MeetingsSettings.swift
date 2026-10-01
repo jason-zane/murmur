@@ -44,7 +44,7 @@ struct MeetingsSettings: View {
                 SectionLabel(text: "Meetings")
                 ToggleRow(
                     title: "Detect calls automatically",
-                    hint: "Voice Notes notices when an app has two-way audio — a mic in use and sound "
+                    hint: "Concourse notices when an app has two-way audio — a mic in use and sound "
                         + "coming out — and offers to record. Choose Record within 15 seconds, or the offer closes without recording.",
                     isOn: $settings.detectionEnabled
                 )
@@ -79,7 +79,7 @@ struct MeetingsSettings: View {
                 SectionLabel(text: "Calendar")
                 ToggleRow(
                     title: "Name meetings from my calendar",
-                    hint: "Uses Google Calendar connected through Voice Notes, or the calendars on this Mac, "
+                    hint: "Uses Google Calendar connected through Concourse, or the calendars on this Mac, "
                         + "to find meeting names, people and links. Nothing is written back.",
                     isOn: $settings.calendarEnabled
                 )
@@ -92,7 +92,7 @@ struct MeetingsSettings: View {
                 )
                 ToggleRow(
                     title: "Keep booking links clear of events on this Mac",
-                    hint: "For Voice Notes booking links. Shares only when you’re busy on this Mac, never titles, "
+                    hint: "For Concourse booking links. Shares only when you’re busy on this Mac, never titles, "
                         + "people or places, so guests can’t book over those times. Turn off to remove them.",
                     isOn: $settings.shareBusyTimes
                 )
@@ -100,7 +100,7 @@ struct MeetingsSettings: View {
                     Divider().padding(.vertical, DS.Space.xs)
                     PermissionRow(
                         title: "Calendars",
-                        detail: CloudSync.shared.calendarConnected ? "Google Calendar is connected to Voice Notes."
+                        detail: CloudSync.shared.calendarConnected ? "Google Calendar is connected to Concourse."
                             : calendarGranted ? "Calendars on this Mac are available."
                             : calendarDenied ? "Mac access is off. Connect Google in Connections, or allow Calendar access."
                             : "Connect Google in Connections, or allow calendars on this Mac.",
@@ -122,7 +122,7 @@ struct MeetingsSettings: View {
                 SectionLabel(text: "Per-app rules")
                 AppRulesList()
                 Hint("Browser calls are named from the window title — “Meet – …”, “Zoom Meeting” — "
-                     + "using the Accessibility grant Voice Notes already has. Nothing else is read.")
+                     + "using the Accessibility grant Concourse already has. Nothing else is read.")
             }
         }
     }

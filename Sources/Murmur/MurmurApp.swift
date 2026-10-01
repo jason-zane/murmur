@@ -10,7 +10,7 @@ struct MurmurApp: App {
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
         // workspace. ⌘N creates a note rather than another copy of the window.
-        Window("Voice Notes", id: "main") {
+        Window("Concourse", id: "main") {
             MainWindow(controller: delegate.controller, meetings: delegate.meetings,
                        onToggleMeeting: delegate.toggleMeeting, onRecordCalendar: delegate.recordCalendarMeeting, onShowNotepad: delegate.showNotepad, onPreviewBar: delegate.previewDictationBar)
         }
@@ -408,18 +408,6 @@ private struct MenuContent: View {
 
         Divider()
 
-        Toggle("Sound", isOn: sound)
-        Toggle("Start at login", isOn: $settings.launchAtLogin)
-        Picker("Transcription", selection: $settings.engine) {
-            ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
-                Text(choice == .parakeet && !ParakeetModels.isDownloaded
-                     ? "Parakeet (not downloaded)" : choice.displayName)
-                    .tag(choice)
-            }
-        }
-
-        Divider()
-
         if !Permissions.hasAccessibility || !Permissions.hasMicrophone {
             Button("Permissions needed…") { delegate.showOnboarding() }
         }
@@ -428,11 +416,16 @@ private struct MenuContent: View {
             Button("Update available · \(release.version)") { updates.open(release) }
         }
 
-        Button("Open Voice Notes") {
+        Button("Open Concourse") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
 
+        Button("Connected apps…") {
+            openWindow(id: "main")
+            NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         SettingsLink { Text("Settings…") }
             .keyboardShortcut(",", modifiers: .command)
 
@@ -451,7 +444,7 @@ private struct MenuContent: View {
             }
         }
 
-        Button("Quit Voice Notes") { NSApp.terminate(nil) }
+        Button("Quit Concourse") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }
@@ -486,6 +479,7 @@ private struct StatusLabel: View {
             openSettings()
         }
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowSession)) { _ in openWindow(id: "main") }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowPage)) { _ in openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
     }
 }
 

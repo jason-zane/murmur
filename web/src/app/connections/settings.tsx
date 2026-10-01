@@ -11,13 +11,14 @@ import {
   Check,
   Copy,
   Laptop,
+  Mail,
   Link2,
   RefreshCw,
   Unplug,
 } from "lucide-react";
 import { Shell } from "@/components/shell";
 import { browserClient } from "@/lib/supabase/browser";
-import { canBook, canListCalendars } from "@/lib/google";
+import { canBook, canListCalendars, canReadEvents } from "@/lib/google";
 type Account = {
   id: string;
   email: string | null;
@@ -32,6 +33,8 @@ type Source = {
   color: string | null;
   is_primary: boolean;
   selected: boolean;
+  blocks_availability?: boolean;
+  meeting_suggestions?: boolean;
 };
 export function Connections({
   email,
@@ -49,6 +52,7 @@ export function Connections({
   googleReady: boolean;
 }) {
   const [accounts, setAccounts] = useState(initialAccounts);
+  const calendarAccounts = accounts.filter(a => canReadEvents(a.scopes));
   const [calendars, setCalendars] = useState(initialCalendars);
   const [pending, setPending] = useState<string | null>(null);
   const [grantsState, setGrantsState] = useState<"loading" | "ready" | "error">(
@@ -74,6 +78,8 @@ export function Connections({
   useEffect(() => {
     void loadGrants();
     const p = new URLSearchParams(location.search);
+    const focus = p.get("focus");
+    if (["calendar", "gmail", "ai"].includes(focus || "")) document.getElementById(`connect-${focus}`)?.scrollIntoView({ block: "start" });
     if (p.get("error")) setMessage(p.get("error")!);
     if (p.get("connected"))
       setMessage(
@@ -102,14 +108,14 @@ export function Connections({
       setBusy(false);
     }
   }
-  async function choose(source: Source, selected: boolean) {
+  async function choose(source: Source, preference: "selected" | "blocks_availability" | "meeting_suggestions", selected: boolean) {
     const key = `${source.connection_id}|${source.calendar_id}`;
     setPending(key);
     setCalendars((all) =>
       all.map((c) =>
         c.connection_id === source.connection_id &&
         c.calendar_id === source.calendar_id
-          ? { ...c, selected }
+          ? { ...c, [preference]: selected }
           : c,
       ),
     );
@@ -120,7 +126,7 @@ export function Connections({
         body: JSON.stringify({
           connection_id: source.connection_id,
           calendar_id: source.calendar_id,
-          selected,
+          [preference]: selected,
         }),
       });
       const body = await r.json();
@@ -131,7 +137,7 @@ export function Connections({
         all.map((c) =>
           c.connection_id === source.connection_id &&
           c.calendar_id === source.calendar_id
-            ? { ...c, selected: !selected }
+            ? { ...c, [preference]: source[preference] }
             : c,
         ),
       );
@@ -145,7 +151,7 @@ export function Connections({
   async function disconnect(account: Account) {
     if (
       !confirm(
-        `Disconnect ${account.email ?? "this Google account"}? Its meetings leave your agenda and its calendars stop blocking booking times.`,
+        `Disconnect ${account.email ?? "this Google account"}? Its calendars and mailbox are disconnected. Queued mail is removed and calendars stop blocking booking times.`,
       )
     )
       return;
@@ -168,9 +174,9 @@ export function Connections({
     <Shell email={email}>
       <div className="connections-page">
         <header className="page-header">
-          <h1>Connections</h1>
+          <h1>Connected apps</h1>
           <p>
-            Calendars, email and the apps connected to your Voice Notes account.
+            Calendars, email and the apps connected to your Concourse account.
           </p>
         </header>
         <div className="connection-account">
@@ -180,16 +186,147 @@ export function Connections({
             <ArrowUpRight size={14} />
           </Link>
         </div>
-        <section className="mcp-card">
+        <section className="connection-row" id="connect-calendar">
+          <span className="connection-symbol">
+            <CalendarDays size={25} />
+          </span>
+          <div>
+            <h2>Google Calendar</h2>
+            <p>
+              {calendarAccounts.length
+                ? "Choose what appears in Calendar, what blocks booking times, and what suggests meetings on your Mac."
+                : "See what’s next, join on time, and prepare with context from past meetings. Connect work and personal accounts."}
+            </p>
+            {calendarUnavailable && (
+              <p className="notice">
+                Calendar status is unavailable. Please try again.
+              </p>
+            )}
+            {calendarAccounts.map((account) => {
+              const own = calendars.filter(
+                (c) => c.connection_id === account.id,
+              );
+              return (
+                <div className="calendar-account" key={account.id}>
+                  <div className="calendar-account-head">
+                    <strong>{account.email ?? "Google account"}</strong>
+                    {canBook(account.scopes) && (
+                      <span className="chip">Booking allowed</span>
+                    )}
+                  </div>
+                  {account.updated_at && (
+                    <span className="fine-print">
+                      Last refreshed <LocalTime value={account.updated_at} />
+                    </span>
+                  )}
+                  {account.error && <p className="notice">{account.error}</p>}
+                  {own.length > 0 && (
+                    <ul className="calendar-list">
+                      {own.map((c) => (
+                        <li key={c.calendar_id}>
+                          <label className="check">
+                            <input
+                              type="checkbox"
+                              checked={c.selected}
+                              disabled={pending !== null}
+                              onChange={(e) => void choose(c, "selected", e.target.checked)}
+                            />
+                            <span
+                              className="swatch"
+                              style={{ background: "var(--accent)" }}
+                              aria-hidden="true"
+                            />
+                            {c.name} · Show in Calendar
+                            {c.is_primary && <small>Primary</small>}
+                          </label>
+                          <label className="check"><input type="checkbox" checked={c.blocks_availability ?? c.selected} disabled={pending !== null} onChange={e=>void choose(c,"blocks_availability",e.target.checked)}/>Use for booking availability</label>
+                          <label className="check"><input type="checkbox" checked={c.meeting_suggestions ?? c.selected} disabled={pending !== null} onChange={e=>void choose(c,"meeting_suggestions",e.target.checked)}/>Use for meeting suggestions</label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="calendar-account-actions">
+                    {!account.scopes.includes("https://www.googleapis.com/auth/calendar.events") && <a className="text-link" href={`/api/google/connect?booking=1&account=${encodeURIComponent(account.email || "")}`}>Allow calendar editing</a>}
+                    <a className="text-link" href={`/api/google/connect?inbox=1&account=${encodeURIComponent(account.email || "")}`}>Connect Gmail inbox</a>
+                    {!canListCalendars(account.scopes) && (
+                      <a
+                        className="text-link"
+                        href={`/api/google/connect${account.email ? `?account=${encodeURIComponent(account.email)}` : ""}`}
+                      >
+                        Show my other calendars
+                        <ArrowUpRight size={14} />
+                      </a>
+                    )}
+                    <ItemActions label={account.email || "Google account"}>
+                    <button
+                      className="text-link"
+                      onClick={() => void disconnect(account)}
+                      disabled={busy}
+                    >
+                      Disconnect account…
+                    </button>
+                    </ItemActions>
+                  </div>
+                </div>
+              );
+            })}
+            {!googleReady && !calendarAccounts.length && (
+              <p className="fine-print">
+                Google Calendar setup is being completed. Your Mac’s calendar
+                connection remains available.
+              </p>
+            )}
+          </div>
+          <div className="connection-actions">
+            {calendarAccounts.length ? (
+              <>
+                <button
+                  className="button small"
+                  onClick={refresh}
+                  disabled={busy}
+                >
+                  <RefreshCw size={16} />
+                  Refresh
+                </button>
+                <a
+                  className={"text-link " + (!googleReady ? "disabled" : "")}
+                  href={googleReady ? "/api/google/connect?add=1" : undefined}
+                >
+                  Add another Google account
+                </a>
+              </>
+            ) : (
+              <a
+                className={"button " + (!googleReady ? "disabled" : "")}
+                aria-disabled={!googleReady}
+                href={googleReady ? "/api/google/connect" : undefined}
+              >
+                Connect Google
+                <ArrowUpRight size={16} />
+              </a>
+            )}
+          </div>
+        </section>
+        <section className="connection-row" id="connect-gmail">
+          <span className="connection-symbol"><Mail size={25} /></span>
+          <div>
+            <h2>Gmail inboxes</h2>
+            <p>Read, reply and organise work and personal mail together. Mailbox access is separate from your calendar connection.</p>
+            {accounts.filter(a => a.scopes.includes("https://www.googleapis.com/auth/gmail.modify")).map(a => <p key={a.id}><strong>{a.email || "Google account"}</strong> · Inbox connected{!canReadEvents(a.scopes) && <> · <a className="text-link" href={`/api/google/connect?account=${encodeURIComponent(a.email || "")}`}>Connect this account’s calendar</a></>} <button className="text-link" disabled={busy} onClick={() => void disconnect(a)}>Disconnect account…</button></p>)}
+            <Link className="text-link" href="/mail">Open Mail <ArrowUpRight size={14} /></Link>
+          </div>
+          <a className={"button small " + (!googleReady ? "disabled" : "")} aria-disabled={!googleReady} href={googleReady ? "/api/google/connect?inbox=1&add=1" : undefined}>Connect Gmail <ArrowUpRight size={16} /></a>
+        </section>
+        <section className="mcp-card" id="connect-ai">
           <span className="connection-symbol">
             <Link2 size={25} />
           </span>
           <div>
-            <div className="eyebrow">CHATGPT · CLAUDE · YOUR OWN APPS</div>
-            <h2>One link. Your whole library.</h2>
+
+            <h2>Ask ChatGPT or Claude about your notes</h2>
             <p>
               Paste this URL into your app’s connector settings. Sign in to
-              Voice Notes, approve access, and start asking.
+              Concourse, approve access, and start asking.
             </p>
             <div className="url-copy">
               <code>{mcpURL}</code>
@@ -221,12 +358,15 @@ export function Connections({
           </div>
         </section>
         <div className="connection-guides">
+          <p>Copy the connector URL above, then choose your AI app. Each app asks you to approve access.</p>
+          <div className="calendar-account-actions">
+            <a className="button small" href="https://chatgpt.com/plugins" target="_blank" rel="noreferrer">Open ChatGPT <ArrowUpRight size={16} /></a>
+            <a className="button small" href="https://claude.ai/settings/connectors" target="_blank" rel="noreferrer">Open Claude <ArrowUpRight size={16} /></a>
+          </div>
           <details>
             <summary>Connect ChatGPT</summary>
             <p>
-              Open ChatGPT settings and find Apps / Connectors. Enable developer
-              mode if your plan requires it, then create a custom MCP app with
-              this URL and OAuth authentication. Sign in when prompted.
+              In ChatGPT settings, enable Developer mode under Security and login if available. Open Plugins, choose the plus button and add Concourse using the connector URL above. Follow the sign-in prompt. Workspace policy may require an administrator. Start a new chat and select Concourse from the tools menu to use it.
             </p>
             <a
               href="https://developers.openai.com/apps-sdk/deploy/connect-chatgpt/"
@@ -241,138 +381,18 @@ export function Connections({
           <details>
             <summary>Connect Claude</summary>
             <p>
-              In Claude, open Customize → Connectors → Add custom connector.
-              Name it Voice Notes, paste this URL and continue. Add the
-              connector, then select Connect and approve access to your Voice
-              Notes account.
+              In Claude, open Customize ▸ Connectors and use the plus button to add a custom connector. Paste the URL above, name it Concourse and connect your account. Team and Enterprise owners first add it for their organisation.
             </p>
           </details>
         </div>
         <section className="connection-row">
           <span className="connection-symbol">
-            <CalendarDays size={25} />
-          </span>
-          <div>
-            <h2>Google Calendar</h2>
-            <p>
-              {accounts.length
-                ? "Ticked calendars appear in your agenda, name your meetings on the Mac, and block times on your booking links."
-                : "See what’s next, join on time, and prepare with context from past meetings. Connect work and personal accounts."}
-            </p>
-            {calendarUnavailable && (
-              <p className="notice">
-                Calendar status is unavailable. Please try again.
-              </p>
-            )}
-            {accounts.map((account) => {
-              const own = calendars.filter(
-                (c) => c.connection_id === account.id,
-              );
-              return (
-                <div className="calendar-account" key={account.id}>
-                  <div className="calendar-account-head">
-                    <strong>{account.email ?? "Google account"}</strong>
-                    {canBook(account.scopes) && (
-                      <span className="chip">Booking allowed</span>
-                    )}
-                  </div>
-                  {account.updated_at && (
-                    <span className="fine-print">
-                      Last refreshed <LocalTime value={account.updated_at} />
-                    </span>
-                  )}
-                  {account.error && <p className="notice">{account.error}</p>}
-                  {own.length > 0 && (
-                    <ul className="calendar-list">
-                      {own.map((c) => (
-                        <li key={c.calendar_id}>
-                          <label className="check">
-                            <input
-                              type="checkbox"
-                              checked={c.selected}
-                              disabled={pending !== null}
-                              onChange={(e) => void choose(c, e.target.checked)}
-                            />
-                            <span
-                              className="swatch"
-                              style={{ background: c.color ?? "var(--accent)" }}
-                              aria-hidden="true"
-                            />
-                            {c.name}
-                            {c.is_primary && <small>Primary</small>}
-                          </label>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="calendar-account-actions">
-                    {!canListCalendars(account.scopes) && (
-                      <a
-                        className="text-link"
-                        href={`/api/google/connect${account.email ? `?account=${encodeURIComponent(account.email)}` : ""}`}
-                      >
-                        Show my other calendars
-                        <ArrowUpRight size={14} />
-                      </a>
-                    )}
-                    <ItemActions label={account.email || "Google account"}>
-                    <button
-                      className="text-link"
-                      onClick={() => void disconnect(account)}
-                      disabled={busy}
-                    >
-                      Disconnect account…
-                    </button>
-                    </ItemActions>
-                  </div>
-                </div>
-              );
-            })}
-            {!googleReady && !accounts.length && (
-              <p className="fine-print">
-                Google Calendar setup is being completed. Your Mac’s calendar
-                connection remains available.
-              </p>
-            )}
-          </div>
-          <div className="connection-actions">
-            {accounts.length ? (
-              <>
-                <button
-                  className="button small"
-                  onClick={refresh}
-                  disabled={busy}
-                >
-                  <RefreshCw size={16} />
-                  Refresh
-                </button>
-                <a
-                  className={"text-link " + (!googleReady ? "disabled" : "")}
-                  href={googleReady ? "/api/google/connect?add=1" : undefined}
-                >
-                  Add another Google account
-                </a>
-              </>
-            ) : (
-              <a
-                className={"button " + (!googleReady ? "disabled" : "")}
-                aria-disabled={!googleReady}
-                href={googleReady ? "/api/google/connect" : undefined}
-              >
-                Connect Google
-                <ArrowUpRight size={16} />
-              </a>
-            )}
-          </div>
-        </section>
-        <section className="connection-row">
-          <span className="connection-symbol">
             <Laptop size={25} />
           </span>
           <div>
-            <h2>Voice Notes on your Mac</h2>
+            <h2>Concourse on your Mac</h2>
             <p>
-              Sign in from Settings → Account in the Mac app to sync your
+              Sign in from Connected apps in the Mac app to sync your
               library. Record, dictate and edit offline. Your changes catch up
               when you reconnect.
             </p>
@@ -438,7 +458,7 @@ export function Connections({
             {message}
           </p>
         )}
-        <EmailConnection />
+        <details className="connection-automation"><summary>Booking emails and follow-up drafts</summary><EmailConnection /></details>
       </div>
     </Shell>
   );

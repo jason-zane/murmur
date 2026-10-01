@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { cloudReady } from "@/lib/config";
 import { serverClient } from "@/lib/supabase/server";
+import { canReadEvents } from "@/lib/google";
 import { AccountSettings } from "./settings";
 
 export const dynamic = "force-dynamic";
@@ -12,12 +13,12 @@ export default async function Page() {
   if (!user) redirect("/login?next=/settings");
   const { data: calendars, error } = await client
     .from("calendar_connections")
-    .select("email,updated_at,error")
+    .select("email,scopes,updated_at,error")
     .order("created_at");
   return (
     <AccountSettings
       email={user.email || "Your account"}
-      calendars={calendars ?? []}
+      calendars={(calendars ?? []).filter(a => canReadEvents(a.scopes))}
       calendarUnavailable={Boolean(error)}
     />
   );

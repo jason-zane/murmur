@@ -38,7 +38,7 @@ make test TEST_ARGS='--filter hungTranscriberCannotPreventSavingEarlierWords'
 
 ## Hardware diagnostics
 
-Run the installed debug app after ending any active note and quitting Voice Notes:
+Run the installed debug app after ending any active note and quitting Concourse:
 
 ```sh
 /Applications/Murmur.app/Contents/MacOS/Murmur --diagnose-system-audio

@@ -1,4 +1,4 @@
-# Developing Voice Notes
+# Developing Concourse
 
 ## Toolchain
 
@@ -150,7 +150,7 @@ Notarisation is deliberately not part of this: it needs the Apple Developer Prog
 
 ## Checking Bluetooth call capture
 
-With a debug build installed, quit Voice Notes and run
+With a debug build installed, quit Concourse and run
 `/Applications/Murmur.app/Contents/MacOS/Murmur --diagnose-system-audio`.
 It opens the microphone (to exercise Bluetooth call mode), plays a short system sound,
 prints the call-side buffer count and peak level, and quits. It creates no note and stores

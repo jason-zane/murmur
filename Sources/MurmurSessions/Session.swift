@@ -79,7 +79,7 @@ public struct Attendee: Codable, Sendable, Hashable {
     }
 }
 
-/// What a guest told the host when booking the meeting through a Voice Notes booking link.
+/// What a guest told the host when booking the meeting through a Concourse booking link.
 /// Written before the meeting, so notes must never present it as something said in it.
 public struct BookingContext: Codable, Sendable, Hashable {
     public struct Answer: Codable, Sendable, Hashable {

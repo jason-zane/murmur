@@ -7,20 +7,23 @@ export async function PATCH(request: Request) {
   try {
     const { client, user } = await requireEditor(
       request,
-      "Sign in to Voice Notes to manage Calendar.",
+      "Sign in to Concourse to manage Calendar.",
     );
     const parsed = z
       .object({
         connection_id: z.uuid(),
         calendar_id: z.string().min(1).max(1024),
-        selected: z.boolean(),
+        selected: z.boolean().optional(),
+        blocks_availability:z.boolean().optional(),
+        meeting_suggestions:z.boolean().optional(),
       })
       .safeParse(await limitedJSON(request, 10_000, "That request is too large."));
     if (!parsed.success) throw new HttpError(400, "Choose a calendar.");
-    const { connection_id, calendar_id, selected } = parsed.data;
+    const { connection_id, calendar_id, ...preferences } = parsed.data;
+    if (!Object.keys(preferences).length) throw new HttpError(400,"Choose a calendar preference.");
     const { data, error } = await client
       .from("calendar_sources")
-      .update({ selected })
+      .update(preferences)
       .eq("connection_id", connection_id)
       .eq("calendar_id", calendar_id)
       .select("calendar_id");

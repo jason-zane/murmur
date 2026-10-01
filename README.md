@@ -1,7 +1,7 @@
-# Voice Notes
+# Concourse
 
 Dictation and meeting notes for the Mac. Hold a key and speak — the words land wherever
-your cursor is. When a call starts, Voice Notes can record both sides, keep your own notes
+your cursor is. When a call starts, Concourse can record both sides, keep your own notes
 beside it, and turn the whole thing into a summary on the Mac itself. Nothing leaves the
 machine unless you sign in.
 
@@ -9,9 +9,9 @@ macOS 26 on Apple silicon. Apple Intelligence for summaries and smart cleanup.
 
 ## Install
 
-1. Download the latest `VoiceNotes-<version>.dmg` from
+1. Download the latest `Concourse-<version>.dmg` from
    [Releases](https://github.com/jason-zane/murmur/releases/latest).
-2. Drag **Voice Notes** to **Applications**.
+2. Drag **Concourse** to **Applications**.
 3. First open: right-click ▸ **Open**. If macOS blocks it, go to **System Settings ▸ Privacy
    & Security** and click **Open Anyway**. The app is signed but not notarised — that needs
    a paid Apple account this project doesn't have.
@@ -51,14 +51,14 @@ and you can edit it, copy it for another AI, export Markdown, or restore an earl
 Speakers on the call side can be told apart (optional model) and renamed.
 
 Per-app rules (always ask, always record, never) and the calendar behaviour are in
-**Settings ▸ Meetings**. Voice Notes doesn't join calls or send a bot; it listens to what
+**Settings ▸ Meetings**. Concourse doesn't join calls or send a bot; it listens to what
 your Mac plays, so keep it running and the Mac awake.
 
 ## Connect Claude Desktop
 
 **Settings ▸ Connections ▸ Connect Claude Desktop** lets Claude read your notes on this Mac
 — ask about last week's decisions, or have a note summarised — with nothing leaving the
-machine. It runs while Voice Notes is running. Any other MCP app can use the same command;
+machine. It runs while Concourse is running. Any other MCP app can use the same command;
 the configuration to paste is under *Using another app*:
 
 ```json

@@ -2,8 +2,8 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-/// First run, in four short pages: the two permissions dictation needs, the two a meeting
-/// needs, a few extras, and the one thing to remember.
+/// First run starts with the person's task. Calendar, Mail and Notes can be opened
+/// immediately; dictation and meeting permissions remain an optional guided path.
 ///
 /// TCC lies in one specific way this app has met before — the Accessibility toggle can read
 /// as on while the app is untrusted, because the stored grant is keyed to a code signature
@@ -23,13 +23,14 @@ final class OnboardingWindow: NSWindow {
             backing: .buffered,
             defer: false
         )
-        title = "Welcome to Voice Notes"
+        title = "Welcome to Concourse"
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
         isReleasedWhenClosed = false
         isMovableByWindowBackground = true
         contentView = NSHostingView(rootView: OnboardingView { [weak self] in
             Self.isCompleted = true
+            UserDefaults.standard.set(true, forKey: "workspace.welcome.v2")
             self?.orderOut(nil)
         })
         center()
@@ -46,28 +47,30 @@ struct OnboardingView: View {
     let onDone: () -> Void
 
     enum Page: Int, CaseIterable {
-        case dictate, meetings, extras, done
+        case welcome, dictate, meetings, extras, done
 
         var title: String {
             switch self {
+            case .welcome: "Welcome to your workspace"
             case .dictate: "Dictate anywhere"
             case .meetings: "Record meetings"
-            case .extras: "A few extras"
-            case .done: "That's it"
+            case .extras: "Make it your workspace"
+            case .done: "Ready for your day"
             }
         }
 
         var lead: String {
             switch self {
+            case .welcome: "Sign in, connect your calendars and Gmail, and bring your day together."
             case .dictate: "Two permissions make dictation work. Each row shows what macOS reports right now."
-            case .meetings: "Two more let Voice Notes hear a call and name it. Both are optional."
-            case .extras: "Everything here can be changed later in Settings."
-            case .done: "Voice Notes lives in the menu bar."
+            case .meetings: "Two more let Concourse hear a call and name it. Both are optional."
+            case .extras: "Your calendars, Gmail and notes can live together. Connect apps whenever you’re ready."
+            case .done: "Your workspace is ready. Dictation is always a held key away."
             }
         }
     }
 
-    @State private var page: Page = .dictate
+    @State private var page: Page = .welcome
     @State private var accessibility = Permissions.hasAccessibility
     @State private var microphone = Permissions.hasMicrophone
     @State private var microphoneDenied = AVCaptureDevice.authorizationStatus(for: .audio) == .denied
@@ -90,7 +93,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xl) {
             if !isInApplications {
-                InlineNotice(text: "Move Voice Notes to Applications first — start at login and the Claude connection point at the app's location.", tone: .warning) {
+                InlineNotice(text: "Move Concourse to Applications first — start at login and the Claude connection point at the app's location.", tone: .warning) {
                     ActionButton(title: "Show in Finder", emphasis: .quiet) {
                         NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
                     }
@@ -109,6 +112,7 @@ struct OnboardingView: View {
 
             Group {
                 switch page {
+                case .welcome: welcome
                 case .dictate: dictate
                 case .meetings: meetings
                 case .extras: extras
@@ -120,18 +124,24 @@ struct OnboardingView: View {
             Spacer(minLength: DS.Space.zero)
 
             HStack(spacing: DS.Space.sm) {
-                if page != .dictate, page != .done {
+                if page != .welcome, page != .done {
                     ActionButton(title: "Back", emphasis: .quiet) { move(-1) }
                 }
                 Spacer()
                 switch page {
+                case .welcome:
+                    ActionButton(title: "Use this Mac without an account", emphasis: .quiet) { move(1) }
+                    ActionButton(title: account.isConnected ? "Connect my apps" : "Sign in and set up", emphasis: .prominent) {
+                        if account.isConnected { finish(.connections) }
+                        else { Task { await account.signIn(); if account.isConnected { finish(.connections) } } }
+                    }.disabled(account.isSigningIn)
                 case .dictate:
                     if !essentialsGranted { ActionButton(title: "Skip for now", emphasis: .quiet) { move(1) } }
                     ActionButton(title: "Continue", emphasis: .prominent) { move(1) }.disabled(!essentialsGranted)
                 case .meetings, .extras:
                     ActionButton(title: "Continue", emphasis: .prominent) { move(1) }
                 case .done:
-                    ActionButton(title: "Done", emphasis: .prominent, action: onDone)
+                    ActionButton(title: "Open my workspace", emphasis: .prominent) { onDone(); NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.home) }
                 }
             }
         }
@@ -160,6 +170,22 @@ struct OnboardingView: View {
     }
 
     // MARK: - Pages
+
+    private func finish(_ target: MainPage) {
+        onDone()
+        NotificationCenter.default.post(name: .murmurShowPage, object: target)
+    }
+
+    private var welcome: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xl) {
+            Label("One account for your workspace", systemImage: "person.crop.circle").font(DS.Font.headline)
+            Hint("Your Concourse account keeps your notes and Google connections together across Mac and web.")
+            Label("Connect work and personal accounts", systemImage: "calendar").font(DS.Font.headline)
+            Hint("Choose your Google calendars and Gmail inboxes next. Each connection asks for the access it needs.")
+            Hint("Downloaded notes, calendars and mail remain available offline. Dictation and meeting capture run on this Mac.")
+            if let message = account.message { InlineNotice(text: message, tone: .warning) }
+        }
+    }
 
     private var dictate: some View {
         VStack(spacing: DS.Space.md) {
@@ -207,7 +233,7 @@ struct OnboardingView: View {
             }
             PermissionRow(
                 title: "Calendars",
-                detail: "Names meetings after the event and knows who's in them. Read-only. Without it, notes are named by app and time.",
+                detail: "Names meetings after the event and lets you view and edit calendars on this Mac. Without it, notes are named by app and time.",
                 isGranted: calendar,
                 grantTitle: calendarDenied ? "Open System Settings" : "Allow"
             ) {
@@ -222,57 +248,17 @@ struct OnboardingView: View {
     }
 
     private var extras: some View {
-        VStack(spacing: DS.Space.md) {
-            HStack(spacing: DS.Space.md) {
-                StatusDot(color: FoundationModelFormatter.isAvailable ? DS.Color.success : DS.Color.textTertiary, isLit: true, size: DS.Layout.permissionDot)
-                VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    Text("Apple Intelligence").font(DS.Font.body).foregroundStyle(DS.Color.text)
-                    Hint(FoundationModelFormatter.unavailableReason ?? "Ready. Summaries and smart cleanup run on this Mac.")
-                }
-                Spacer()
-                if FoundationModelFormatter.isAvailable {
-                    Chip(text: "Ready", tint: DS.Color.success, filled: true)
-                } else {
-                    ActionButton(title: "Open System Settings", emphasis: .normal) {
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!)
-                    }
-                }
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
+            Label("Calendar · work and personal accounts", systemImage: "calendar")
+            Label("Mail · your Gmail inboxes together", systemImage: "envelope")
+            Label("Notes · capture meetings and find decisions", systemImage: "book.closed")
+            Hint("Calendar, Gmail and AI apps each have their own Connect action. Optional cloud features need a Concourse account; local notes and dictation don’t.")
+            ActionButton(title: "Open Connected apps", emphasis: .normal) {
+                onDone()
+                NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections)
             }
-            ToggleRow(
-                title: "Start Voice Notes at login",
-                hint: "The push-to-talk key and call detection only work while it's running.",
-                isOn: $settings.launchAtLogin
-            )
-            if hasClaudeDesktop {
-                PermissionRow(
-                    title: "Claude Desktop",
-                    detail: claudeMessage ?? "Let Claude read your notes on this Mac. Nothing leaves the machine.",
-                    isGranted: claudeConfigured,
-                    grantTitle: "Connect"
-                ) {
-                    do {
-                        try ClaudeDesktopIntegration.configure()
-                        claudeConfigured = true
-                        claudeMessage = "Connected. Quit and reopen Claude Desktop to load it."
-                    } catch { claudeMessage = error.localizedDescription }
-                }
-            }
-            HStack(spacing: DS.Space.md) {
-                VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    Text("Voice Notes account").font(DS.Font.body).foregroundStyle(DS.Color.text)
-                    Hint(account.isConnected ? "Signed in as " + account.email
-                         : "Optional. Notes on the web, Google Calendar, and ChatGPT or Claude from anywhere.")
-                }
-                Spacer()
-                if account.isConnected {
-                    Chip(text: "Signed in", tint: DS.Color.success, filled: true)
-                } else {
-                    ActionButton(title: account.isSigningIn ? "Signing in…" : "Sign in", emphasis: .quiet) {
-                        Task { await account.signIn() }
-                    }.disabled(account.isSigningIn)
-                }
-            }
-        }
+            ToggleRow(title: "Start Concourse at login", hint: "Keep dictation and meeting detection ready.", isOn: $settings.launchAtLogin)
+        }.font(DS.Font.body)
     }
 
     private var done: some View {
@@ -280,8 +266,8 @@ struct OnboardingView: View {
             Text("Hold \(settings.triggerSummary) anywhere to dictate.")
                 .font(DS.Font.headline)
                 .foregroundStyle(DS.Color.text)
-            Hint("Voice Notes offers to record when a call starts in Meet, Zoom or Teams. "
-                 + "Your notes, the dictionary and every setting are in the menu bar under Settings.")
+            Hint("Concourse offers to record when a call starts in Meet, Zoom or Teams. "
+                 + "Open Concourse for Today, Calendar, Mail and Notes. Connected apps brings your accounts together; Settings holds dictation and meeting preferences.")
         }
     }
 
@@ -290,7 +276,7 @@ struct OnboardingView: View {
         return VStack(alignment: .leading, spacing: DS.Space.sm) {
             Hint("Accessibility was granted before, so the stored entry belongs to an older build. "
                  + "Don't toggle it — reset that one entry, then quit System Settings entirely and "
-                 + "re-add Voice Notes:")
+                 + "re-add Concourse:")
             HStack(spacing: DS.Space.sm) {
                 Text(command)
                     .font(DS.Font.readout)

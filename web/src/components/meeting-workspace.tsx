@@ -1,6 +1,12 @@
 "use client";
+import { CalendarEditor } from "./calendar-editor";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import type {WorkspaceEvent} from "@/lib/calendar-workspace";
 import { DateField } from "./date-field";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -44,53 +50,57 @@ export function MeetingWorkspace({
         calendar_id: string;
         name: string;
         selected: boolean;
+        can_write?: boolean;
       }[]
     >([]),
     [source, setSource] = useState("");
   const [mounted, setMounted] = useState(false);
-  const [events, setEvents] = useState<CalendarMeeting[]>([]),
+  const [events, setEvents] = useState<WorkspaceEvent[]>([]),
     [notes, setNotes] = useState<CloudSession[]>([]),
-    [selected, setSelected] = useState<CalendarMeeting | null>(null),
+    [selected, setSelected] = useState<WorkspaceEvent | null>(null),
     [date, setDate] = useState(new Date()),
     [view, setView] = useState("Agenda"),
     [busy, setBusy] = useState(true),
     [error, setError] = useState(""),
     [query, setQuery] = useState(""),
     [connected, setConnected] = useState(false),
-    [freshness, setFreshness] = useState("");
+    [freshness, setFreshness] = useState(""),[pending,setPending]=useState(false);
+  const requestVersion=useRef(0);
+  const grid=useRef<FullCalendar>(null);
+  const [creation,setCreation]=useState<{date:Date;end:Date;allDay:boolean} | null>(null);
+  const [editing,setEditing]=useState<WorkspaceEvent | null | undefined>(undefined);
   async function load(refresh = false) {
+    const version=++requestVersion.current;
+    const first=new Date(date.getFullYear(),date.getMonth(),1);
+    const from=view==="Month"?addDays(first,-((first.getDay()+6)%7)):new Date(date.getFullYear(),date.getMonth(),date.getDate());
+    if(view==="Week"&&!home) from.setDate(from.getDate()-((from.getDay()+6)%7));
+    const to=addDays(from,home || view==="Day"?1:view==="Month"?42:7);
     setBusy(true);
     setError("");
     try {
       const [r, n] = await Promise.all([
-        fetch("/api/calendar?workspace=1", {
-          method: refresh ? "POST" : "GET",
-        }),
+        fetch(`/api/calendar/events?${new URLSearchParams({from:from.toISOString(),to:to.toISOString(),...(refresh?{refresh:"1"}:{})})}`),
         fetch("/api/sessions?order=recent"),
       ]);
       const body = await r.json();
       if (!r.ok) throw new Error(body.error);
+      if(version!==requestVersion.current) return;
+      setPending(Boolean(body.pending));
       setEvents(body.events);
       setCalendars(body.calendars || []);
       setConnected(Boolean(body.connections?.length));
-      setFreshness(
-        body.connections
-          ?.filter((c: { error: string }) => c.error)
-          .map(
-            (c: { email: string; error: string }) => `${c.email}: ${c.error}`,
-          )
-          .join(" · ") || "",
-      );
+      setFreshness(body.failures?.map((c:{message:string})=>c.message).join(" · ") || "");
       if (n.ok) {
         const b = await n.json();
         setNotes(b.sessions.filter((s: CloudSession) => !s.deleted_at));
       }
     } catch (e) {
+      if(version!==requestVersion.current) return;
       setError(
         e instanceof Error ? e.message : "Could not load your calendar.",
       );
     } finally {
-      setBusy(false);
+      if(version===requestVersion.current) setBusy(false);
     }
   }
   useEffect(() => {
@@ -100,8 +110,9 @@ export function MeetingWorkspace({
       location.replace(`/notes?note=${encodeURIComponent(id)}`);
       return;
     }
-    void load();
   }, []);
+  useEffect(()=>{void load();const timer=setInterval(()=>{if(document.visibilityState==="visible") void load();},30000);const focus=()=>void load();window.addEventListener("focus",focus);return()=>{clearInterval(timer);window.removeEventListener("focus",focus);requestVersion.current++;};},[date,view,home]);
+  useEffect(()=>{grid.current?.getApi().gotoDate(date);grid.current?.getApi().changeView(view==="Month"?"dayGridMonth":view==="Day"?"timeGridDay":"timeGridWeek");},[date,view]);
   const days = useMemo(() => {
     const first = new Date(date.getFullYear(), date.getMonth(), 1);
     const start = !home && view === "Month" ? addDays(first, -((first.getDay() + 6) % 7)) : date;
@@ -114,20 +125,20 @@ export function MeetingWorkspace({
   }
   const filtered = events.filter(
     (e) =>
-      e.title.toLowerCase().includes(query.toLowerCase()) &&
+      [e.title,e.details?.description,e.details?.location,...e.attendees.map(a=>a.email || a.name)].filter(Boolean).join(" ").toLowerCase().includes(query.toLowerCase()) &&
       (!source || `${e.connection_id}|${e.calendar_id}` === source),
   );
-  const noteFor = (e: CalendarMeeting) =>
+  const noteFor = (e: WorkspaceEvent) =>
     notes.find(
       (n) =>
-        n.document.session.calendarEventID === e.id ||
-        n.document.session.calendarEventID === `google-${e.id}`,
+        n.document.session.calendarEventID === e.stable_id ||
+        (e.legacy_id_unique===true && (n.document.session.calendarEventID === e.id || n.document.session.calendarEventID === `google-${e.id}`)),
     );
-  async function prepare(e: CalendarMeeting) {
+  async function prepare(e: WorkspaceEvent) {
     setError("");
     try {
       const document = newDocument(e.title);
-      document.session.calendarEventID = `google-${e.id}`;
+      document.session.calendarEventID = e.stable_id;
       document.session.attendees = e.attendees;
       if (e.booking) {
         document.session.booking = {
@@ -158,7 +169,7 @@ export function MeetingWorkspace({
     return (
       <Shell email={email}>
         <header className="page-header">
-          <h1>{home ? "Home" : "Calendar"}</h1>
+          <h1>{home ? "Today" : "Calendar"}</h1>
           <p role="status">Loading your meetings…</p>
         </header>
       </Shell>
@@ -168,14 +179,15 @@ export function MeetingWorkspace({
       <header className="page-header">
         <div className="heading-row">
           <div>
-            <h1>{home ? "Home" : "Calendar"}</h1>
+            <h1>{home ? "Today" : "Calendar"}</h1>
             <p>
               {home
                 ? "Meetings and notes for your day."
                 : "Your meetings, guest details and notes."}
             </p>
           </div>
-          <a className="button primary" href="murmur://cloud">
+          {!home && <button className="button primary" onClick={()=>{setCreation(null);setEditing(null);}}>New event</button>}
+          <a className="button" href="murmur://cloud">
             Open Mac to record <ArrowUpRight size={16} />
           </a>
         </div>
@@ -185,6 +197,7 @@ export function MeetingWorkspace({
           {error} <button onClick={() => load()}>Try again</button>
         </p>
       )}
+      {pending && <p className="muted" role="status">Updating calendars · downloaded events are shown.</p>}
       {freshness && (
         <p className="notice" role="status">
           Calendar needs attention. Cached meetings are shown. {freshness}{" "}
@@ -298,7 +311,8 @@ export function MeetingWorkspace({
             </div>
           )}
           {!home && view === "Month" && <h2 className="month-heading">{date.toLocaleDateString("en-AU", { month: "long", year: "numeric" })}</h2>}
-          <div
+          {!home && view!=="Agenda" && <FullCalendar ref={grid} plugins={[dayGridPlugin,timeGridPlugin,interactionPlugin]} initialDate={date} initialView={view==="Month"?"dayGridMonth":view==="Day"?"timeGridDay":"timeGridWeek"} headerToolbar={false} firstDay={1} height="70vh" scrollTime="08:00:00" scrollTimeReset={false} slotEventOverlap={false} eventMinHeight={24} eventShortHeight={32} slotLabelFormat={{hour:"numeric",minute:"2-digit",hour12:true}} dayHeaderFormat={{weekday:"short",day:"numeric"}} nowIndicator allDayText="All day" selectable eventClick={info=>setSelected(info.event.extendedProps.original)} select={info=>{setCreation({date:info.start,end:info.end,allDay:info.allDay});setEditing(null);}} events={filtered.map(e=>({id:e.stable_id,title:e.title,start:e.details?.all_day?e.details.start_date:e.starts_at,end:e.details?.all_day?e.details.end_date:e.ends_at,allDay:e.details?.all_day,extendedProps:{original:e}}))}/>}
+          {(home || view==="Agenda") && <div
             className={
               !home && view === "Month" ? "calendar-month" : view === "Week" && !home ? "calendar-week" : "calendar-agenda"
             }
@@ -309,7 +323,7 @@ export function MeetingWorkspace({
             )}
             {days.map((d) => {
               const es = filtered.filter(
-                (e) => dayKey(new Date(e.starts_at)) === dayKey(d),
+                (e) => new Date(e.ends_at)>new Date(d.getFullYear(),d.getMonth(),d.getDate()) && new Date(e.starts_at)<addDays(new Date(d.getFullYear(),d.getMonth(),d.getDate()),1),
               );
               if (!home && view === "Agenda" && !es.length) return null;
               return (
@@ -325,11 +339,11 @@ export function MeetingWorkspace({
                     (!home && view === "Month" ? es.slice(0, 3) : es).map((e) => (
                       <button
                         className="meeting-card"
-                        key={`${e.id}-${e.starts_at}`}
+                        key={e.stable_id}
                         onClick={() => setSelected(e)}
                       >
                         <span className="meeting-time">
-                          {time(e.starts_at)}{view !== "Month" || home ? `–${time(e.ends_at)}` : ""}
+                          {e.details?.all_day?"All day":time(e.starts_at)}{!e.details?.all_day && (view !== "Month" || home) ? `–${time(e.ends_at)}` : ""}
                         </span>
                         <strong>{e.title}</strong>
                         <span className="meeting-context">
@@ -352,13 +366,7 @@ export function MeetingWorkspace({
                 </section>
               );
             })}
-          </div>
-          {!home && (
-            <p className="fine-print">
-              Times in {Intl.DateTimeFormat().resolvedOptions().timeZone}.
-              Connected meetings are cached for the previous and next 90 days.
-            </p>
-          )}
+          </div>}
           {home && (
             <section className="settings-section">
               <div className="heading-row">
@@ -436,7 +444,7 @@ export function MeetingWorkspace({
                   >
                     {d.getDate()}
                     {events.some(
-                      (e) => dayKey(new Date(e.starts_at)) === dayKey(d),
+                      (e) => new Date(e.ends_at)>new Date(d.getFullYear(),d.getMonth(),d.getDate()) && new Date(e.starts_at)<addDays(new Date(d.getFullYear(),d.getMonth(),d.getDate()),1),
                     ) && <span className="calendar-dot" />}
                   </button>
                 ),
@@ -452,6 +460,7 @@ export function MeetingWorkspace({
           </section>
         </aside>
       </div>
+      {editing!==undefined && <CalendarEditor event={editing || undefined} date={creation?.date || date} endDate={creation?.end} allDayDefault={creation?.allDay} calendars={calendars} onClose={()=>setEditing(undefined)} onSaved={()=>{setEditing(undefined);setSelected(null);void load(true);}}/>}
       {selected && (
         <Dialog label="Meeting details" onClose={() => setSelected(null)}>
           <div className="heading-row">
@@ -472,6 +481,9 @@ export function MeetingWorkspace({
             {new Date(selected.starts_at).toLocaleString()} –{" "}
             {time(selected.ends_at)}
           </p>
+          <p>{calendars.find(c=>c.connection_id===selected.connection_id&&c.calendar_id===selected.calendar_id)?.name}</p>
+          {selected.details?.location && <p>{selected.details.location}</p>}
+          {selected.details?.description && <p className="event-description">{selected.details.description}</p>}
           <p>{selected.attendees.map((a) => a.name).join(", ")}</p>
           {selected.booking && (
             <>
@@ -494,6 +506,8 @@ export function MeetingWorkspace({
             </>
           )}
           <div className="form-actions">
+            {calendars.some(c=>c.connection_id===selected.connection_id&&c.calendar_id===selected.calendar_id&&c.can_write) && <button className="button" onClick={()=>{setEditing(selected);setSelected(null);}}>Edit event</button>}
+            {selected.details?.response && <label className="field"><span>Your response</span><select value={selected.details.response} onChange={async e=>{try{const r=await fetch("/api/calendar/events",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({connection_id:selected.connection_id,calendar_id:selected.calendar_id,id:selected.id,etag:selected.details.etag,response:e.target.value})});const b=await r.json();if(!r.ok) throw new Error(b.error);setSelected(null);void load(true);}catch(e){setError((e as Error).message);}}}><option value="needsAction">No response</option><option value="accepted">Yes</option><option value="tentative">Maybe</option><option value="declined">No</option></select></label>}
             {meetingURL(selected.meeting_url) && (
               <a
                 className="button primary"

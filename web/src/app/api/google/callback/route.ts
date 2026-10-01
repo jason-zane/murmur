@@ -14,6 +14,7 @@ import { siteURL } from "@/lib/config";
 export async function GET(request: Request) {
   let bookingFlow = false;
   let mailFlow = false;
+  let inboxFlow = false;
   try {
     const { user } = await requestAuth(request),
       params = new URL(request.url).searchParams,
@@ -29,15 +30,20 @@ export async function GET(request: Request) {
     const expected = JSON.parse(stored) as {
       state: string;
       verifier: string;
+      userID?: string;
       booking?: boolean;
       mail?: boolean;
+      inbox?: boolean;
     };
     bookingFlow = Boolean(expected.booking);
     mailFlow = Boolean(expected.mail);
+    inboxFlow = Boolean(expected.inbox);
     const a = Buffer.from(state),
       b = Buffer.from(expected.state);
     if (a.length !== b.length || !timingSafeEqual(a, b))
       throw new Error("This connection request has expired. Please try again.");
+    if (!expected.userID || expected.userID !== user.id)
+      throw new Error("Your Concourse account changed during connection. Restart from Connected apps in the account you want to use.");
     const token = await googleToken({
       grant_type: "authorization_code",
       code,
@@ -45,12 +51,8 @@ export async function GET(request: Request) {
       code_verifier: expected.verifier,
     });
     const granted = token.scope?.split(" ").filter(Boolean) ?? [];
-    if (!canReadEvents(granted))
+    if (!inboxFlow && !canReadEvents(granted))
       throw new Error("Allow read-only Calendar access to show your agenda.");
-    if (!token.refresh_token)
-      throw new Error(
-        "Google did not provide offline access. Reconnect and allow Calendar access.",
-      );
     const response = await fetch(
       "https://openidconnect.googleapis.com/v1/userinfo",
       {
@@ -58,15 +60,19 @@ export async function GET(request: Request) {
         signal: AbortSignal.timeout(15000),
       },
     );
-    const profile = response.ok ? await response.json() : {};
+    if(!response.ok) throw new Error("Could not confirm this Google account. Try connecting again.");
+    const profile=await response.json();
+    if(!profile.sub || !profile.email || !profile.email_verified) throw new Error("Connect a verified Google account.");
+    if(inboxFlow && !granted.includes("https://www.googleapis.com/auth/gmail.modify")) throw new Error("Allow mailbox access to connect Gmail.");
     const id = await saveConnection(
       user.id,
       profile.email || null,
       granted,
       token.refresh_token,
+      profile.sub,
     );
     const connection = (await connectionsFor(user.id)).find((c) => c.id === id);
-    if (connection)
+    if (connection && canReadEvents(connection.scopes))
       await refreshConnection(connection).catch(async (error) => {
         await adminClient()
           .from("calendar_connections")
@@ -88,7 +94,7 @@ export async function GET(request: Request) {
         "Allow sending email to use preparation and follow-up messages.",
       );
     return NextResponse.redirect(
-      mailFlow
+      inboxFlow ? `${siteURL()}/mail?connected=google` : mailFlow
         ? `${siteURL()}/connections?connected=email`
         : bookingFlow
           ? `${siteURL()}/scheduling?connected=booking`
@@ -98,7 +104,7 @@ export async function GET(request: Request) {
     const message =
       e instanceof Error ? e.message : "Could not connect Google Calendar.";
     return NextResponse.redirect(
-      `${siteURL()}/${bookingFlow ? "scheduling" : "connections"}?error=${encodeURIComponent(message)}`,
+      `${siteURL()}/${inboxFlow ? "mail" : bookingFlow ? "scheduling" : "connections"}?error=${encodeURIComponent(message)}`,
     );
   }
 }

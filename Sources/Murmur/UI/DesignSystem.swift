@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// The design system for Voice Notes.
+/// The design system for Concourse.
 ///
 /// Direction: quiet, modern, native. The app should look like it belongs on macOS in 2026 —
 /// system materials, generous whitespace, one accent, depth from soft shadow and hairline
@@ -45,6 +45,7 @@ enum DS {
 
         // Surfaces
         static let window = SwiftUI.Color(nsColor: .windowBackgroundColor)
+        static let calendarEvent = adaptive(light: 0xE8EAF8, dark: 0x30334B)
         static let surface = SwiftUI.Color(nsColor: .controlBackgroundColor)
         static let separator = SwiftUI.Color(nsColor: .separatorColor)
 
@@ -127,8 +128,29 @@ enum DS {
         static let calendarSearchWidth: CGFloat = 280
         static let calendarMonthCellHeight: CGFloat = 132
         static let calendarMonthPreviewCount = 3
-        static let calendarTimeWidth: CGFloat = 112
+        static let calendarTimeWidth: CGFloat = 72
+        static let calendarDayMinimumWidth: CGFloat = 100
         static let calendarDayWidth: CGFloat = 180
+        static let calendarOpeningHour = 8
+        static let calendarHourHeight: CGFloat = 64
+        static let calendarEventDetailHeight: CGFloat = 30
+        static let calendarEventTitleWrapHeight: CGFloat = 56
+        static let calendarDayHeaderHeight: CGFloat = 52
+        static let calendarAllDayMaximumHeight: CGFloat = 96
+        static let calendarMinimumEventHeight: CGFloat = 28
+        static let calendarTimelineHeight: CGFloat = 560
+        static let mailNavigationWidth: CGFloat = 176
+        static let mailListMinimumWidth: CGFloat = 240
+        static let mailListMaximumWidth: CGFloat = 420
+        static let mailListWidth: CGFloat = 300
+        static let mailReaderWidth: CGFloat = 280
+        static let mailComposerWidth: CGFloat = 640
+        static let mailComposerBodyHeight: CGFloat = 260
+        static let mailHTMLHeight: CGFloat = 320
+        static let mailHTMLMinimumHeight: CGFloat = 40
+        static let mailHTMLMaximumHeight: CGFloat = 20_000
+        static let mailReaderFontSize: CGFloat = 15
+        static let mailReaderLineHeight: CGFloat = 1.6
         static let meetingDetailWidth: CGFloat = 480
         static let calendarAccent: CGFloat = 3
         static let windowWidth: CGFloat = 1_180
@@ -179,9 +201,11 @@ enum DS {
     }
 
     enum Timing {
+        static let mailboxRefresh: Duration = .seconds(30)
         static let feedback: Duration = .milliseconds(1_600)
         static let searchDebounce: Duration = .milliseconds(180)
         static let autosave: Duration = .milliseconds(800)
+        static let calendarRefresh: Duration = .seconds(30)
         static let refresh: Duration = .seconds(3)
         static let permissionPoll: Duration = .seconds(1)
         static let captureTimeout: Duration = .seconds(15)

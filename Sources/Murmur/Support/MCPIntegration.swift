@@ -36,7 +36,7 @@ enum ClaudeDesktopIntegration {
         ["command": serverPath, "args": allowWrites ? ["--allow-writes"] : []]
     }
     static func configure(allowWrites: Bool = false, configURL: URL = configURL, serverPath: String = serverPath) throws {
-        guard FileManager.default.isExecutableFile(atPath: serverPath) else { throw IntegrationError("Install Voice Notes in Applications before connecting it.") }
+        guard FileManager.default.isExecutableFile(atPath: serverPath) else { throw IntegrationError("Install Concourse in Applications before connecting it.") }
         var object: [String: Any] = [:]
         var original: Data?
         if FileManager.default.fileExists(atPath: configURL.path) {

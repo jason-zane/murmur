@@ -138,7 +138,7 @@ final class SystemAudioCapture: MeetingSystemAudioCapturing, @unchecked Sendable
         outputDeviceUID = outputUID
 
         let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Voice Notes call capture",
+            kAudioAggregateDeviceNameKey: "Concourse call capture",
             kAudioAggregateDeviceUIDKey: "com.jasonhunt.murmur.capture." + UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,

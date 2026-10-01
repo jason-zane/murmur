@@ -476,7 +476,7 @@ function NoteDetail({
     }
   }
   async function deleteNote() {
-    if (busy || !confirm(`Delete “${row.title}” from your Voice Notes account? It will leave the web library. Copies already stored on your Mac remain there.${changed ? " Your unsaved browser draft will also be removed." : ""}`)) return;
+    if (busy || !confirm(`Delete “${row.title}” from your Concourse account? It will leave the web library. Copies already stored on your Mac remain there.${changed ? " Your unsaved browser draft will also be removed." : ""}`)) return;
     setBusy(true);
     setMessage("");
     try {

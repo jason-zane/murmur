@@ -608,7 +608,7 @@ final class MeetingController {
         guard let session else { return }
         do { try store.append([segment], to: session.id) }
         catch {
-            warning = "Couldn't save the latest words. Keep Voice Notes open and free some disk space; the transcript is still in memory."
+            warning = "Couldn't save the latest words. Keep Concourse open and free some disk space; the transcript is still in memory."
             Log.app.error("transcript append failed: \(error.localizedDescription)")
         }
     }

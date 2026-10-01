@@ -79,7 +79,7 @@ final class CloudAccount: NSObject, ASWebAuthenticationPresentationContextProvid
             let configuration = try JSONDecoder().decode(CloudConfiguration.self, from: configData)
             guard configuration.ready, !configuration.desktopClientID.isEmpty,
                   Self.isAcceptableOrigin(configuration.siteURL), Self.isAcceptableOrigin(configuration.supabaseURL) else {
-                throw CloudHTTPError(status: 503, message: "Voice Notes cloud is still being connected. Your local notes are ready to use.")
+                throw CloudHTTPError(status: 503, message: "Concourse cloud is still being connected. Your local notes are ready to use.")
             }
             let verifier = try Self.randomString(), state = try Self.randomString()
             let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded
@@ -179,7 +179,7 @@ final class CloudAccount: NSObject, ASWebAuthenticationPresentationContextProvid
         guard (200..<300).contains(response.statusCode) else {
             let error = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             let text = error?["message"] as? String ?? error?["error_description"] as? String ?? error?["error"] as? String
-            throw CloudHTTPError(status: response.statusCode, message: text ?? "Voice Notes cloud returned \(response.statusCode). Try again shortly.")
+            throw CloudHTTPError(status: response.statusCode, message: text ?? "Concourse cloud returned \(response.statusCode). Try again shortly.")
         }
         return data
     }

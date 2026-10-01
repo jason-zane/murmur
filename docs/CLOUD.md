@@ -1,4 +1,4 @@
-# Voice Notes cloud
+# Concourse cloud
 
 The macOS app remains the recording and dictation engine. Its plain-file library works
 offline. The hosted Next.js companion on Vercel stores an account-owned copy in Supabase,
@@ -37,7 +37,7 @@ Google sends the invitation from the host's own account, and requests a Meet lin
 meeting type uses Meet. If Google refuses, the pending row is removed and nothing is booked;
 a pending row older than ten minutes is released. Guests receive a private link whose
 token sits after `#` and is stored only as a SHA-256 hash. It lets them reschedule or
-cancel, and Google announces either change. Public endpoints require Voice Notes' own
+cancel, and Google announces either change. Public endpoints require Concourse' own
 origin and are rate limited per keyed hash of the address. Guests never read or write the
 database directly.
 
@@ -103,7 +103,7 @@ and retains previous documents. Repeating an identical write is safe. The Mac ma
 a per-account sync index on disk and compares content hashes; it can upload changes after
 a restart or an outage without needing a running in-memory queue.
 
-When both copies changed, Voice Notes preserves the local document as a separate conflict copy
+When both copies changed, Concourse preserves the local document as a separate conflict copy
 before accepting the cloud document. An editor draft is private recovery state and is never
 uploaded. Local removal is not a cloud deletion: deletion must be explicit in the cloud
 library. This prevents an offline or disconnected Mac from silently deleting shared data.
@@ -116,3 +116,40 @@ eligible for the next pass. Sign-out invalidates pending responses, including ma
 tasks. Cached agenda data is bound to the same account as the local library.
 
 How to run and test the web app is in [DEVELOPMENT.md](DEVELOPMENT.md); how to deploy your own copy is in [SELF-HOSTING.md](SELF-HOSTING.md).
+
+
+## Calendar workspace and Gmail mailbox
+
+`GET /api/calendar/events?from=<ISO>&to=<ISO>` is first-party only and accepts at most
+93 days per request. It returns cached events, source permissions, pending work and
+failures immediately. A one-day boundary cushion preserves date-only events across
+timezones. Clients decide which dates are visible. Calendar jobs checkpoint provider
+pages and commit complete ranges atomically; failures preserve earlier complete data.
+`/api/calendar/dispatch` runs the worker under `CRON_SECRET`. Active clients poll. Private Google push channels renew before expiry; verified notifications
+queue cached ranges, and notifications during pagination trigger a fresh complete pass.
+A worker crash before registration retries the provisional channel. Cron also queues
+15-minute reconciliation passes to recover missed notifications. Visibility, booking availability
+and meeting suggestions have independent preferences.
+
+`/api/mail` is first-party only. It fetches Gmail bodies on demand with separate
+`gmail.modify` consent. Native caches are account-owned and private; web recovery drafts
+are keyed by user, account and draft/operation. Existing MCP grants cannot access Mail.
+
+Sending freezes MIME in encrypted `mail_outbox` rows. Operation UUIDs are idempotency keys
+and RFC Message-IDs. Cancellation reserves a cancelled row when acceptance is uncertain,
+so delayed queue requests cannot resurrect sends. Conditional claims decide whether
+cancellation or dispatch wins. Undo cannot recall a message after dispatch starts.
+Provider timeouts remain uncertain and are reconciled against Sent; missing results
+never justify automatic resend. Only definite failed sends can be explicitly retried.
+Scheduled delivery requires a running server worker.
+
+`calendar_jobs` is service-only. Range, outbox and preference tables have owner-scoped
+first-party read policies and service-only mutations. Existing note sync is unchanged.
+
+## Workspace rollout compatibility
+
+The public `/api/config` advertises `workspaceVersion: 2` for Calendar/Gmail workspace support. Native Gmail setup checks this before opening the hosted flow. An older backend gets an explicit upgrade message; the native calendar retains its legacy upcoming agenda until a range snapshot exists. A cached complete empty range stays authoritative during offline recovery, so deleted events are not resurrected from that legacy agenda.
+
+Native web-session destinations are restricted to Mail, Connections and Scheduling, with an allowlisted Connections focus. Google browser handoffs check the intended Concourse user before authorisation and bind the initiating user to the state cookie. Callback rejects an account switch before exchanging or saving the grant.
+
+The native Google button first requests a bearer/editor-authorised external session handoff. The server returns a one-use Supabase verification URL (no email sent), verifies its owner in the browser, and continues only an allowlisted Google connection. A different already signed-in browser account is not replaced. No Mac refresh/access token is placed in the URL or page. Older backends fall back to an explicit browser sign-in page returning to Connected apps. This smooth handoff requires deploying the updated backend.

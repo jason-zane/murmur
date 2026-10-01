@@ -8,19 +8,19 @@ export async function requestAuth(request: Request) {
     ? await client.auth.getUser(token)
     : await client.auth.getUser();
   if (error || !data.user)
-    throw new HttpError(401, "Sign in to Voice Notes to continue.");
+    throw new HttpError(401, "Sign in to Concourse to continue.");
   if (
     !token &&
     !["GET", "HEAD"].includes(request.method) &&
     request.headers.get("origin") !== siteURL()
   )
-    throw new HttpError(403, "This request must come from Voice Notes.");
+    throw new HttpError(403, "This request must come from Concourse.");
   return { client, user: data.user };
 }
 /** Changes require the signed-in web app or the Mac app, never a connected AI app. */
 export async function requireEditor(
   request: Request,
-  message = "Sign in to Voice Notes to make changes.",
+  message = "Sign in to Concourse to make changes.",
 ) {
   const auth = await requestAuth(request);
   const { data } = await auth.client.rpc("is_murmur_editor");
@@ -39,11 +39,11 @@ export function failure(error: unknown) {
   if (error instanceof HttpError)
     return Response.json({ error: error.message }, { status: error.status });
   console.error(
-    "Voice Notes request failed",
+    "Concourse request failed",
     error instanceof Error ? error.message : "Unknown error",
   );
   return Response.json(
-    { error: "Voice Notes could not complete this request. Try again shortly." },
+    { error: "Concourse could not complete this request. Try again shortly." },
     { status: 500 },
   );
 }

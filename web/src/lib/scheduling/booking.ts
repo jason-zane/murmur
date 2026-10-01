@@ -85,10 +85,10 @@ export async function rateLimit(
     throw new HttpError(429, "Too many requests. Wait a minute and try again.");
 }
 
-/** Public requests must come from Voice Notes' own booking pages. */
+/** Public requests must come from Concourse' own booking pages. */
 export function sameOrigin(request: Request) {
   if (request.headers.get("origin") !== siteURL())
-    throw new HttpError(403, "Book from the Voice Notes booking page.");
+    throw new HttpError(403, "Book from the Concourse booking page.");
 }
 
 export async function publicEventType(handle: string, slug: string) {
@@ -171,7 +171,7 @@ export async function hostBusy(
       .from("calendar_sources")
       .select("connection_id,calendar_id")
       .eq("user_id", userID)
-      .eq("selected", true),
+      .eq("blocks_availability", true),
     db
       .from("device_busy_times")
       .select("blocks")
@@ -305,7 +305,7 @@ function eventBody(
       ? answers.map((a) => `${a.question}\n${a.answer}`).join("\n\n")
       : "",
     `Need to make a change? Reschedule or cancel: ${manageURL}`,
-    "Booked with Voice Notes.",
+    "Booked with Concourse.",
   ].filter(Boolean);
   return {
     summary: `${type.title}: ${profile.display_name} and ${guest.name}`,

@@ -32,7 +32,7 @@ export default async function Page({ params }: Params) {
         questions={type.questions}
       />
       <p className="book-foot">
-        <BrandMark compact /> Scheduling by Voice Notes
+        <BrandMark compact /> Scheduling by Concourse
       </p>
     </main>
   );

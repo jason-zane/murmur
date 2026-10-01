@@ -1,24 +1,24 @@
-# Installing Voice Notes
+# Installing Concourse
 
-Voice Notes runs on macOS 26 (Tahoe) or later, on Apple silicon. It is a small download and
+Concourse runs on macOS 26 (Tahoe) or later, on Apple silicon. It is a small download and
 it keeps everything on your Mac unless you choose to sign in.
 
 ## 1. Download and open
 
-1. Download `VoiceNotes-<version>.dmg` from the
+1. Download `Concourse-<version>.dmg` from the
    [latest release](https://github.com/jason-zane/murmur/releases/latest).
-2. Open the disk image and drag **Voice Notes** onto the **Applications** shortcut beside it.
+2. Open the disk image and drag **Concourse** onto the **Applications** shortcut beside it.
    It has to live in Applications: starting at login and the Claude Desktop connection both
    point at the app's location.
-3. Eject the disk image and open Voice Notes from Applications.
+3. Eject the disk image and open Concourse from Applications.
 
-### "Apple could not verify Voice Notes is free of malware"
+### "Apple could not verify Concourse is free of malware"
 
-Voice Notes is signed but **not notarised** — that needs a paid Apple developer account,
+Concourse is signed but **not notarised** — that needs a paid Apple developer account,
 which this project doesn't have. macOS therefore blocks the first launch. Once, do this:
 
 1. Open **System Settings ▸ Privacy & Security**.
-2. Scroll to the *Security* section. A line says *"Voice Notes" was blocked to protect your
+2. Scroll to the *Security* section. A line says *"Concourse" was blocked to protect your
    Mac*. Click **Open Anyway** and confirm.
 
 Or, from Terminal:
@@ -45,7 +45,7 @@ reports right now, so you can see when a grant has taken.
 | **Calendars** | Naming meetings after the event and knowing who was there. Read-only. | Optional |
 
 Accessibility can't be requested by an app — macOS opens System Settings and you switch
-Voice Notes on there. If the switch is already **on** but Voice Notes still says it isn't
+Concourse on there. If the switch is already **on** but Concourse still says it isn't
 granted, the stored grant belongs to an older copy of the app. Don't toggle it. Reset that
 one entry and add the app again:
 
@@ -90,14 +90,14 @@ the download button appears right there. Until it's downloaded, Apple is used.
 
 ## Updating
 
-Voice Notes checks the project's releases once a day (Settings ▸ General) and shows
+Concourse checks the project's releases once a day (Settings ▸ General) and shows
 **Update available** in the menu bar. Download the new disk image and drag it over the old
 copy in Applications. Your permissions survive because every release is signed the same
 way; your notes are never inside the app.
 
 ## Uninstalling
 
-Drag Voice Notes out of Applications. Your notes are ordinary files you may want to keep:
+Drag Concourse out of Applications. Your notes are ordinary files you may want to keep:
 
 ```text
 ~/Library/Application Support/Murmur/          notes, transcripts, the dictionary
@@ -106,5 +106,5 @@ Drag Voice Notes out of Applications. Your notes are ordinary files you may want
 
 Delete those to remove everything. If you connected Claude Desktop, remove the `murmur`
 entry from `~/Library/Application Support/Claude/claude_desktop_config.json` (a backup of
-the file from before Voice Notes touched it sits next to it). If you signed in, your
+the file from before Concourse touched it sits next to it). If you signed in, your
 account can be deleted from the web app's Settings; that removes every synced note.

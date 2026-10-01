@@ -5,9 +5,9 @@ import "@fontsource/dm-sans/600.css";
 import "@fontsource/dm-sans/700.css";
 import "./globals.css";
 export const metadata: Metadata = {
-  title: "Voice Notes — meetings and dictation",
+  title: "Concourse — your day, connected",
   description:
-    "Your meeting notes, close at hand. Record on your Mac, keep your own words, and connect your conversations to the apps you use.",
+    "Your calendars, Gmail inboxes, notes and dictation in one connected workspace.",
 };
 export default function RootLayout({
   children,

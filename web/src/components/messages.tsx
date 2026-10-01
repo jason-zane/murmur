@@ -88,12 +88,12 @@ export function EmailConnection() {
           <Mail size={18} /> Email
         </h2>
         <a className="button small" href="/api/google/connect?mail=1">
-          Connect Gmail
+          Allow booking emails
         </a>
       </div>
       <p>
         Send preparation, reminders and reviewed follow-ups from your own
-        account. Replies go to your inbox. Voice Notes does not read your email.
+        account. Replies go to your inbox. This permission allows sending only. Connecting a Gmail inbox above separately allows reading and organising mail.
       </p>
       {data && (
         <div className="form-grid">

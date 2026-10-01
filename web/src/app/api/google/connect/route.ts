@@ -9,9 +9,9 @@ import { BOOKING_SCOPES, READ_SCOPES } from "@/lib/google";
 // permissions booking needs, for the account named in ?account=.
 export async function GET(request: Request) {
   try {
-    await requireEditor(
+    const { user } = await requireEditor(
       request,
-      "Calendar settings require signing in to Voice Notes.",
+      "Calendar settings require signing in to Concourse.",
     );
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)
       throw new HttpError(
@@ -19,6 +19,11 @@ export async function GET(request: Request) {
         "Google Calendar setup is still being completed.",
       );
     const params = new URL(request.url).searchParams;
+    const expectedUser = params.get("expected_user");
+    if (expectedUser && expectedUser !== user.id) {
+      return NextResponse.redirect(new URL("/connections?error=" + encodeURIComponent("This browser is signed in to a different Concourse account from your Mac. Sign out in Account settings, then sign in to the same account before connecting Google."), siteURL()));
+    }
+    const inbox=params.get("inbox")==="1";
     const mail = params.get("mail") === "1";
     const booking = params.get("booking") === "1",
       add = params.get("add") === "1",
@@ -28,7 +33,7 @@ export async function GET(request: Request) {
       jar = await cookies();
     jar.set(
       "murmur-google",
-      JSON.stringify({ state, verifier, booking, mail }),
+      JSON.stringify({ state, verifier, userID: user.id, booking, mail, inbox }),
       {
         httpOnly: true,
         secure: siteURL().startsWith("https:"),
@@ -42,7 +47,7 @@ export async function GET(request: Request) {
       redirect_uri: `${siteURL()}/api/google/callback`,
       response_type: "code",
       scope: [
-        ...(booking ? BOOKING_SCOPES : READ_SCOPES),
+        ...(inbox ? ["openid","email","https://www.googleapis.com/auth/gmail.modify"] : booking ? BOOKING_SCOPES : READ_SCOPES),
         ...(mail ? ["https://www.googleapis.com/auth/gmail.send"] : []),
       ].join(" "),
       access_type: "offline",
@@ -59,6 +64,11 @@ export async function GET(request: Request) {
       `https://accounts.google.com/o/oauth2/v2/auth?${q}`,
     );
   } catch (e) {
+    if (e instanceof HttpError && e.status === 401 && !request.headers.has("authorization")) {
+      const params = new URL(request.url).searchParams;
+      const next = "/api/google/connect" + (params.size ? `?${params}` : "");
+      return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(next)}`, siteURL()));
+    }
     return failure(e);
   }
 }
