@@ -101,12 +101,22 @@ struct MailDraft: Codable, Identifiable, Sendable {
     var sendAt: Date? = nil
     var error: String? = nil
     var updatedAt = Date()
+    func changingSender(to accountID: String) -> MailDraft {
+        guard accountID != self.accountID else { return self }
+        var result = self
+        if providerID != nil { result.id = UUID().uuidString }
+        result.accountID = accountID; result.operationID = UUID().uuidString
+        result.providerID = nil; result.revision = nil; result.threadID = nil
+        result.queued = false; result.cancelRequested = nil; result.error = nil
+        return result
+    }
 }
 
 /// The native mailbox stores only content opened or listed by its owner. It has no
 /// relationship with the notes sync index or third-party MCP permissions.
 @MainActor @Observable
 final class MailWorkspaceStore {
+    var signedInUserID: String? { transport.userID }
     private(set) var accounts: [MailAccount] = []
     private(set) var threads: [MailThread] = []
     private(set) var messages: [MailMessage] = []
@@ -116,6 +126,7 @@ final class MailWorkspaceStore {
     private(set) var outbox: [MailOutboxItem] = []
     private(set) var pages: [String: String] = [:]
     private(set) var loading = false
+    private(set) var readerLoading = false
     private(set) var notice: String?
     private(set) var offline = false
     private var owner: String?
@@ -135,7 +146,7 @@ final class MailWorkspaceStore {
     func reset() {
         generation = UUID(); readerGeneration = UUID(); preferenceSaves = [:]; owner = nil
         providerDrafts = []; providerPages = [:]; accounts = []; threads = []; messages = []; drafts = []; outbox = []; pages = [:]
-        loading = false; notice = nil; offline = false
+        loading = false; readerLoading = false; notice = nil; offline = false
     }
     private func key(_ value: String) -> String { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }
     private func file(_ name: String, userID: String) -> URL { root.appendingPathComponent(key(userID)).appendingPathComponent(key(name) + ".json") }
@@ -158,7 +169,7 @@ final class MailWorkspaceStore {
     }
     func load(accountID: String, query: String, more: Bool = false, metadataOnly: Bool = false) async {
         let run = UUID(); generation = run
-        guard !PreviewEnvironment.isActive, let userID = transport.userID else { reset(); return }
+        guard !PreviewEnvironment.isActive || PreviewEnvironment.launchAction == "mail" && transport is PreviewMailTransport, let userID = transport.userID else { reset(); return }
         if owner != userID { reset(); owner = userID; generation = run }
         loading = true; notice = nil
         defer { if generation == run { loading = false } }
@@ -174,26 +185,42 @@ final class MailWorkspaceStore {
             try write(page, name: "accounts", userID: userID)
             if metadataOnly { await flushQueued(userID: userID); return }
             var items: [MailThread] = [], next: [String: String] = [:], terminal: Set<String> = [], failures: [String] = []
-            for account in accounts.filter({ accountID.isEmpty || $0.id == accountID }) {
-                if more && pages[account.id] == nil { continue }
+            let requests = accounts.filter { (accountID.isEmpty || $0.id == accountID) && (!more || pages[$0.id] != nil) }.map { account in
+                let params = ["account": account.id, "q": query].merging(more ? pages[account.id].map { ["page": $0] } ?? [:] : [:]) { _, last in last }
+                return (account, path(params))
+            }
+            // Account transports are MainActor-bound, but their network suspension
+            // overlaps. Cap concurrent requests so many mailboxes cannot flood it.
+            let responses = await withTaskGroup(of: (MailAccount, Result<Data, Error>).self) { group in
+                var pending = requests.makeIterator(), results: [(MailAccount, Result<Data, Error>)] = []
+                for _ in 0..<3 {
+                    if let request = pending.next() { group.addTask { await self.accountResponse(request) } }
+                }
+                while let response = await group.next() {
+                    results.append(response)
+                    if Task.isCancelled { group.cancelAll() }
+                    else if let request = pending.next() { group.addTask { await self.accountResponse(request) } }
+                }
+                return results
+            }
+            var failed: Set<String> = []
+            for (account, response) in responses {
                 do {
-                    let params = ["account": account.id, "q": query].merging(more ? pages[account.id].map { ["page": $0] } ?? [:] : [:]) { _, last in last }
-                    let data = try await transport.request(path(params), method: "GET", body: nil)
-                    guard generation == run, current(userID), !Task.isCancelled else { return }
-                    let page = try CloudCoding.decoder.decode(ThreadsPage.self, from: data)
+                    let page = try CloudCoding.decoder.decode(ThreadsPage.self, from: response.get())
                     items += page.threads.map { var thread = $0; thread.accountID = account.id; return thread }
                     next[account.id] = page.next_page
                     if page.next_page == nil { terminal.insert(account.id) }
-                } catch { failures.append(account.label + ": " + error.localizedDescription) }
+                } catch { failed.insert(account.id); failures.append(account.label + ": " + error.localizedDescription) }
             }
             guard generation == run, current(userID), !Task.isCancelled else { return }
-            if failures.isEmpty {
+            if failures.count < responses.count || responses.isEmpty {
                 var unique: [String: MailThread] = [:]
-                for thread in (more ? threads : []) + items { unique[thread.identity] = thread }
+                for thread in threads.filter({ more || failed.contains($0.accountID ?? "") }) + items { unique[thread.identity] = thread }
                 threads = unique.values.sorted { $0.date > $1.date }; pages = more ? pages.merging(next) { _, new in new } : next
                 for id in terminal { pages.removeValue(forKey: id) }
                 try write(threads, name: cacheKey, userID: userID)
-            } else { notice = failures.joined(separator: " · ") }
+            }
+            if !failures.isEmpty { notice = failures.sorted().joined(separator: " · ") }
             await flushQueued(userID: userID)
         } catch {
             guard generation == run, current(userID), !Task.isCancelled else { return }
@@ -205,9 +232,15 @@ final class MailWorkspaceStore {
             }
         }
     }
+    private func accountResponse(_ request: (MailAccount, String)) async -> (MailAccount, Result<Data, Error>) {
+        do { return (request.0, .success(try await transport.request(request.1, method: "GET", body: nil))) }
+        catch { return (request.0, .failure(error)) }
+    }
     func open(_ thread: MailThread) async {
         let run = UUID(); readerGeneration = run
-        guard let userID = transport.userID, let accountID = thread.accountID else { return }
+        guard let userID = transport.userID, let accountID = thread.accountID else { closeConversation(); return }
+        readerLoading = true
+        defer { if readerGeneration == run { readerLoading = false } }
         let cacheKey = "reader:" + thread.identity
         messages = read(cacheKey, userID: userID) ?? []
         do {
@@ -216,6 +249,9 @@ final class MailWorkspaceStore {
             let page = try CloudCoding.decoder.decode(ReaderPage.self, from: data)
             messages = page.messages; try write(messages, name: cacheKey, userID: userID)
         } catch { if readerGeneration == run && current(userID) { notice = messages.isEmpty ? "This conversation has not been downloaded. Reconnect to open it." : "Showing your downloaded conversation." } }
+    }
+    func closeConversation() {
+        readerGeneration = UUID(); messages = []; readerLoading = false
     }
     /// A first-party preference update, never a provider call or mail dispatch.
     func saveIdentity(accountID: String, colour: MailboxColour?, icon: MailboxIcon) async throws {

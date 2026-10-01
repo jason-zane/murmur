@@ -100,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         NotificationCenter.default.post(name: .murmurShowSession, object: String(action.dropFirst("session:".count)))
                     } else if action == "dictation" {
                         NotificationCenter.default.post(name: .murmurShowDictation, object: nil)
+                    } else if action == "mail" {
+                        NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.mail)
                     }
                 }
             }

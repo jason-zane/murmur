@@ -15,26 +15,19 @@ struct MailWorkspace: View {
     @State private var preferences: MailAccount?
     @State private var fullMailbox = false
     @State private var formatted = true
+    private let syntheticPreview = PreviewEnvironment.isActive && PreviewEnvironment.launchAction == "mail"
+    init() {
+        if PreviewEnvironment.isActive && PreviewEnvironment.launchAction == "mail", let root = PreviewEnvironment.root {
+            _mailbox = State(initialValue: MailWorkspaceStore(transport: PreviewMailTransport(), root: root.appendingPathComponent("mail")))
+        }
+    }
     private let folders = [("Inbox", "in:inbox"), ("Starred", "is:starred"), ("Sent", "in:sent"), ("Archive", "in:all -in:inbox -in:trash -in:spam"), ("Spam", "in:spam"), ("Bin", "in:trash")]
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
-            HStack {
-                VStack(alignment: .leading, spacing: DS.Space.sm) {
-                    Text("Mail").font(DS.Font.title)
-                }
-                Spacer()
-                ActionButton(title: "New message", systemImage: "square.and.pencil", emphasis: .prominent) { compose() }
-                    .disabled(mailbox.accounts.isEmpty)
-                ActionButton(title: "Full mailbox", emphasis: .normal) { fullMailbox = true }
-                Menu("Mail options") {
-                    Menu("Mailbox appearance") { ForEach(mailbox.accounts) { account in Button(account.label) { preferences = account } } }
-                    Button("Clear downloaded mail") { do { try mailbox.clearDownloaded(); selected = nil } catch { self.error = error.localizedDescription } }
-                    Button("Manage connected accounts") { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
-                }
-            }
             if let error { InlineNotice(text: error, tone: .warning) }
             if let notice = mailbox.notice { InlineNotice(text: notice, tone: .info) }
-            if !CloudAccount.shared.isConnected {
+            if syntheticPreview { Text("Synthetic Mail preview · account actions and sending are disabled.").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary) }
+            if !CloudAccount.shared.isConnected && !syntheticPreview {
                 EmptyState(icon: "envelope", label: "Connect Gmail", detail: "Sign in to your Concourse account, then connect Gmail in Connected apps.")
                 ActionButton(title: "Connect apps", emphasis: .normal) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
             } else {
@@ -49,6 +42,7 @@ struct MailWorkspace: View {
                                     .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
                                 SearchField(text: $query, placeholder: mailbox.offline ? "Search downloaded mail" : "Search mail")
                                     .onSubmit { search = query }
+                                if mailbox.loading { ProgressView("Updating mail…").controlSize(.small).font(DS.Font.caption) }
                             }.padding(DS.Space.md)
                             Divider()
                             if folder == "drafts" { localDrafts.padding(DS.Space.md) }
@@ -61,12 +55,26 @@ struct MailWorkspace: View {
                 .overlay(alignment: .top) { Divider() }
 
             }
-        }.padding(DS.Space.lg)
+        }.padding(DS.Space.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: accountID) { _, _ in selected = nil; search = ""; query = "" }
-        .onChange(of: folder) { _, _ in selected = nil; search = ""; query = "" }
+        .navigationTitle("Mail")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button("New message", systemImage: "square.and.pencil") { compose() }
+                    .disabled(mailbox.accounts.isEmpty).help("Write a new message")
+                Menu("Mail options", systemImage: "ellipsis") {
+                    Button("Full mailbox") { fullMailbox = true }
+                    Menu("Mailbox appearance") { ForEach(mailbox.accounts) { account in Button(account.label) { preferences = account } } }
+                    Button("Clear downloaded mail") { do { try mailbox.clearDownloaded(); selected = nil } catch { self.error = error.localizedDescription } }
+                    Button("Manage connected accounts") { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                }.help("Mail options")
+            }
+        }
+        .onChange(of: accountID) { _, _ in selected = nil; mailbox.closeConversation(); search = ""; query = "" }
+        .onChange(of: folder) { _, _ in selected = nil; mailbox.closeConversation(); search = ""; query = "" }
         .onChange(of: CloudAccount.shared.credentials?.userID) { _, _ in selected = nil; composing = nil; preferences = nil; mailbox.reset() }
         .task(id: refreshID) { await monitor() }
+        .task(id: selected?.identity) { if let selected { await mailbox.open(selected) } }
         .sheet(item: $composing) { draft in
             NativeMailComposer(initial: draft, mailbox: mailbox) { composing = nil; Task { await refresh() } }
         }
@@ -145,14 +153,13 @@ struct MailWorkspace: View {
                 ForEach(mailbox.threads.filter { search.isEmpty || !mailbox.offline || [$0.subject, $0.from, $0.snippet].joined(separator: " ").localizedCaseInsensitiveContains(search) }, id: \.identity) { thread in
                     Button {
                         selected = thread
-                        Task { await mailbox.open(thread) }
                     } label: {
-                        VStack(alignment: .leading, spacing: DS.Space.sm) {
+                        VStack(alignment: .leading, spacing: DS.Space.compact) {
                             HStack { Text(thread.from).font(DS.Font.caption).lineLimit(1); Spacer(); if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) } }
                             Text(thread.subject).font(thread.unread ? DS.Font.bodyEmphasis : DS.Font.body).lineLimit(2)
-                            Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(2)
-                            if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { MailboxBadge(account: account) }
-                        }.padding(DS.Space.md).frame(maxWidth: .infinity, alignment: .leading)
+                            Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
+                            if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { Text(account.label).font(DS.Font.caption).foregroundStyle(DS.Color.mailbox(account.colour)).lineLimit(1) }
+                        }.padding(.horizontal, DS.Space.md).padding(.vertical, DS.Space.sm).frame(maxWidth: .infinity, alignment: .leading)
                             .background(selected?.identity == thread.identity ? DS.Color.accentSoft : .clear, in: RoundedRectangle(cornerRadius: DS.Radius.sm))
                     }.buttonStyle(.plain)
                     Divider()
@@ -167,13 +174,15 @@ struct MailWorkspace: View {
     @ViewBuilder private var reader: some View {
         if let selected {
             VStack(alignment: .leading, spacing: DS.Space.zero) {
-                HStack {
-                    ActionButton(title: "Archive", emphasis: .quiet) { act("archive", selected) }
-                    Menu("Message actions") {
-                        Button(selected.unread ? "Mark read" : "Mark unread") { act(selected.unread ? "read" : "unread", selected) }
-                        Button(selected.starred ? "Unstar" : "Star") { act(selected.starred ? "unstar" : "star", selected) }
-                        Button(folder == "in:trash" ? "Restore" : "Move to Bin") { act(folder == "in:trash" ? "restore" : "trash", selected) }
-                    }
+                HStack(spacing: DS.Space.md) {
+                    readerButton("Reply", icon: "arrowshape.turn.up.left") { if let message = mailbox.messages.last { compose(reply: message) } }.disabled(mailbox.messages.isEmpty)
+                    readerButton("Reply all", icon: "arrowshape.turn.up.left.2") { if let message = mailbox.messages.last { compose(reply: message, replyAll: true) } }.disabled(mailbox.messages.isEmpty)
+                    readerButton("Forward", icon: "arrowshape.turn.up.right") { if let message = mailbox.messages.last { forward(message, account: selected.accountID) } }.disabled(mailbox.messages.isEmpty)
+                    Divider().frame(height: DS.Space.lg)
+                    readerButton("Archive", icon: "archivebox") { act("archive", selected) }
+                    readerButton(selected.unread ? "Mark read" : "Mark unread", icon: selected.unread ? "envelope.open" : "envelope.badge") { act(selected.unread ? "read" : "unread", selected) }
+                    readerButton(selected.starred ? "Unstar" : "Star", icon: selected.starred ? "star.fill" : "star") { act(selected.starred ? "unstar" : "star", selected) }
+                    readerButton(folder == "in:trash" ? "Restore" : "Move to Bin", icon: folder == "in:trash" ? "arrow.uturn.backward" : "trash") { act(folder == "in:trash" ? "restore" : "trash", selected) }
                     Spacer(minLength: DS.Space.zero)
                 }.padding(DS.Space.md)
                 Divider()
@@ -184,7 +193,8 @@ struct MailWorkspace: View {
                     Menu("Message view") {
                         Toggle("Formatted messages", isOn: $formatted)
                     }
-                    if mailbox.messages.isEmpty { Text(mailbox.offline ? "Open this conversation while connected to download it." : "Opening conversation…").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
+                    if mailbox.readerLoading { ProgressView(mailbox.messages.isEmpty ? "Opening conversation…" : "Updating conversation…").controlSize(.small).font(DS.Font.caption) }
+                    else if mailbox.messages.isEmpty { Text(mailbox.offline ? "Open this conversation while connected to download it." : "This conversation is unavailable. Try opening it again.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
                     ForEach(mailbox.messages) { message in
                         VStack(alignment: .leading, spacing: DS.Space.md) {
                             Text(message.from).font(DS.Font.bodyEmphasis)
@@ -228,6 +238,12 @@ struct MailWorkspace: View {
                 }.id(selected.identity)
             }
         } else { EmptyState(icon: "envelope.open", label: "Select a message", detail: "Choose a conversation to read it here.").frame(maxWidth: .infinity, maxHeight: .infinity) }
+    }
+    private func readerButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(title, systemImage: icon, action: action).labelStyle(.iconOnly).buttonStyle(.borderless).tint(DS.Color.textSecondary).help(title).accessibilityLabel(title)
+    }
+    private func forward(_ message: MailMessage, account: String?) {
+        Task { do { guard let account else { return }; composing = try await mailbox.forward(message, accountID: account) } catch { self.error = error.localizedDescription } }
     }
     private var localDrafts: some View {
         ScrollView {
@@ -275,14 +291,22 @@ struct MailWorkspace: View {
     private var mailQuery: String { folder == "drafts" || folder == "outbox" ? "in:inbox" : folder + (search.isEmpty ? "" : " " + search) }
     private func refresh() async {
         await mailbox.load(accountID: accountID, query: mailQuery, metadataOnly: ["drafts", "outbox"].contains(folder))
+        if syntheticPreview, selected == nil, let thread = mailbox.threads.first, !["drafts", "outbox"].contains(folder) { selected = thread }
         if folder == "drafts", !Task.isCancelled { await mailbox.loadProviderDrafts(accountID: accountID) }
     }
     private func act(_ action: String, _ thread: MailThread) {
-        Task { do { try await mailbox.action(action, thread: thread); if ["archive", "trash"].contains(action) { selected = nil }; await refresh() } catch { self.error = error.localizedDescription } }
+        Task {
+            do {
+                try await mailbox.action(action, thread: thread)
+                if selected?.identity == thread.identity, ["archive", "trash"].contains(action) { selected = nil; mailbox.closeConversation() }
+                await refresh()
+                if selected?.identity == thread.identity, let updated = mailbox.threads.first(where: { $0.identity == thread.identity }) { selected = updated }
+            } catch { self.error = error.localizedDescription }
+        }
     }
     private func compose(reply: MailMessage? = nil, replyAll: Bool = false) {
         let sender = reply != nil ? selected?.accountID : accountID.isEmpty ? mailbox.accounts.first?.id : accountID
-        guard let sender, let userID = CloudAccount.shared.credentials?.userID else { return }
+        guard let sender, let userID = mailbox.signedInUserID else { return }
         var draft = MailDraft(accountID: sender, userID: userID)
         if let reply {
             func address(_ value: String) -> String { if let a = value.firstIndex(of: "<"), let b = value.lastIndex(of: ">"), a < b { return String(value[value.index(after: a)..<b]) }; return value.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -314,15 +338,31 @@ private struct NativeMailComposer: View {
                 HStack {
                     Text("New message").font(DS.Font.title)
                     Spacer()
-                    ActionButton(title: "Save and close", emphasis: .quiet) { do { try mailbox.saveLocal(draft); onClose() } catch { self.error = error.localizedDescription } }.disabled(busy)
+                    ActionButton(title: "Save and close", emphasis: .quiet) { do { try mailbox.saveLocal(draft); onClose() } catch { self.error = error.localizedDescription } }.disabled(busy).keyboardShortcut(.cancelAction)
                 }
                 if let error { InlineNotice(text: error, tone: .warning) }
-                Text("From: " + (mailbox.accounts.first { $0.id == draft.accountID }?.label ?? "Disconnected account")).font(DS.Font.bodyEmphasis)
+                Picker("From", selection: Binding(get: { draft.accountID }, set: { sender in
+                    do {
+                        if draft.providerID != nil { try mailbox.saveLocal(draft) }
+                        draft = draft.changingSender(to: sender)
+                        try mailbox.saveLocal(draft)
+                    } catch { self.error = error.localizedDescription }
+                })) {
+                    if !mailbox.accounts.contains(where: { $0.id == draft.accountID }) { Text("Disconnected account").tag(draft.accountID) }
+                    ForEach(mailbox.accounts) { account in Text(account.label).tag(account.id) }
+                }.pickerStyle(.menu).accessibilityLabel("From")
                 TextField("To · email addresses", text: $draft.to).textFieldStyle(.roundedBorder)
                 TextField("Cc", text: $draft.cc).textFieldStyle(.roundedBorder)
                 TextField("Bcc", text: $draft.bcc).textFieldStyle(.roundedBorder)
                 TextField("Subject", text: $draft.subject).textFieldStyle(.roundedBorder)
                 TextEditor(text: $draft.text).frame(minHeight: DS.Layout.mailComposerBodyHeight).disabled(draft.html != nil)
+                    .accessibilityLabel("Message body")
+                    .overlay(alignment: .topLeading) {
+                        if draft.text.isEmpty && draft.html == nil {
+                            Text("Write your message…").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
+                                .padding(DS.Space.sm).allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
                 if draft.html != nil {
                     InlineNotice(text: "Formatted content is preserved. Continue in Full mailbox, or convert it to plain text to edit the body here.", tone: .info)
                     ActionButton(title: "Use plain text", emphasis: .normal) { draft.html = nil }
@@ -335,9 +375,9 @@ private struct NativeMailComposer: View {
                 if scheduled { DatePicker("Send at", selection: Binding(get: { draft.sendAt ?? Date().addingTimeInterval(3_600) }, set: { draft.sendAt = $0 })) }
                 Text("Draft edits are saved on this Mac. Save in Gmail to continue on another device.").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                 HStack {
-                    ActionButton(title: "Save in Gmail", emphasis: .normal) { Task { await saveProvider() } }.disabled(busy)
+                    ActionButton(title: "Save in Gmail", emphasis: .normal) { Task { await saveProvider() } }.disabled(busy || PreviewEnvironment.isActive)
                     Spacer()
-                    ActionButton(title: busy ? "Queueing…" : "Send", emphasis: .prominent) { Task { await send() } }.disabled(busy || draft.to.isEmpty && draft.cc.isEmpty && draft.bcc.isEmpty)
+                    ActionButton(title: busy ? "Queueing…" : "Send", emphasis: .prominent) { Task { await send() } }.disabled(busy || PreviewEnvironment.isActive || !mailbox.accounts.contains { $0.id == draft.accountID } || draft.to.isEmpty && draft.cc.isEmpty && draft.bcc.isEmpty)
                 }
             }.padding(DS.Space.xxl).disabled(busy)
         }.frame(width: DS.Layout.mailComposerWidth, height: DS.Layout.windowHeight)

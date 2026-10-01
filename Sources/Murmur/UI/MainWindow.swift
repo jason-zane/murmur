@@ -12,7 +12,7 @@ struct MainWindow: View {
     let onRecordCalendar: (CalendarEvent) -> Void
     let onShowNotepad: () -> Void
     let onPreviewBar: () -> Void
-    @State private var page: MainPage = .home
+    @State private var page: MainPage = PreviewEnvironment.isActive && PreviewEnvironment.launchAction == "mail" ? .mail : .home
     @AppStorage("workspace.welcome.v2") private var welcomed = false
     @State private var showingWelcome = false
     @State private var selectedSession: String?
