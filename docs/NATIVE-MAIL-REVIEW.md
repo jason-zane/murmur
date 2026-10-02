@@ -50,3 +50,11 @@ and the owned Note → review → editable Mail handoff remain subsequent batche
 The native changes use Apple SDK components and existing system fonts/SF Symbols;
 no third-party design kit or font assets were added. Design reference:
 [Apple toolbar guidance](https://developer.apple.com/design/human-interface-guidelines/toolbars).
+
+## Staged consolidation follow-up (not installed)
+
+The local follow-up moves the native toolbar to the trailing side with standard flexible/fixed spacers, removes the permanent action explainer and duplicate footer commands, and keeps Create note visible. Tooltips/accessibility hints and focus popovers provide help on demand. After thread actions, feedback describes the whole-thread scope and offers Open Bin; restore moves to Inbox, not an exact prior-label undo. Pending actions have owner/thread boundaries and cancelled/old-owner responses cannot report success. Repeated message-to-note creation uses an owner/mailbox/source index and preserves the existing note's edits across relaunch.
+
+22 affected Mail tests pass, including repeat/retry, cancellation, old-owner responses, unauthenticated actions and source-note recovery. Actual synthetic native Bin → Open Bin → Restore, and two Create note actions producing one saved source-aware note, passed. Corrected trailing-toolbar desktop rendering passed. Keyboard/VoiceOver and minimum-width Mail coverage remain unrun/incomplete; the source changed to another workspace during the narrow-window capture and that image was rejected. The preview permits label changes in memory only; no Gmail save/send or real account requests occur.
+
+This is a staged Mail checkpoint, not completion of the product-wide design. `WORKSPACE-INTERACTION-DESIGN.md` defines the next shared cross-screen batch following Jason's feedback.

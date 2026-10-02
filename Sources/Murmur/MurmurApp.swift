@@ -172,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// From a detection — the candidate's app and calendar event name the session.
     func startMeeting(from candidate: MeetingCandidate) {
+        guard !PreviewEnvironment.isActive else { return }
         guard meetings.state == .idle else { return }
         offerStrip?.dismiss()
         detector.dismissOffer()
@@ -186,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// From the Record button or menu — whatever the calendar knows, and nothing else.
     func toggleMeeting() {
+        guard !PreviewEnvironment.isActive else { return }
         if meetings.state.isActive {
             meetings.stop()
         } else {
@@ -209,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func recordCalendarMeeting(_ event: CalendarEvent) {
+        guard !PreviewEnvironment.isActive else { return }
         guard meetings.state == .idle else { return }
         offerStrip?.dismiss()
         detector.dismissOffer()

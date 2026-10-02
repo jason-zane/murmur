@@ -133,6 +133,7 @@ final class MailWorkspaceStore {
     private var generation = UUID()
     private var readerGeneration = UUID()
     private var submitting: Set<String> = []
+    private var actions: [String: UUID] = [:]
     private var preferenceSaves: [String: UUID] = [:]
     private let transport: any CloudSyncTransport
     private let root: URL
@@ -161,7 +162,7 @@ final class MailWorkspaceStore {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
     }
     private func current(_ userID: String) -> Bool {
-        guard transport.userID == userID else { reset(); return false }; return true
+        guard transport.userID == userID else { if owner != transport.userID { reset() }; return false }; return true
     }
     private func path(_ params: [String: String]) -> String {
         var parts = URLComponents(); parts.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -269,10 +270,38 @@ final class MailWorkspaceStore {
             try write(AccountsPage(accounts: accounts, outbox: outbox), name: "accounts", userID: userID)
         }
     }
+    func isActing(on thread: MailThread) -> Bool {
+        guard let userID = transport.userID else { return false }
+        return actions[userID + "|" + thread.identity] != nil
+    }
     func action(_ action: String, thread: MailThread) async throws {
         guard let userID = transport.userID, let account = thread.accountID else { throw CloudHTTPError(status: 401, message: "Sign in to manage Gmail.") }
+        try Task.checkCancellation()
+        let identity = userID + "|" + thread.identity, run = UUID()
+        guard actions[identity] == nil else { throw CloudHTTPError(status: 409, message: "This thread is already updating. Wait for it to finish.") }
+        actions[identity] = run
+        defer { if actions[identity] == run { actions.removeValue(forKey: identity) } }
         _ = try await transport.request("api/mail", method: "POST", body: JSONSerialization.data(withJSONObject: ["action": action, "account": account, "id": thread.id]))
         guard current(userID) else { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+    /// A repeat click/relaunch reopens the existing note without replacing its edits.
+    /// The index belongs to the signed-in owner and selected source mailbox.
+    func createNote(from message: MailMessage, thread: MailThread, notes: SessionStore = SessionStore()) throws -> String {
+        guard let userID = transport.userID, owner == userID, let account = thread.accountID,
+              accounts.contains(where: { $0.id == account }), message.thread_id == thread.id,
+              messages.contains(where: { $0.id == message.id && $0.thread_id == thread.id }) else { throw CloudHTTPError(status: 401, message: "Open a message from a connected mailbox before creating a note.") }
+        let source = key(account + "|" + message.id)
+        var index: [String: String] = read("message-notes", userID: userID) ?? [:]
+        if let id = index[source], notes.session(id: id) != nil { return id }
+        let note = try notes.createNote(title: message.subject)
+        do {
+            let label = accounts.first { $0.id == account }?.label ?? "Gmail account"
+            try notes.saveNote("Mailbox: " + label + "\nFrom: " + message.from + "\nTo: " + message.to + "\nDate: " + message.date + "\n\n" + (message.text.isEmpty ? "This message has no text content. Open the original email to view its formatting and attachments." : message.text), for: note.id)
+            index[source] = note.id
+            try write(index, name: "message-notes", userID: userID)
+            return note.id
+        } catch { try? notes.delete(id: note.id); throw error }
     }
     func outboxAction(_ action: String, id: String) async throws {
         _ = try await transport.request("api/mail", method: "POST", body: JSONSerialization.data(withJSONObject: ["action": action, "id": id]))
