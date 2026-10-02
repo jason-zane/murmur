@@ -7,6 +7,9 @@ struct CalendarWorkspace: View {
     let store: SessionStore
     let onRecord: (CalendarEvent) -> Void
     let canRecord: Bool
+    let meetingActive: Bool
+    let onToggleMeeting: () -> Void
+    let onShowNotes: () -> Void
     @State private var date = Calendar.current.startOfDay(for: Date())
     @AppStorage("workspace.calendar.view") private var mode = "Week"
     @State private var showingStatus = false
@@ -41,7 +44,6 @@ struct CalendarWorkspace: View {
                         Text("Calendar").font(DS.Font.title)
                     }
                     Spacer()
-                    ActionButton(title: "New event", emphasis: .normal) { editEvent = nil; editing = true }.disabled(CalendarService.shared.localSources.isEmpty && !calendarStore.calendars.contains { $0.can_write == true })
                     Segmented(options: [("Agenda", "Agenda"), ("Day", "Day"), ("Week", "Week"), ("Month", "Month")], selection: $mode)
                         .frame(width: DS.Layout.calendarViewPickerWidth)
                 }
@@ -50,46 +52,50 @@ struct CalendarWorkspace: View {
                         ActionButton(title: "Connect a calendar", emphasis: .normal) { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
                     }
                 }
-                HStack(spacing: DS.Space.md) {
-                    Button { shift(-1) } label: { Image(systemName: "chevron.left") }.help("Previous period")
-                    ActionButton(title: "Today", emphasis: .normal) { date = Calendar.current.startOfDay(for: Date()) }
-                    Button { shift(1) } label: { Image(systemName: "chevron.right") }.help("Next period")
-                    Button { pickerMonth = HomeView.firstOfMonth(date); choosingDate.toggle() } label: {
-                        Label(date.formatted(.dateTime.day().month(.wide).year()), systemImage: "calendar")
-                    }
-                    .popover(isPresented: $choosingDate) {
-                        MonthCalendar(month: $pickerMonth, selected: $date, activity: MonthActivity())
-                            .frame(width: DS.Layout.monthGridWidth)
-                            .onChange(of: date) { _, _ in choosingDate = false }
-                    }
-                    Button { showingStatus.toggle() } label: {
-                        Label(calendarStore.needsAttention ? "Needs attention" : "Calendar status", systemImage: calendarStore.needsAttention ? "exclamationmark.triangle" : "info.circle")
-                            .labelStyle(.titleAndIcon)
-                            .font(DS.Font.caption)
-                            .foregroundStyle(calendarStore.needsAttention ? DS.Color.warning : DS.Color.textSecondary)
-                    }.buttonStyle(.plain).help("Calendar status and time zone")
-                    .popover(isPresented: $showingStatus) {
-                        VStack(alignment: .leading, spacing: DS.Space.sm) {
-                            Text("Time zone: " + TimeZone.current.identifier).font(DS.Font.body)
-                            if let message = calendarStore.message { Text(message).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary) }
-                            else { Text(calendarStore.loading ? "Updating calendars…" : "Downloaded calendars are available offline.").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary) }
-                            ActionButton(title: "Connected apps", emphasis: .quiet) { showingStatus = false; NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
-                        }.padding(DS.Space.lg)
-                    }
-                    Menu("Calendars") {
-                        Button("All calendars") { source = ""; reload() }
-                        ForEach(calendarStore.calendars.filter(\.selected)) { calendar in
-                            Button(calendar.name) { source = calendar.id; reload() }
+                WorkspaceSelectionBar {
+                    HStack(spacing: DS.Space.md) {
+                        Button { shift(-1) } label: { Image(systemName: "chevron.left") }.help("Previous period").accessibilityLabel("Previous period")
+                        ActionButton(title: "Today", emphasis: .normal) { date = Calendar.current.startOfDay(for: Date()) }
+                        Button { shift(1) } label: { Image(systemName: "chevron.right") }.help("Next period").accessibilityLabel("Next period")
+                        Button { pickerMonth = HomeView.firstOfMonth(date); choosingDate.toggle() } label: {
+                            Label(date.formatted(.dateTime.day().month(.wide).year()), systemImage: "calendar")
                         }
-                        Divider()
-                        ForEach(CalendarService.shared.localSources) { calendar in
-                            Toggle(calendar.account + " · " + calendar.name, isOn: Binding(get: { CalendarService.shared.isVisible(calendar.id) }, set: { CalendarService.shared.setVisible(calendar.id, visible: $0); reload() }))
+                        .popover(isPresented: $choosingDate) {
+                            MonthCalendar(month: $pickerMonth, selected: $date, activity: MonthActivity())
+                                .frame(width: DS.Layout.monthGridWidth)
+                                .onChange(of: date) { _, _ in choosingDate = false }
                         }
-                        Button("Manage connected accounts") { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
                     }
-                    Spacer()
-                    SearchField(text: $query, placeholder: "Search meetings")
-                        .frame(maxWidth: DS.Layout.calendarSearchWidth)
+                } actions: {
+                    HStack(spacing: DS.Space.md) {
+                        Button { showingStatus.toggle() } label: {
+                            Label(calendarStore.needsAttention ? "Needs attention" : "Calendar status", systemImage: calendarStore.needsAttention ? "exclamationmark.triangle" : "info.circle")
+                                .labelStyle(.titleAndIcon)
+                                .font(DS.Font.caption)
+                                .foregroundStyle(calendarStore.needsAttention ? DS.Color.warning : DS.Color.textSecondary)
+                        }.buttonStyle(.plain).help("Calendar status and time zone")
+                        .popover(isPresented: $showingStatus) {
+                            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                                Text("Time zone: " + TimeZone.current.identifier).font(DS.Font.body)
+                                if let message = calendarStore.message { Text(message).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary) }
+                                else { Text(calendarStore.loading ? "Updating calendars…" : "Downloaded calendars are available offline.").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary) }
+                                ActionButton(title: "Connected apps", emphasis: .quiet) { showingStatus = false; NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                            }.padding(DS.Space.lg)
+                        }
+                        Menu("Calendars") {
+                            Button("All calendars") { source = ""; reload() }
+                            ForEach(calendarStore.calendars.filter(\.selected)) { calendar in
+                                Button(calendar.name) { source = calendar.id; reload() }
+                            }
+                            Divider()
+                            ForEach(CalendarService.shared.localSources) { calendar in
+                                Toggle(calendar.account + " · " + calendar.name, isOn: Binding(get: { CalendarService.shared.isVisible(calendar.id) }, set: { CalendarService.shared.setVisible(calendar.id, visible: $0); reload() }))
+                            }
+                            Button("Manage connected accounts") { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                        }
+                        SearchField(text: $query, placeholder: "Search meetings")
+                            .frame(maxWidth: DS.Layout.calendarSearchWidth)
+                    }
                 }
                 if mode == "Month" {
                     Text(date.formatted(.dateTime.month(.wide).year())).font(DS.Font.headline)
@@ -111,6 +117,22 @@ struct CalendarWorkspace: View {
                 }
         }.padding(DS.Space.lg)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .toolbar {
+            WorkspaceCommandArea {
+                ToolbarItem(id: "workspace-new-event", placement: .primaryAction) {
+                    WorkspaceCommand(title: "New event", systemImage: "calendar.badge.plus", help: "Choose a calendar and review the event before saving.") { editEvent = nil; editing = true }
+                        .disabled(PreviewEnvironment.isActive || (CalendarService.shared.localSources.isEmpty && !calendarStore.calendars.contains { $0.can_write == true }))
+                }
+                ToolbarItem(id: "workspace-calendar-meeting", placement: .primaryAction) {
+                    if meetingActive {
+                        WorkspaceCommand(title: "Show notes", systemImage: "note.text", action: onShowNotes)
+                    } else {
+                        WorkspaceCommand(title: "Record meeting", systemImage: "mic", help: "Record a meeting into a note.", action: onToggleMeeting)
+                            .disabled(!canRecord || PreviewEnvironment.isActive)
+                    }
+                }
+            }
+        }
         .onAppear { reload(); MeetingSchedule.shared.refresh() }
         .onChange(of: date) { _, _ in reload() }
         .onChange(of: mode) { _, _ in reload() }

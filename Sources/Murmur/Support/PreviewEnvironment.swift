@@ -16,6 +16,9 @@ enum PreviewEnvironment {
     }
     static var isActive: Bool { root != nil }
 
+    /// Existing fixture transport for safe cross-workspace UI review.
+    static var hasSyntheticMail: Bool { isActive && ["mail", "home"].contains(launchAction ?? "") }
+
     /// Synthetic connection failure for checking recovery UI without real accounts.
     static var calendarMessage: String? {
         guard isActive, ProcessInfo.processInfo.environment["MURMUR_PREVIEW_CALENDAR_STATUS"] == "unavailable" else { return nil }

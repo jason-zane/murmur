@@ -11,7 +11,6 @@ struct NotesSidebar: View {
     @Binding var match: SessionMatch?
     /// Bumped by the window when a note changed somewhere it can't observe.
     let reloadToken: Int
-    let onNewNote: () -> Void
     @State private var sessions: [MeetingSession] = []
     @State private var query = ""
     @State private var matches: [String: SessionMatch] = [:]
@@ -28,9 +27,7 @@ struct NotesSidebar: View {
                 HStack(spacing: DS.Space.sm) {
                     Text("Notes").font(DS.Font.workspaceListTitle).foregroundStyle(DS.Color.text)
                     Spacer()
-                    Button(action: onNewNote) { Image(systemName: "plus").font(DS.Font.symbol) }
-                        .buttonStyle(.plain).foregroundStyle(DS.Color.textSecondary)
-                        .accessibilityLabel("New note").help("Create a new note")
+
                 }
                 SearchField(text: $query, placeholder: "Search all notes")
                     .focused($searchFocused)

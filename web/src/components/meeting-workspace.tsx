@@ -1,4 +1,5 @@
 "use client";
+import { WorkspaceHeader } from "@/components/workspace-header";
 import { CalendarEditor } from "./calendar-editor";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -176,22 +177,10 @@ export function MeetingWorkspace({
     );
   return (
     <Shell email={email}>
-      <header className="page-header">
-        <div className="heading-row">
-          <div>
-            <h1>{home ? "Today" : "Calendar"}</h1>
-            <p>
-              {home
-                ? "Meetings and notes for your day."
-                : "Your meetings, guest details and notes."}
-            </p>
-          </div>
-          {!home && <button className="button primary" onClick={()=>{setCreation(null);setEditing(null);}}>New event</button>}
-          <a className="button" href="murmur://cloud">
-            Open Mac to record <ArrowUpRight size={16} />
-          </a>
-        </div>
-      </header>
+      <WorkspaceHeader title={home ? "Today" : "Calendar"} context={home ? "Meetings and notes for your day." : "Your meetings, guest details and notes."} actions={<>
+        <a className="button" href="murmur://cloud">Open Mac to record <ArrowUpRight size={16}/></a>
+        {!home && <button className="button primary" onClick={()=>{setCreation(null);setEditing(null);}}>New event</button>}
+      </>}/>
       {error && (
         <p className="notice" role="alert">
           {error} <button onClick={() => load()}>Try again</button>

@@ -15,7 +15,7 @@ struct MurmurApp: App {
                        onToggleMeeting: delegate.toggleMeeting, onRecordCalendar: delegate.recordCalendarMeeting, onShowNotepad: delegate.showNotepad, onPreviewBar: delegate.previewDictationBar)
         }
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowToolbarStyle(.unified(showsTitle: true))
         .defaultSize(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight)
         .windowResizability(.contentMinSize)
         .commands {
@@ -100,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         NotificationCenter.default.post(name: .murmurShowSession, object: String(action.dropFirst("session:".count)))
                     } else if action == "dictation" {
                         NotificationCenter.default.post(name: .murmurShowDictation, object: nil)
+                    } else if action == "mail" {
+                        NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.mail)
                     }
                 }
             }
@@ -170,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// From a detection — the candidate's app and calendar event name the session.
     func startMeeting(from candidate: MeetingCandidate) {
+        guard !PreviewEnvironment.isActive else { return }
         guard meetings.state == .idle else { return }
         offerStrip?.dismiss()
         detector.dismissOffer()
@@ -184,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// From the Record button or menu — whatever the calendar knows, and nothing else.
     func toggleMeeting() {
+        guard !PreviewEnvironment.isActive else { return }
         if meetings.state.isActive {
             meetings.stop()
         } else {
@@ -207,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func recordCalendarMeeting(_ event: CalendarEvent) {
+        guard !PreviewEnvironment.isActive else { return }
         guard meetings.state == .idle else { return }
         offerStrip?.dismiss()
         detector.dismissOffer()

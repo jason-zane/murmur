@@ -71,7 +71,7 @@ open -n --env MURMUR_UI_TESTING=1 --env MURMUR_SESSIONS_DIR=<that path> \
 Preview mode (debug builds only) skips the hotkey, cloud, calendar and call detection, and
 reads notes from the given directory. `MURMUR_PREVIEW_OPEN` raises a screen on launch so a
 screenshot needs no clicking: `settings`, `settings:meetings` (any tab, lower-cased),
-`onboarding`, or `session:<id>`.
+`onboarding`, or `session:<id>`. `home` leaves Today in the background when launched with `open -g`; both `home` and `mail` supply synthetic read-only mail fixtures (label actions affect memory only, while Gmail saves/sends are disabled).
 
 Add `--env MURMUR_PREVIEW_CALENDAR_STATUS=unavailable` to check the calendar recovery
 warning with synthetic events. This works only in debug preview mode and never requests

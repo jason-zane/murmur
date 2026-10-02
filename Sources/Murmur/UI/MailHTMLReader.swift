@@ -3,24 +3,25 @@ import WebKit
 
 /// Provider HTML has already been sanitised on the server. The reader additionally
 /// has no message scripts, app bridge or persistent cookies. Remote images require
-/// an explicit choice scoped to this exact message body.
+/// the same automatic loading policy as web Mail, with a block control scoped to
+/// this exact message body. Sender scripts and persistent cookies stay disabled.
 struct MailHTMLReader: View {
     let html: String
-    @State private var allowedHTML: String?
+    @State private var blockedHTML: String?
     @State private var height = DS.Layout.mailHTMLHeight
     @State private var width = DS.Space.zero
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             if html.contains(" data-concourse-image-src=\"") {
-                Text(allowedHTML == html ? "Remote images allowed for this message." : "Remote images are blocked. Loading them may tell the sender you opened this message.")
-                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
-                ActionButton(title: allowedHTML == html ? "Block remote images" : "Load remote images", emphasis: .quiet) { allowedHTML = allowedHTML == html ? nil : html }
+                Button(blockedHTML == html ? "Load remote images" : "Block remote images") { blockedHTML = blockedHTML == html ? nil : html }
+                    .buttonStyle(.link).font(DS.Font.caption)
+                    .help("Loading remote images may tell the sender you opened this message.")
             }
             if html.contains(" data-concourse-unavailable-image=\"") {
                 Text("Some embedded images are unavailable. You can still download the attachments below.")
                     .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
             }
-            MailHTMLWebView(html: MailHTMLDocument.make(html, allowRemoteImages: allowedHTML == html), width: width, height: $height)
+            MailHTMLWebView(html: MailHTMLDocument.make(html, allowRemoteImages: blockedHTML != html), width: width, height: $height)
                 .frame(height: height)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }.frame(maxWidth: .infinity, alignment: .leading)

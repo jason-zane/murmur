@@ -101,12 +101,22 @@ struct MailDraft: Codable, Identifiable, Sendable {
     var sendAt: Date? = nil
     var error: String? = nil
     var updatedAt = Date()
+    func changingSender(to accountID: String) -> MailDraft {
+        guard accountID != self.accountID else { return self }
+        var result = self
+        if providerID != nil { result.id = UUID().uuidString }
+        result.accountID = accountID; result.operationID = UUID().uuidString
+        result.providerID = nil; result.revision = nil; result.threadID = nil
+        result.queued = false; result.cancelRequested = nil; result.error = nil
+        return result
+    }
 }
 
 /// The native mailbox stores only content opened or listed by its owner. It has no
 /// relationship with the notes sync index or third-party MCP permissions.
 @MainActor @Observable
 final class MailWorkspaceStore {
+    var signedInUserID: String? { transport.userID }
     private(set) var accounts: [MailAccount] = []
     private(set) var threads: [MailThread] = []
     private(set) var messages: [MailMessage] = []
@@ -116,12 +126,14 @@ final class MailWorkspaceStore {
     private(set) var outbox: [MailOutboxItem] = []
     private(set) var pages: [String: String] = [:]
     private(set) var loading = false
+    private(set) var readerLoading = false
     private(set) var notice: String?
     private(set) var offline = false
     private var owner: String?
     private var generation = UUID()
     private var readerGeneration = UUID()
     private var submitting: Set<String> = []
+    private var actions: [String: UUID] = [:]
     private var preferenceSaves: [String: UUID] = [:]
     private let transport: any CloudSyncTransport
     private let root: URL
@@ -135,7 +147,7 @@ final class MailWorkspaceStore {
     func reset() {
         generation = UUID(); readerGeneration = UUID(); preferenceSaves = [:]; owner = nil
         providerDrafts = []; providerPages = [:]; accounts = []; threads = []; messages = []; drafts = []; outbox = []; pages = [:]
-        loading = false; notice = nil; offline = false
+        loading = false; readerLoading = false; notice = nil; offline = false
     }
     private func key(_ value: String) -> String { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }
     private func file(_ name: String, userID: String) -> URL { root.appendingPathComponent(key(userID)).appendingPathComponent(key(name) + ".json") }
@@ -150,7 +162,7 @@ final class MailWorkspaceStore {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
     }
     private func current(_ userID: String) -> Bool {
-        guard transport.userID == userID else { reset(); return false }; return true
+        guard transport.userID == userID else { if owner != transport.userID { reset() }; return false }; return true
     }
     private func path(_ params: [String: String]) -> String {
         var parts = URLComponents(); parts.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -158,7 +170,7 @@ final class MailWorkspaceStore {
     }
     func load(accountID: String, query: String, more: Bool = false, metadataOnly: Bool = false) async {
         let run = UUID(); generation = run
-        guard !PreviewEnvironment.isActive, let userID = transport.userID else { reset(); return }
+        guard !PreviewEnvironment.isActive || PreviewEnvironment.hasSyntheticMail && transport is PreviewMailTransport, let userID = transport.userID else { reset(); return }
         if owner != userID { reset(); owner = userID; generation = run }
         loading = true; notice = nil
         defer { if generation == run { loading = false } }
@@ -174,26 +186,42 @@ final class MailWorkspaceStore {
             try write(page, name: "accounts", userID: userID)
             if metadataOnly { await flushQueued(userID: userID); return }
             var items: [MailThread] = [], next: [String: String] = [:], terminal: Set<String> = [], failures: [String] = []
-            for account in accounts.filter({ accountID.isEmpty || $0.id == accountID }) {
-                if more && pages[account.id] == nil { continue }
+            let requests = accounts.filter { (accountID.isEmpty || $0.id == accountID) && (!more || pages[$0.id] != nil) }.map { account in
+                let params = ["account": account.id, "q": query].merging(more ? pages[account.id].map { ["page": $0] } ?? [:] : [:]) { _, last in last }
+                return (account, path(params))
+            }
+            // Account transports are MainActor-bound, but their network suspension
+            // overlaps. Cap concurrent requests so many mailboxes cannot flood it.
+            let responses = await withTaskGroup(of: (MailAccount, Result<Data, Error>).self) { group in
+                var pending = requests.makeIterator(), results: [(MailAccount, Result<Data, Error>)] = []
+                for _ in 0..<3 {
+                    if let request = pending.next() { group.addTask { await self.accountResponse(request) } }
+                }
+                while let response = await group.next() {
+                    results.append(response)
+                    if Task.isCancelled { group.cancelAll() }
+                    else if let request = pending.next() { group.addTask { await self.accountResponse(request) } }
+                }
+                return results
+            }
+            var failed: Set<String> = []
+            for (account, response) in responses {
                 do {
-                    let params = ["account": account.id, "q": query].merging(more ? pages[account.id].map { ["page": $0] } ?? [:] : [:]) { _, last in last }
-                    let data = try await transport.request(path(params), method: "GET", body: nil)
-                    guard generation == run, current(userID), !Task.isCancelled else { return }
-                    let page = try CloudCoding.decoder.decode(ThreadsPage.self, from: data)
+                    let page = try CloudCoding.decoder.decode(ThreadsPage.self, from: response.get())
                     items += page.threads.map { var thread = $0; thread.accountID = account.id; return thread }
                     next[account.id] = page.next_page
                     if page.next_page == nil { terminal.insert(account.id) }
-                } catch { failures.append(account.label + ": " + error.localizedDescription) }
+                } catch { failed.insert(account.id); failures.append(account.label + ": " + error.localizedDescription) }
             }
             guard generation == run, current(userID), !Task.isCancelled else { return }
-            if failures.isEmpty {
+            if failures.count < responses.count || responses.isEmpty {
                 var unique: [String: MailThread] = [:]
-                for thread in (more ? threads : []) + items { unique[thread.identity] = thread }
+                for thread in threads.filter({ more || failed.contains($0.accountID ?? "") }) + items { unique[thread.identity] = thread }
                 threads = unique.values.sorted { $0.date > $1.date }; pages = more ? pages.merging(next) { _, new in new } : next
                 for id in terminal { pages.removeValue(forKey: id) }
                 try write(threads, name: cacheKey, userID: userID)
-            } else { notice = failures.joined(separator: " · ") }
+            }
+            if !failures.isEmpty { notice = failures.sorted().joined(separator: " · ") }
             await flushQueued(userID: userID)
         } catch {
             guard generation == run, current(userID), !Task.isCancelled else { return }
@@ -205,9 +233,15 @@ final class MailWorkspaceStore {
             }
         }
     }
+    private func accountResponse(_ request: (MailAccount, String)) async -> (MailAccount, Result<Data, Error>) {
+        do { return (request.0, .success(try await transport.request(request.1, method: "GET", body: nil))) }
+        catch { return (request.0, .failure(error)) }
+    }
     func open(_ thread: MailThread) async {
         let run = UUID(); readerGeneration = run
-        guard let userID = transport.userID, let accountID = thread.accountID else { return }
+        guard let userID = transport.userID, let accountID = thread.accountID else { closeConversation(); return }
+        readerLoading = true
+        defer { if readerGeneration == run { readerLoading = false } }
         let cacheKey = "reader:" + thread.identity
         messages = read(cacheKey, userID: userID) ?? []
         do {
@@ -216,6 +250,9 @@ final class MailWorkspaceStore {
             let page = try CloudCoding.decoder.decode(ReaderPage.self, from: data)
             messages = page.messages; try write(messages, name: cacheKey, userID: userID)
         } catch { if readerGeneration == run && current(userID) { notice = messages.isEmpty ? "This conversation has not been downloaded. Reconnect to open it." : "Showing your downloaded conversation." } }
+    }
+    func closeConversation() {
+        readerGeneration = UUID(); messages = []; readerLoading = false
     }
     /// A first-party preference update, never a provider call or mail dispatch.
     func saveIdentity(accountID: String, colour: MailboxColour?, icon: MailboxIcon) async throws {
@@ -233,10 +270,38 @@ final class MailWorkspaceStore {
             try write(AccountsPage(accounts: accounts, outbox: outbox), name: "accounts", userID: userID)
         }
     }
+    func isActing(on thread: MailThread) -> Bool {
+        guard let userID = transport.userID else { return false }
+        return actions[userID + "|" + thread.identity] != nil
+    }
     func action(_ action: String, thread: MailThread) async throws {
         guard let userID = transport.userID, let account = thread.accountID else { throw CloudHTTPError(status: 401, message: "Sign in to manage Gmail.") }
+        try Task.checkCancellation()
+        let identity = userID + "|" + thread.identity, run = UUID()
+        guard actions[identity] == nil else { throw CloudHTTPError(status: 409, message: "This thread is already updating. Wait for it to finish.") }
+        actions[identity] = run
+        defer { if actions[identity] == run { actions.removeValue(forKey: identity) } }
         _ = try await transport.request("api/mail", method: "POST", body: JSONSerialization.data(withJSONObject: ["action": action, "account": account, "id": thread.id]))
         guard current(userID) else { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+    /// A repeat click/relaunch reopens the existing note without replacing its edits.
+    /// The index belongs to the signed-in owner and selected source mailbox.
+    func createNote(from message: MailMessage, thread: MailThread, notes: SessionStore = SessionStore()) throws -> String {
+        guard let userID = transport.userID, owner == userID, let account = thread.accountID,
+              accounts.contains(where: { $0.id == account }), message.thread_id == thread.id,
+              messages.contains(where: { $0.id == message.id && $0.thread_id == thread.id }) else { throw CloudHTTPError(status: 401, message: "Open a message from a connected mailbox before creating a note.") }
+        let source = key(account + "|" + message.id)
+        var index: [String: String] = read("message-notes", userID: userID) ?? [:]
+        if let id = index[source], notes.session(id: id) != nil { return id }
+        let note = try notes.createNote(title: message.subject)
+        do {
+            let label = accounts.first { $0.id == account }?.label ?? "Gmail account"
+            try notes.saveNote("Mailbox: " + label + "\nFrom: " + message.from + "\nTo: " + message.to + "\nDate: " + message.date + "\n\n" + (message.text.isEmpty ? "This message has no text content. Open the original email to view its formatting and attachments." : message.text), for: note.id)
+            index[source] = note.id
+            try write(index, name: "message-notes", userID: userID)
+            return note.id
+        } catch { try? notes.delete(id: note.id); throw error }
     }
     func outboxAction(_ action: String, id: String) async throws {
         _ = try await transport.request("api/mail", method: "POST", body: JSONSerialization.data(withJSONObject: ["action": action, "id": id]))
