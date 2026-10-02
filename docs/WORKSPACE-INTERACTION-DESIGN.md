@@ -1,6 +1,6 @@
 # Concourse workspace interaction design
 
-The product combines mail, calendar, notes, booking and dictation. People should learn one way to navigate, find commands, make edits and recover, while each workspace keeps the controls its task needs. This specification replaces screen-by-screen toolbar decisions. It is a proposed implementation contract; not all screens implement it yet.
+The product combines mail, calendar, notes, booking and dictation. People should learn one way to navigate, find commands, make edits and recover, while each workspace keeps the controls its task needs. This specification replaces screen-by-screen toolbar decisions. The shared native controls are implemented locally for Today, Notes, Calendar, Mail, Dictation history and Connected apps. Their rendered cross-screen desktop/minimum-width review passed within the bounded native scope. Embedded Booking and hosted web alignment remain a subsequent batch.
 
 ## Shared hierarchy
 
@@ -47,3 +47,11 @@ The product combines mail, calendar, notes, booking and dictation. People should
 [Apple toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars), [Apple menus](https://developer.apple.com/design/human-interface-guidelines/menus), [Apple buttons](https://developer.apple.com/design/human-interface-guidelines/buttons), [Apple layout](https://developer.apple.com/design/human-interface-guidelines/layout), [NN/G usability heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/), [Fluent toolbar guidance](https://fluent2.microsoft.design/components/web/react/core/toolbar/usage), [W3C toolbar pattern](https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/), [W3C tooltip pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tooltip/).
 
 These are research inputs. The shared hierarchy and migration choices above are Concourse design decisions. The W3C tooltip pattern is explicitly still in progress.
+
+## Shared native implementation checkpoint
+
+`WorkspaceCommands.swift` provides the standard command button, scoped More menu, trailing toolbar area and adaptive selection bar. Today/Notes expose one New note location; Calendar puts New event and Record meeting in the same trailing area; Dictation history exposes Dictation settings and a separated Delete all menu action rather than New note; Connected apps puts Setup guide in the shared toolbar. Note pin/copy/export/history/trash commands share one menu beside Edit/Summarise above the document. Calendar navigation/filter controls use the adaptive selection bar. Existing `ItemActions` delegates to the shared menu, so row actions use the same semantic control. The active meeting strip preserves Show notes across workspaces.
+
+Native commands use standard SDK help and accessibility names/hints. Automatic focus popovers were removed because they can distract from keyboard activation. Native focus/hover/overflow must be visually verified, not inferred from compilation. Synthetic `home` preview now includes the existing Mail fixtures for cross-workspace QA; preview recording and summary generation are unavailable. Production behaviour and credentials are unaffected.
+
+An initial capture blocker was verified as a currently locked console. The session later became interactive with Chrome in front, and background capture resumed without activating the synthetic preview. The first actual Today render exposed a left-positioned grouped toolbar; separate native toolbar items fixed it. Matched before/after screenshots for Today, Notes, note detail, Calendar, Dictation history and Connected apps are 2172 × 1436 pixels at a 1040 × 672 native window. Mail also renders at this minimum size, including both fixture images. Keyboard/VoiceOver and live provider writes remain unrun; full Booking/web alignment is not claimed.

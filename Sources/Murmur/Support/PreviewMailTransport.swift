@@ -4,7 +4,7 @@ import Foundation
 /// receive no identity or data, and mailbox labels change only in memory; no network request is made.
 @MainActor final class PreviewMailTransport: CloudSyncTransport {
     var userID: String? {
-        PreviewEnvironment.isActive && PreviewEnvironment.launchAction == "mail" ? "synthetic-mail-preview" : nil
+        PreviewEnvironment.hasSyntheticMail ? "synthetic-mail-preview" : nil
     }
     private var bin: Set<String> = [], archive: Set<String> = [], stars: Set<String> = [], read: Set<String> = []
     func request(_ path: String, method: String, body: Data?) async throws -> Data {

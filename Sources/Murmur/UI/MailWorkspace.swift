@@ -18,10 +18,9 @@ struct MailWorkspace: View {
     @State private var actionFeedback: String?
     @State private var binAccount: String?
     @State private var savedNoteID: String?
-    @FocusState private var focusedAction: String?
-    private let syntheticPreview = PreviewEnvironment.isActive && PreviewEnvironment.launchAction == "mail"
+    private let syntheticPreview = PreviewEnvironment.hasSyntheticMail
     init() {
-        if PreviewEnvironment.isActive && PreviewEnvironment.launchAction == "mail", let root = PreviewEnvironment.root {
+        if PreviewEnvironment.hasSyntheticMail, let root = PreviewEnvironment.root {
             _mailbox = State(initialValue: MailWorkspaceStore(transport: PreviewMailTransport(), root: root.appendingPathComponent("mail")))
         }
     }
@@ -72,40 +71,41 @@ struct MailWorkspace: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Mail")
         .toolbar {
-            ToolbarSpacer(.flexible, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) {
-                toolbarButton("New message", icon: "square.and.pencil", detail: "Write a message and choose its From account.") { compose() }.disabled(mailbox.accounts.isEmpty)
-            }
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItemGroup(placement: .primaryAction) {
-                if let selected {
-                    toolbarButton("Reply", icon: "arrowshape.turn.up.left", detail: "Reply to the latest message in this thread.") { if let message = mailbox.messages.last { compose(reply: message) } }.disabled(mailbox.messages.isEmpty)
-                    toolbarButton("Reply all", icon: "arrowshape.turn.up.left.2", detail: "Reply to the sender and other recipients of the latest message.") { if let message = mailbox.messages.last { compose(reply: message, replyAll: true) } }.disabled(mailbox.messages.isEmpty)
-                    toolbarButton("Forward", icon: "arrowshape.turn.up.right", detail: "Forward the latest message, keeping its attachments.") { if let message = mailbox.messages.last { forward(message, account: selected.accountID) } }.disabled(mailbox.messages.isEmpty)
-                    toolbarButton("Create note", icon: "note.text", detail: "Save the latest message as a note in Concourse on this Mac.", iconOnly: false) { createNote(selected) }.disabled(mailbox.messages.isEmpty)
-                    toolbarButton("Archive", icon: "archivebox", detail: "Remove this thread from Inbox. Find it in Archive.") { act("archive", selected) }.disabled(mailbox.isActing(on: selected))
-                    toolbarButton(selected.unread ? "Mark read" : "Mark unread", icon: selected.unread ? "envelope.open" : "envelope.badge", detail: "Change the read status of this thread.") { act(selected.unread ? "read" : "unread", selected) }.disabled(mailbox.isActing(on: selected))
-                    toolbarButton(selected.starred ? "Unstar" : "Star", icon: selected.starred ? "star.fill" : "star", detail: "Change the star on this thread.") { act(selected.starred ? "unstar" : "star", selected) }.disabled(mailbox.isActing(on: selected))
-                    toolbarButton(folder == "in:trash" ? "Restore to Inbox" : "Move to Bin", icon: folder == "in:trash" ? "arrow.uturn.backward" : "trash", detail: folder == "in:trash" ? "Move this thread from Bin to Inbox." : "Move the whole thread to Bin. You can restore it from Bin.") { act(folder == "in:trash" ? "restore" : "trash", selected) }.disabled(mailbox.isActing(on: selected))
+            WorkspaceCommandArea {
+                ToolbarItem(placement: .primaryAction) {
+                    toolbarButton("New message", icon: "square.and.pencil", detail: "Write a message and choose its From account.", iconOnly: false) { compose() }.disabled(mailbox.accounts.isEmpty)
                 }
-            }
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) {
-                Menu("Mail options", systemImage: "ellipsis") {
-                    Toggle("Formatted messages", isOn: $formatted)
-                    Button("Open web Mail…") { fullMailbox = true }
-                    Divider()
-                    Menu("Mailbox appearance") { ForEach(mailbox.accounts) { account in Button(account.label) { preferences = account } } }
-                    Button("Clear downloaded mail") { do { try mailbox.clearDownloaded(); selected = nil; mailbox.closeConversation() } catch { self.error = error.localizedDescription } }
-                    Button("Manage connected accounts") { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
-                }.help("Mail options · Message display, web Mail and account options").accessibilityLabel("Mail options")
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let selected {
+                        toolbarButton("Reply", icon: "arrowshape.turn.up.left", detail: "Reply to the latest message in this thread.") { if let message = mailbox.messages.last { compose(reply: message) } }.disabled(mailbox.messages.isEmpty)
+                        toolbarButton("Reply all", icon: "arrowshape.turn.up.left.2", detail: "Reply to the sender and other recipients of the latest message.") { if let message = mailbox.messages.last { compose(reply: message, replyAll: true) } }.disabled(mailbox.messages.isEmpty)
+                        toolbarButton("Forward", icon: "arrowshape.turn.up.right", detail: "Forward the latest message, keeping its attachments.") { if let message = mailbox.messages.last { forward(message, account: selected.accountID) } }.disabled(mailbox.messages.isEmpty)
+                        toolbarButton("Create note", icon: "note.text", detail: "Save the latest message as a note in Concourse on this Mac.", iconOnly: false) { createNote(selected) }.disabled(mailbox.messages.isEmpty)
+                        toolbarButton("Archive", icon: "archivebox", detail: "Remove this thread from Inbox. Find it in Archive.") { act("archive", selected) }.disabled(mailbox.isActing(on: selected))
+                        toolbarButton(selected.unread ? "Mark read" : "Mark unread", icon: selected.unread ? "envelope.open" : "envelope.badge", detail: "Change the read status of this thread.") { act(selected.unread ? "read" : "unread", selected) }.disabled(mailbox.isActing(on: selected))
+                        toolbarButton(selected.starred ? "Unstar" : "Star", icon: selected.starred ? "star.fill" : "star", detail: "Change the star on this thread.") { act(selected.starred ? "unstar" : "star", selected) }.disabled(mailbox.isActing(on: selected))
+                        toolbarButton(folder == "in:trash" ? "Restore to Inbox" : "Move to Bin", icon: folder == "in:trash" ? "arrow.uturn.backward" : "trash", detail: folder == "in:trash" ? "Move this thread from Bin to Inbox." : "Move the whole thread to Bin. You can restore it from Bin.") { act(folder == "in:trash" ? "restore" : "trash", selected) }.disabled(mailbox.isActing(on: selected))
+                    }
+                }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    WorkspaceMoreMenu(scope: "Mail") {
+                        Toggle("Formatted messages", isOn: $formatted)
+                        Button("Open web Mail…") { fullMailbox = true }
+                        Divider()
+                        Menu("Mailbox appearance") { ForEach(mailbox.accounts) { account in Button(account.label) { preferences = account } } }
+                        Button("Manage connected accounts") { NotificationCenter.default.post(name: .murmurShowPage, object: MainPage.connections) }
+                        Divider()
+                        Button("Clear downloaded mail") { do { try mailbox.clearDownloaded(); selected = nil; mailbox.closeConversation() } catch { self.error = error.localizedDescription } }
+                    }
+                }
             }
         }
         .onChange(of: accountID) { _, _ in selected = nil; mailbox.closeConversation(); search = ""; query = "" }
         .onChange(of: folder) { _, _ in selected = nil; mailbox.closeConversation(); search = ""; query = "" }
         .onChange(of: CloudAccount.shared.credentials?.userID) { _, _ in selected = nil; composing = nil; preferences = nil; actionFeedback = nil; binAccount = nil; savedNoteID = nil; mailbox.reset() }
         .task(id: refreshID) { await monitor() }
-        .onChange(of: selected?.identity) { _, _ in focusedAction = nil }
         .task(id: selected?.identity) { if let selected { await mailbox.open(selected) } }
         .sheet(item: $composing) { draft in
             NativeMailComposer(initial: draft, mailbox: mailbox) { composing = nil; Task { await refresh() } }
@@ -239,16 +239,7 @@ struct MailWorkspace: View {
         } else { EmptyState(icon: "envelope.open", label: "Select a message", detail: "Choose a conversation to read it here.").frame(maxWidth: .infinity, maxHeight: .infinity) }
     }
     private func toolbarButton(_ title: String, icon: String, detail: String, iconOnly: Bool = true, action: @escaping () -> Void) -> some View {
-        Button(title, systemImage: icon, action: action)
-            .labelStyle(MailToolbarLabelStyle(iconOnly: iconOnly))
-            .help(title + " · " + detail).accessibilityLabel(title).accessibilityHint(detail)
-            .focusable(interactions: .activate).focused($focusedAction, equals: detail)
-            .popover(isPresented: Binding(get: { focusedAction == detail }, set: { if !$0 && focusedAction == detail { focusedAction = nil } }), arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    Text(title).font(DS.Font.bodyEmphasis)
-                    Text(detail).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
-                }.padding(DS.Space.md).frame(maxWidth: DS.Layout.mailReaderWidth)
-            }
+        WorkspaceCommand(title: title, systemImage: icon, help: detail, iconOnly: iconOnly, action: action)
     }
     private func createNote(_ thread: MailThread) {
         guard let message = mailbox.messages.last else { return }
@@ -442,12 +433,5 @@ private struct NativeMailComposer: View {
             if mailbox.drafts.contains(where: { $0.id == draft.id && $0.queued }) { onClose() }
             else { self.error = error.localizedDescription }
         }
-    }
-}
-
-private struct MailToolbarLabelStyle: LabelStyle {
-    let iconOnly: Bool
-    func makeBody(configuration: Configuration) -> some View {
-        if iconOnly { configuration.icon } else { HStack(spacing: DS.Space.xs) { configuration.icon; configuration.title } }
     }
 }

@@ -41,17 +41,20 @@ struct SessionDetailView: View {
         VStack(spacing: DS.Space.zero) {
             header
             notice.padding([.horizontal, .bottom], DS.Space.xl)
-            HStack(spacing: DS.Space.md) {
+            WorkspaceSelectionBar {
                 Segmented(options: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
                     .fixedSize()
-                Spacer()
-                if tab == .notes {
-                    if hasSource { summariseMenu }
-                    ActionButton(title: editing ? "Done" : "Edit", systemImage: editing ? "checkmark" : "square.and.pencil", emphasis: .quiet) {
-                        if editing { if saveDraft() { editing = false } }
-                        else { draft = note; editing = true }
-                    }
-                } else { Readout("\(segments.count) segments", color: DS.Color.textTertiary) }
+            } actions: {
+                HStack(spacing: DS.Space.sm) {
+                    if tab == .notes {
+                        if hasSource { summariseMenu }
+                        WorkspaceCommand(title: editing ? "Done" : "Edit", systemImage: editing ? "checkmark" : "square.and.pencil", help: "Edits are saved in Concourse on this Mac.") {
+                            if editing { if saveDraft() { editing = false } }
+                            else { draft = note; editing = true }
+                        }
+                    } else { Readout("\(segments.count) segments", color: DS.Color.textTertiary) }
+                    noteActions
+                }
             }
             .padding(.horizontal, DS.Space.xl).padding(.bottom, DS.Space.lg)
             Divider()
@@ -108,23 +111,6 @@ struct SessionDetailView: View {
                 TextField("Untitled note", text: $title, axis: .vertical)
                     .textFieldStyle(.plain).font(DS.Font.documentTitle).foregroundStyle(DS.Color.text)
                     .focused($titleFocused).onSubmit(saveTitle)
-                Button { pin() } label: { Image(systemName: session.isPinned ? "pin.fill" : "pin").font(DS.Font.symbol) }
-                    .buttonStyle(.plain).foregroundStyle(session.isPinned ? DS.Color.accent : DS.Color.textSecondary)
-                    .help(session.isPinned ? "Unpin note" : "Pin note")
-                    .padding(.top, DS.Space.sm)
-                ItemActions(label: session.title) {
-                    Button("Copy notes") { copy(note.isEmpty ? bullets.map(\.text).joined(separator: "\n") : note, label: "notes") }
-                    Button("Copy full meeting as Markdown") { copy(store.markdown(for: session.id), label: "meeting") }
-                    Button("Copy for AI") { copyForAI() }
-                    Divider()
-                    Button("Export Markdown…") { export() }
-                    Button("Note history…") { revisionPreview = nil; showHistory = true }
-                        .disabled(store.noteRevisionCount(for: session.id) == 0)
-                    Button("Reveal files in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)]) }
-                    Divider()
-                    Button("Move to Trash…") { confirmTrash = true }
-                }
-                .padding(.top, DS.Space.sm)
             }
             Text(metadata)
                 .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
@@ -144,6 +130,23 @@ struct SessionDetailView: View {
             }
         }
         .padding(DS.Space.xl)
+    }
+
+    private var noteActions: some View {
+        WorkspaceMoreMenu(scope: "note") {
+            Button(session.isPinned ? "Unpin note" : "Pin note", systemImage: session.isPinned ? "pin.slash" : "pin") { pin() }
+            Divider()
+            Button("Copy notes") { copy(note.isEmpty ? bullets.map(\.text).joined(separator: "\n") : note, label: "notes") }
+            Button("Copy full meeting as Markdown") { copy(store.markdown(for: session.id), label: "meeting") }
+            Button("Copy for AI") { copyForAI() }
+            Divider()
+            Button("Export Markdown…") { export() }
+            Button("Note history…") { revisionPreview = nil; showHistory = true }
+                .disabled(store.noteRevisionCount(for: session.id) == 0)
+            Button("Reveal files in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)]) }
+            Divider()
+            Button("Move to Trash…") { confirmTrash = true }
+        }
     }
 
     /// Date · duration · app · who was there. One line; it wraps if the room was full.
@@ -168,7 +171,7 @@ struct SessionDetailView: View {
             summarise()
         }
         .fixedSize()
-        .disabled(working || !FoundationModelFormatter.isAvailable || externalChange)
+        .disabled(PreviewEnvironment.isActive || working || !FoundationModelFormatter.isAvailable || externalChange)
         .help(FoundationModelFormatter.unavailableReason ?? "Uses the \(template.title) template. Choose another from the menu.")
     }
 

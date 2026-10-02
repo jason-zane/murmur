@@ -170,7 +170,7 @@ final class MailWorkspaceStore {
     }
     func load(accountID: String, query: String, more: Bool = false, metadataOnly: Bool = false) async {
         let run = UUID(); generation = run
-        guard !PreviewEnvironment.isActive || PreviewEnvironment.launchAction == "mail" && transport is PreviewMailTransport, let userID = transport.userID else { reset(); return }
+        guard !PreviewEnvironment.isActive || PreviewEnvironment.hasSyntheticMail && transport is PreviewMailTransport, let userID = transport.userID else { reset(); return }
         if owner != userID { reset(); owner = userID; generation = run }
         loading = true; notice = nil
         defer { if generation == run { loading = false } }

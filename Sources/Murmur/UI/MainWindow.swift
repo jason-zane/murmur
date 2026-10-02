@@ -45,7 +45,7 @@ struct MainWindow: View {
                     }
                     if page == .notes {
                         HStack(spacing: DS.Space.zero) {
-                            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion, onNewNote: newNote)
+                            NotesSidebar(controller: meetings, page: $page, selection: $selectedSession, match: $selectedMatch, reloadToken: libraryVersion)
                                 .frame(width: DS.Layout.sidebarWidth)
                             Divider()
                             detail.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -56,6 +56,7 @@ struct MainWindow: View {
             }
             .background(DS.Color.surface)
         }
+        .navigationTitle(workspaceTitle)
         .toolbar { toolbar }
         .windowMinimizeBehavior(.enabled)
         .windowFullScreenBehavior(.enabled)
@@ -92,21 +93,33 @@ struct MainWindow: View {
         }
     }
 
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            if page == .home || page == .notes || page == .dictation {
-            Button("New note", systemImage: "square.and.pencil") { newNote() }
-                .labelStyle(.titleAndIcon)
-                .help("Create a new note")
-            }
+    private var workspaceTitle: String {
+        switch page {
+        case .home: "Today"
+        case .calendar: "Calendar"
+        case .mail: "Mail"
+        case .notes: "Notes"
+        case .dictation: "Dictation history"
+        case .booking: "Booking links"
+        case .connections: "Connected apps"
+        case .settings: "Settings"
         }
-        ToolbarItem(placement: .primaryAction) {
-            if meetings.state.isActive {
-                Button("Show notes", systemImage: "note.text", action: onShowNotepad).labelStyle(.titleAndIcon)
-            } else if page == .home || page == .calendar || page == .notes {
-                Button("Record meeting", systemImage: "mic", action: onToggleMeeting)
-                    .labelStyle(.titleAndIcon)
-                    .disabled(meetings.state != .idle)
+    }
+
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        if page == .home || page == .notes {
+            WorkspaceCommandArea {
+                ToolbarItem(id: "workspace-new-note", placement: .primaryAction) {
+                    WorkspaceCommand(title: "New note", systemImage: "square.and.pencil", help: "Create a note in Concourse.", action: newNote)
+                }
+                ToolbarItem(id: "workspace-meeting", placement: .primaryAction) {
+                    if meetings.state.isActive {
+                        WorkspaceCommand(title: "Show notes", systemImage: "note.text", action: onShowNotepad)
+                    } else {
+                        WorkspaceCommand(title: "Record meeting", systemImage: "mic", help: "Record a meeting into a note.", action: onToggleMeeting)
+                            .disabled(meetings.state != .idle || PreviewEnvironment.isActive)
+                    }
+                }
             }
         }
     }
@@ -187,7 +200,7 @@ struct MainWindow: View {
                 onDeleted: { selectedSession = nil; libraryVersion += 1 }
             ).id(id)
         } else if page == .calendar {
-            CalendarWorkspace(store: meetings.store, onRecord: onRecordCalendar, canRecord: meetings.state == .idle)
+            CalendarWorkspace(store: meetings.store, onRecord: onRecordCalendar, canRecord: meetings.state == .idle, meetingActive: meetings.state.isActive, onToggleMeeting: onToggleMeeting, onShowNotes: onShowNotepad)
         } else if page == .mail {
             MailWorkspace()
         } else if page == .booking {
@@ -197,13 +210,11 @@ struct MainWindow: View {
         } else if page == .settings {
             SettingsWindow(controller: controller, onPreviewBar: onPreviewBar)
         } else if page == .notes {
-            EmptyState(icon: "note.text", label: "Notes", detail: "Choose a note, or start with a new one.") {
-                ActionButton(title: "New note", emphasis: .prominent) { newNote() }
-            }
+            EmptyState(icon: "note.text", label: "Notes", detail: "Choose a note, or use New note in the toolbar.")
         } else if page == .dictation {
             DictationList(controller: controller)
         } else {
-            HomeView(store: meetings.store, onRecord: onToggleMeeting, onNewNote: newNote, canRecord: meetings.state == .idle)
+            HomeView(store: meetings.store)
         }
     }
 
@@ -237,6 +248,7 @@ private struct RecordingStrip: View {
                 }
             }
             Spacer()
+            WorkspaceCommand(title: "Show notes", systemImage: "note.text", action: onShowNotes)
             Readout(TimeFormat.clock(controller.elapsed), color: DS.Color.text)
             MeetingControls(controller: controller)
         }

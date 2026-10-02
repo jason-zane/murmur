@@ -6,9 +6,6 @@ import SwiftUI
 /// Past meetings open the note that was recorded for them; upcoming ones join.
 struct HomeView: View {
     let store: SessionStore
-    let onRecord: () -> Void
-    let onNewNote: () -> Void
-    var canRecord = true
     @State private var schedule = MeetingSchedule.shared
     @State private var settings = MeetingSettings.shared
     @State private var requesting = false
@@ -105,16 +102,8 @@ struct HomeView: View {
                 EmptyState(
                     icon: "calendar",
                     label: calendarStore.needsAttention ? "No downloaded meetings on this day" : calendarStore.loading ? "Checking your calendar…" : today ? "Nothing scheduled today" : "Nothing on this day",
-                    detail: calendarStore.needsAttention ? "Your calendar could not be updated. You can still record a meeting or write a note." : today ? "Record a meeting or write a note any time." : "No meetings or notes."
-                ) {
-                    if today {
-                        HStack(spacing: DS.Space.sm) {
-                            ActionButton(title: "Record meeting", systemImage: "mic", emphasis: .normal, action: onRecord)
-                                .disabled(!canRecord)
-                            ActionButton(title: "New note", emphasis: .quiet, action: onNewNote)
-                        }
-                    }
-                }
+                    detail: calendarStore.needsAttention ? "Your calendar could not be updated. You can still record a meeting or write a note." : today ? "Use Record meeting or New note in the toolbar any time." : "No meetings or notes."
+                )
                 .frame(maxHeight: DS.Layout.editorHeight)
             } else {
                 VStack(spacing: DS.Space.zero) {
