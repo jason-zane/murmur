@@ -79,6 +79,22 @@ func mailAddresses(_ value: String) -> [String] {
     let address = buffer.trimmingCharacters(in: .whitespacesAndNewlines); if !address.isEmpty { result.append(address) }
     return result
 }
+/// Human-readable label only; routing continues to use the original header.
+func mailSenderName(_ value: String) -> String {
+    let first = mailAddresses(value).first ?? ""
+    if let left = first.firstIndex(of: "<"), let right = first.lastIndex(of: ">"), right > left {
+        var name = first[..<left].trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.hasPrefix("\""), name.hasSuffix("\""), name.count >= 2 {
+            name.removeFirst(); name.removeLast()
+            name = name.replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\\\", with: "\\")
+        }
+        if !name.isEmpty { return name }
+        let address = first[first.index(after: left)..<right].trimmingCharacters(in: .whitespacesAndNewlines)
+        return address.isEmpty ? "Unknown sender" : address
+    }
+    return first.isEmpty ? "Unknown sender" : first
+}
+
 struct MailDraft: Codable, Identifiable, Sendable {
     var id = UUID().uuidString
     var operationID = UUID().uuidString

@@ -47,6 +47,26 @@ keep their guest-facing layout.
   trailing toolbar spacing and adaptive selected-content rows using design tokens.
 - Existing colour/typography/component tokens remain the visual source of truth.
 
+## Mail reading hierarchy
+
+Mail offers **Side-by-side** and **Full page** through the trailing View control.
+The existing side-by-side mode remains the default. Full page shows a full-width
+inbox; selecting a conversation replaces that list with the reader, and Back to
+messages restores the same inbox/search. Changing mode retains the selected
+conversation. Web inline reply edits remain mounted when the layout changes;
+Back uses the existing save-and-close contract before leaving the reader.
+
+List rows emphasise the sender's supplied display name, then subject, then snippet.
+Unread subjects retain additional emphasis. Unknown names fall back to the actual
+address rather than an invented contact label. Message headers emphasise that same
+identity; Details reveals complete From/To/Cc/Reply-to/date information. Display
+formatting never changes addresses used for replies or sending.
+
+Web layout preferences belong to the signed-in user/browser; synthetic previews
+have a distinct preference key. Native layout preference is local to this Mac,
+with synthetic previews leaving the real preference untouched. Full-page native
+rows adapt to available width. Native replies still use the existing sheet.
+
 ## Boundaries and next product work
 
 Placement does not establish feature parity. Web mail replies are inline; native

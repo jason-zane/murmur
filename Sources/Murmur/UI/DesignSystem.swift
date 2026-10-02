@@ -157,6 +157,8 @@ enum DS {
         static let mailListMinimumWidth: CGFloat = 240
         static let mailListMaximumWidth: CGFloat = 420
         static let mailListWidth: CGFloat = 300
+        static let mailSenderColumnWidth: CGFloat = 150
+        static let mailSubjectColumnWidth: CGFloat = 180
         static let mailReaderWidth: CGFloat = 280
         static let mailComposerWidth: CGFloat = 640
         static let mailComposerBodyHeight: CGFloat = 260

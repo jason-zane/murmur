@@ -249,6 +249,34 @@
 .shell-mail .mail-thread-row input[type="checkbox"] { width: 14px; height: 14px; }
 .shell-mail .mail-thread { gap: 7px; padding: 10px 2px; font-size: 14px; }
 .shell-mail .mail-thread-meta { font-size: 12px; }
+.mail-layout-choice { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.mail-layout-choice select { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--surface); color: var(--ink); font-size: 13px; }
+.shell-mail .mail-thread-meta .mail-sender-name { color: var(--ink); font-size: 14px; font-weight: 600; }
+.shell-mail .mail-thread-row.unread .mail-sender-name { font-weight: 700; }
+.mail-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 400; }
+.mail-thread-row.unread .mail-subject { font-weight: 600; }
+.mail-thread-count { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--muted); }
+.shell-mail .mail-message-header .mail-message-sender { flex: 1; flex-basis: auto; color: var(--ink); font-size: 16px; font-weight: 600; }
+.mail-message-routing { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; width: 100%; color: var(--muted); font-size: 12px; }
+.mail-message-details summary { cursor: pointer; color: var(--muted); }
+.mail-message-details[open] { flex-basis: 100%; }
+.mail-message-details dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 6px 12px; margin-top: 12px; font-size: 12px; }
+.mail-message-details dd { margin: 0; overflow-wrap: anywhere; color: var(--ink); }
+.shell-mail .mail-workspace.layout-full { grid-template-columns: minmax(0,1fr); }
+.shell-mail .mail-workspace.layout-full.folders-open { grid-template-columns: 180px minmax(0,1fr); }
+.shell-mail .layout-full .mail-reader-empty { display: none; }
+.shell-mail .layout-full.has-reader { grid-template-columns: minmax(0,1fr); }
+.shell-mail .layout-full.has-reader .mail-list, .shell-mail .layout-full.has-reader .mail-folders { display: none; }
+.shell-mail .layout-full .mail-reader { grid-column: auto; }
+@media(min-width:1000px) {
+  .shell-mail .layout-full .mail-thread { display: grid; grid-template-columns: minmax(130px,.3fr) minmax(180px,.6fr) minmax(150px,1fr) minmax(90px,.3fr) auto; align-items: center; gap: 14px; padding-block: 10px; }
+  .shell-mail .layout-full .mail-thread-meta { display: contents; }
+  .shell-mail .layout-full .mail-sender-name { grid-column: 1; grid-row: 1; max-width: 100%; }
+  .shell-mail .layout-full .mail-thread-meta time { grid-column: 5; grid-row: 1; }
+  .shell-mail .layout-full .mail-subject { grid-column: 2; grid-row: 1; }
+  .shell-mail .layout-full .mail-snippet { grid-column: 3; grid-row: 1; }
+  .shell-mail .layout-full .mail-thread > .mail-account-tag { grid-column: 4; grid-row: 1; }
+}
 .shell-mail .mail-reader { grid-column: auto; grid-row: auto; }
 .shell-mail .mail-reader-scroll { padding: 0 32px 32px; }
 .shell-mail .mail-reader-scroll h2 { font-size: 25px; line-height: 1.3; letter-spacing: -.03em; }
