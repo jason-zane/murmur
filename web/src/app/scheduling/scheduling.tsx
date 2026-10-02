@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Messages, FollowUp } from "@/components/messages";
 import { Shell } from "@/components/shell";
+import { selectSchedulingRequest, type SchedulingRequest } from "@/lib/scheduling/request";
 
 type Question = { id: string; label: string; required: boolean; long: boolean };
 type EventType = {
@@ -181,19 +182,6 @@ const when = (value: string) =>
     minute: "2-digit",
   });
 
-async function send(url: string, method: string, body?: unknown) {
-  const r = await fetch(url, {
-    method,
-    headers:
-      body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const result = await r.json().catch(() => ({}));
-  if (!r.ok)
-    throw new Error(result.error || "Something went wrong. Try again.");
-  return result;
-}
-
 function CopyLink({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -223,11 +211,15 @@ export function Scheduling({
   email,
   googleReady,
   previewMode = false,
+  request,
 }: {
   email: string;
   googleReady: boolean;
   previewMode?: boolean;
+  request?: SchedulingRequest;
 }) {
+  const send = useMemo(() => selectSchedulingRequest(previewMode, request), [previewMode, request]);
+  const messageRequest = useCallback((body?: unknown) => send("/api/messages", body === undefined ? "GET" : "POST", body), [send]);
   const [tab, setTab] = useState("Meeting types");
   const [bookingFilter, setBookingFilter] = useState("Upcoming");
   const [bookingQuery, setBookingQuery] = useState("");
@@ -293,7 +285,7 @@ export function Scheduling({
         e instanceof Error ? e.message : "Booking settings couldn't be loaded.",
       );
     }
-  }, [email]);
+  }, [email, send]);
 
   useEffect(() => {
     void load();
@@ -437,7 +429,7 @@ export function Scheduling({
     <Shell email={email} activePath="/scheduling" previewMode={previewMode}>
       <div className="scheduling-page">
         <WorkspaceHeader title="Booking links" context="Meeting types, availability and booked guests." actions={<CommandButton className="button primary" disabled={Boolean(editing)} onClick={()=>{setTab("Meeting types");setEditing(blankType(data.types.length));}} help="Create a booking link with its own duration, availability and calendar."><Plus size={17}/>New meeting type</CommandButton>}/>
-        {previewMode && <p className="fine-print" role="status">Design preview · booking data is supplied by an isolated test transport.</p>}
+        {previewMode && <p className="fine-print" role="status">Synthetic booking preview · sample data only. Saving, sending, provider connections and guest booking are unavailable.</p>}
         {message && (
           <p className="notice" role="status">
             {message}
@@ -448,14 +440,14 @@ export function Scheduling({
           <section className="booking-live booking-share" aria-label="Your booking page">
 
             <CopyLink url={profileURL} />
-            <Link
+            {!previewMode && <Link
               className="text-link"
               href={profileURL.replace(/^https?:\/\/[^/]+/, "")}
               target="_blank"
             >
               Preview as a guest
               <ArrowUpRight size={14} />
-            </Link>
+            </Link>}
           </section>
         ) : (
           <section className="setup-steps" aria-label="Setup">
@@ -471,7 +463,7 @@ export function Scheduling({
           </section>
         )}
 
-        {!data.accounts.length ? (
+        {!previewMode && (!data.accounts.length ? (
           <section className="connection-row">
             <div>
               <h2>Connect your calendar first</h2>
@@ -514,7 +506,7 @@ export function Scheduling({
               </div>
             </section>
           )
-        )}
+        ))}
 
         <div className="tabs section-tabs" aria-label="Booking links sections">
           {["Meeting types", "Availability", "Bookings", "Messages"].map(
@@ -525,11 +517,9 @@ export function Scheduling({
                 aria-pressed={tab === t}
                 onClick={() => {
                   setTab(t);
-                  history.replaceState(
-                    null,
-                    "",
-                    `/scheduling?tab=${encodeURIComponent(t)}`,
-                  );
+                  const next = new URL(location.href);
+                  next.searchParams.set("tab", t);
+                  history.replaceState(null, "", previewMode ? `${next.pathname}${next.search}` : `/scheduling?tab=${encodeURIComponent(t)}`);
                 }}
               >
                 {t}
@@ -537,7 +527,7 @@ export function Scheduling({
             ),
           )}
         </div>
-        {tab === "Messages" && <Messages types={data.types} />}
+        {tab === "Messages" && <Messages types={data.types} request={messageRequest} previewMode={previewMode}/>}
         <section
           hidden={tab !== "Availability"}
           className="settings-section"
@@ -711,6 +701,7 @@ export function Scheduling({
 
         {tab === "Availability" && (
           <AvailabilityProfiles
+            request={send}
             schedules={data.schedules}
             types={data.types}
             defaultAvailability={profile}
@@ -728,6 +719,8 @@ export function Scheduling({
           </div>
           {editing && !editing.id && (
             <TypeEditor
+              request={send}
+              previewMode={previewMode}
               context={data}
               defaultAvailability={profile}
               value={editing}
@@ -747,6 +740,8 @@ export function Scheduling({
           {data.types.map((type) =>
             editing?.id === type.id ? (
               <TypeEditor
+                request={send}
+                previewMode={previewMode}
                 context={data}
                 defaultAvailability={profile}
                 key={type.id}
@@ -856,6 +851,8 @@ export function Scheduling({
               )
               .map((b) => (
                 <BookingRow
+                  request={send}
+                  previewMode={previewMode}
                   key={b.id}
                   booking={b}
                   onCancelled={() => void load()}
@@ -868,13 +865,18 @@ export function Scheduling({
   );
 }
 
-function BookingRow({
+export function BookingRow({
   booking,
   onCancelled,
+  request: send,
+  previewMode,
 }: {
   booking: Booking;
   onCancelled: () => void;
+  request: SchedulingRequest;
+  previewMode: boolean;
 }) {
+  const messageRequest = useCallback((body?: unknown) => send("/api/messages", body === undefined ? "GET" : "POST", body), [send]);
   const [moving, setMoving] = useState(false);
   const [newStart, setNewStart] = useState("");
   const [messageVersion, setMessageVersion] = useState(0);
@@ -904,6 +906,7 @@ function BookingRow({
         {booking.status === "confirmed" && (
           <>
             <FollowUp
+              request={messageRequest}
               booking={booking}
               onSaved={() => {
                 setMessageVersion((v) => v + 1);
@@ -919,7 +922,7 @@ function BookingRow({
           </>
         )}
         {showMessages && (
-          <Messages key={messageVersion} types={[]} bookingID={booking.id} />
+          <Messages key={messageVersion} types={[]} bookingID={booking.id} request={messageRequest} previewMode={previewMode}/>
         )}
         {new Date(booking.ends_at) < new Date() &&
           booking.status === "confirmed" && (
@@ -1054,7 +1057,7 @@ function BookingRow({
         )}
       </div>
       <div className="type-actions">
-        {booking.meeting_url && booking.status === "confirmed" && (
+        {!previewMode && booking.meeting_url && booking.status === "confirmed" && (
           <a
             className="text-link"
             href={booking.meeting_url}
@@ -1110,19 +1113,24 @@ function BookingRow({
   );
 }
 
-function TypeEditor({
+export function TypeEditor({
   context,
   defaultAvailability,
   value,
   onCancel,
   onSaved,
+  request: send,
+  previewMode,
 }: {
   context: Data;
   defaultAvailability: Availability;
   value: EventType;
   onCancel: () => void;
   onSaved: (saved: EventType) => void;
+  request: SchedulingRequest;
+  previewMode: boolean;
 }) {
+  const messageRequest = useCallback((body?: unknown) => send("/api/messages", body === undefined ? "GET" : "POST", body), [send]);
   const [type, setType] = useState(value);
   const [slugTouched, setSlugTouched] = useState(Boolean(value.id));
   const [error, setError] = useState("");
@@ -1355,7 +1363,7 @@ function TypeEditor({
       {type.id && (
         <details className="type-message-settings">
           <summary>Messages for {type.title}</summary>
-          <Messages types={[type]} />
+          <Messages types={[type]} request={messageRequest} previewMode={previewMode}/>
         </details>
       )}
       <p className="fine-print">

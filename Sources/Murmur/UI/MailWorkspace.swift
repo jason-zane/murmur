@@ -18,10 +18,13 @@ struct MailWorkspace: View {
     @State private var actionFeedback: String?
     @State private var binAccount: String?
     @State private var savedNoteID: String?
+    @State private var fullPageReading = false
     private let syntheticPreview = PreviewEnvironment.hasSyntheticMail
     init() {
         if PreviewEnvironment.hasSyntheticMail, let root = PreviewEnvironment.root {
             _mailbox = State(initialValue: MailWorkspaceStore(transport: PreviewMailTransport(), root: root.appendingPathComponent("mail")))
+        } else {
+            _fullPageReading = State(initialValue: UserDefaults.standard.bool(forKey: "mailFullPageReading"))
         }
     }
     private let folders = [("Inbox", "in:inbox"), ("Starred", "is:starred"), ("Sent", "in:sent"), ("Archive", "in:all -in:inbox -in:trash -in:spam"), ("Spam", "in:spam"), ("Bin", "in:trash")]
@@ -46,22 +49,16 @@ struct MailWorkspace: View {
                 HStack(spacing: DS.Space.zero) {
                     accountNavigation.frame(width: DS.Layout.mailNavigationWidth)
                     Divider()
-                    HSplitView {
-                        VStack(alignment: .leading, spacing: DS.Space.zero) {
-                            VStack(alignment: .leading, spacing: DS.Space.sm) {
-                                Text(folderTitle).font(DS.Font.headline)
-                                Text(accountID.isEmpty ? "All accounts" : mailbox.accounts.first { $0.id == accountID }?.label ?? "Gmail")
-                                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
-                                SearchField(text: $query, placeholder: mailbox.offline ? "Search downloaded mail" : "Search mail")
-                                    .onSubmit { search = query }
-                                if mailbox.loading { ProgressView("Updating mail…").controlSize(.small).font(DS.Font.caption) }
-                            }.padding(DS.Space.md)
-                            Divider()
-                            if folder == "drafts" { localDrafts.padding(DS.Space.md) }
-                            else if folder == "outbox" { outbox.padding(DS.Space.md) }
-                            else { threadList }
-                        }.frame(minWidth: DS.Layout.mailListMinimumWidth, idealWidth: DS.Layout.mailListWidth, maxWidth: DS.Layout.mailListMaximumWidth)
-                        reader.frame(minWidth: DS.Layout.mailReaderWidth)
+                    if fullPageReading {
+                        ZStack(alignment: .topLeading) {
+                            mailboxList.opacity(selected == nil ? 1 : 0).allowsHitTesting(selected == nil).accessibilityHidden(selected != nil)
+                            reader.opacity(selected == nil ? 0 : 1).allowsHitTesting(selected != nil).accessibilityHidden(selected == nil)
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        HSplitView {
+                            mailboxList.frame(minWidth: DS.Layout.mailListMinimumWidth, idealWidth: DS.Layout.mailListWidth, maxWidth: DS.Layout.mailListMaximumWidth)
+                            reader.frame(minWidth: DS.Layout.mailReaderWidth)
+                        }
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .top) { Divider() }
@@ -71,7 +68,18 @@ struct MailWorkspace: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Mail")
         .toolbar {
+            if fullPageReading, selected != nil {
+                ToolbarItem(placement: .navigation) {
+                    WorkspaceCommand(title: "Back to messages", systemImage: "arrow.left", help: "Return to this inbox and its search.") { selected = nil; mailbox.closeConversation() }
+                }
+            }
             WorkspaceCommandArea {
+                ToolbarItem(placement: .primaryAction) {
+                    Picker("Reading view", selection: $fullPageReading) {
+                        Text("Side-by-side").tag(false)
+                        Text("Full page").tag(true)
+                    }.pickerStyle(.menu).help("Choose a side-by-side reading pane or a full-page inbox and conversation.")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     toolbarButton("New message", icon: "square.and.pencil", detail: "Write a message and choose its From account.", iconOnly: false) { compose() }.disabled(mailbox.accounts.isEmpty)
                 }
@@ -103,6 +111,7 @@ struct MailWorkspace: View {
             }
         }
         .onChange(of: accountID) { _, _ in selected = nil; mailbox.closeConversation(); search = ""; query = "" }
+        .onChange(of: fullPageReading) { _, value in if !syntheticPreview { UserDefaults.standard.set(value, forKey: "mailFullPageReading") } }
         .onChange(of: folder) { _, _ in selected = nil; mailbox.closeConversation(); search = ""; query = "" }
         .onChange(of: CloudAccount.shared.credentials?.userID) { _, _ in selected = nil; composing = nil; preferences = nil; actionFeedback = nil; binAccount = nil; savedNoteID = nil; mailbox.reset() }
         .task(id: refreshID) { await monitor() }
@@ -112,6 +121,22 @@ struct MailWorkspace: View {
         }
         .sheet(item: $preferences) { account in MailboxPreferences(account: account, mailbox: mailbox) { preferences = nil } }
         .sheet(isPresented: $fullMailbox) { CloudWorkspace(path: "/mail").frame(width: DS.Layout.windowWidth, height: DS.Layout.windowHeight) }
+    }
+    private var mailboxList: some View {
+        VStack(alignment: .leading, spacing: DS.Space.zero) {
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                Text(folderTitle).font(DS.Font.headline)
+                Text(accountID.isEmpty ? "All accounts" : mailbox.accounts.first { $0.id == accountID }?.label ?? "Gmail")
+                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
+                SearchField(text: $query, placeholder: mailbox.offline ? "Search downloaded mail" : "Search mail")
+                    .onSubmit { search = query }
+                if mailbox.loading { ProgressView("Updating mail…").controlSize(.small).font(DS.Font.caption) }
+            }.padding(DS.Space.md)
+            Divider()
+            if folder == "drafts" { localDrafts.padding(DS.Space.md) }
+            else if folder == "outbox" { outbox.padding(DS.Space.md) }
+            else { threadList }
+        }
     }
     private var folderTitle: String { folders.first { $0.1 == folder }?.0 ?? (folder == "drafts" ? "Drafts" : "Outbox") }
     private var accountNavigation: some View {
@@ -186,11 +211,19 @@ struct MailWorkspace: View {
                     Button {
                         selected = thread
                     } label: {
-                        VStack(alignment: .leading, spacing: DS.Space.compact) {
-                            HStack { Text(thread.from).font(DS.Font.caption).lineLimit(1); Spacer(); if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) } }
-                            Text(thread.subject).font(thread.unread ? DS.Font.bodyEmphasis : DS.Font.body).lineLimit(2)
-                            Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
-                            if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { Text(account.label).font(DS.Font.caption).foregroundStyle(DS.Color.mailbox(account.colour)).lineLimit(1) }
+                        Group {
+                            if fullPageReading {
+                                ViewThatFits(in: .horizontal) {
+                                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.md) {
+                                        Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1).frame(width: DS.Layout.mailSenderColumnWidth, alignment: .leading)
+                                        Text(thread.subject).font(DS.Font.body).lineLimit(1).frame(width: DS.Layout.mailSubjectColumnWidth, alignment: .leading)
+                                        Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                                        if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { MailboxBadge(account: account) }
+                                        if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) }
+                                    }
+                                    threadSummary(thread)
+                                }
+                            } else { threadSummary(thread) }
                         }.padding(.horizontal, DS.Space.md).padding(.vertical, DS.Space.sm).frame(maxWidth: .infinity, alignment: .leading)
                             .background(selected?.identity == thread.identity ? DS.Color.accentSoft : .clear, in: RoundedRectangle(cornerRadius: DS.Radius.sm))
                     }.buttonStyle(.plain)
@@ -201,6 +234,14 @@ struct MailWorkspace: View {
                     ActionButton(title: "Load older messages", emphasis: .normal) { Task { await mailbox.load(accountID: accountID, query: mailQuery, more: true) } }.disabled(mailbox.loading)
                 }
             }
+        }
+    }
+    private func threadSummary(_ thread: MailThread) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.compact) {
+            HStack { Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1); Spacer(); if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) } }
+            Text(thread.subject).font(DS.Font.body).lineLimit(2)
+            Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
+            if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { Text(account.label).font(DS.Font.caption).foregroundStyle(DS.Color.mailbox(account.colour)).lineLimit(1) }
         }
     }
     @ViewBuilder private var reader: some View {
@@ -214,8 +255,17 @@ struct MailWorkspace: View {
                     else if mailbox.messages.isEmpty { Text(mailbox.offline ? "Open this conversation while connected to download it." : "This conversation is unavailable. Try opening it again.").font(DS.Font.body).foregroundStyle(DS.Color.textSecondary) }
                     ForEach(mailbox.messages) { message in
                         VStack(alignment: .leading, spacing: DS.Space.md) {
-                            Text(message.from).font(DS.Font.bodyEmphasis)
-                            Text("To: " + message.to).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                            Text(mailSenderName(message.from)).font(DS.Font.headline)
+                            Text("To " + mailAddresses(message.to).map(mailSenderName).joined(separator: ", ")).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+                            DisclosureGroup("Message details") {
+                                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                                    LabeledContent("From", value: message.from)
+                                    LabeledContent("To", value: message.to)
+                                    if !message.cc.isEmpty { LabeledContent("Cc", value: message.cc) }
+                                    if !message.reply_to.isEmpty { LabeledContent("Reply to", value: message.reply_to) }
+                                    LabeledContent("Sent", value: message.date)
+                                }.textSelection(.enabled)
+                            }.font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
                             if formatted && !message.html.isEmpty { MailHTMLReader(html: message.html) }
                             else { Text(message.text.isEmpty ? "This message has no text content." : message.text).font(DS.Font.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                             ForEach(Array(message.attachments.enumerated()), id: \.offset) { _, attachment in

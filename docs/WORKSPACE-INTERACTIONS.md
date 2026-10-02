@@ -47,6 +47,26 @@ keep their guest-facing layout.
   trailing toolbar spacing and adaptive selected-content rows using design tokens.
 - Existing colour/typography/component tokens remain the visual source of truth.
 
+## Mail reading hierarchy
+
+Mail offers **Side-by-side** and **Full page** through the trailing View control.
+The existing side-by-side mode remains the default. Full page shows a full-width
+inbox; selecting a conversation replaces that list with the reader, and Back to
+messages restores the same inbox/search. Changing mode retains the selected
+conversation. Web inline reply edits remain mounted when the layout changes;
+Back uses the existing save-and-close contract before leaving the reader.
+
+List rows emphasise the sender's supplied display name, then subject, then snippet.
+Unread subjects retain additional emphasis. Unknown names fall back to the actual
+address rather than an invented contact label. Message headers emphasise that same
+identity; Details reveals complete From/To/Cc/Reply-to/date information. Display
+formatting never changes addresses used for replies or sending.
+
+Web layout preferences belong to the signed-in user/browser; synthetic previews
+have a distinct preference key. Native layout preference is local to this Mac,
+with synthetic previews leaving the real preference untouched. Full-page native
+rows adapt to available width. Native replies still use the existing sheet.
+
 ## Boundaries and next product work
 
 Placement does not establish feature parity. Web mail replies are inline; native
@@ -55,6 +75,14 @@ native drafts still need that same cloud contract. Invitation and follow-up revi
 remain explicitly synthetic where only the prototype is enabled. Provider choice,
 audio services, account eligibility and migration/onboarding remain separate work.
 No UI label should imply a synthetic flow is live AI or that a save sent an email.
+
+Synthetic booking previews must supply a fixture transport to every nested editor,
+availability profile, booking action, message recipe and follow-up. A missing
+preview transport fails closed; preview data and rejected saves never fall back
+to authenticated scheduling or messaging APIs. Preview tab/sidebar/logo navigation
+stays within supported synthetic routes; provider connections and guest booking
+are unavailable. Browser QA counts attempted API requests and fails if any occur,
+without substituting intercepted fixture responses for this boundary.
 
 ## Primary references
 
