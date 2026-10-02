@@ -8,9 +8,9 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
     </span>
   );
 }
-export function Brand() {
+export function Brand({ href = "/" }: { href?: string }) {
   return (
-    <Link href="/" className="brand" aria-label="Concourse Today">
+    <Link href={href} className="brand" aria-label={href === "/" ? "Concourse Today" : "Concourse preview"}>
       <BrandMark />
       Concourse
     </Link>

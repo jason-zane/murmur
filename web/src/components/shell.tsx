@@ -69,10 +69,17 @@ export function Shell({
     try { localStorage.setItem(welcomeKey, "seen"); } catch { /* Local work remains available. */ }
     setWelcome(false);
   }
-  const nav = (href: string, label: string, Icon: typeof Home) => (
+  const previewPaths: Record<string, string> = {
+    "/notes": "/prototype/follow-up?view=library",
+    "/mail": "/prototype/follow-up?view=mail",
+    "/scheduling": "/prototype/follow-up?view=booking",
+  };
+  const nav = (href: string, label: string, Icon: typeof Home) => previewMode && !previewPaths[href] ? (
+    <span key={href} className="nav disabled" aria-disabled="true" title="Unavailable in the synthetic preview"><Icon size={18}/>{label}</span>
+  ) : (
     <Link
       key={href}
-      href={previewMode && href === "/notes" ? "/prototype/follow-up?view=library" : previewMode && href === "/mail" ? "/prototype/follow-up?view=mail" : href}
+      href={previewMode ? previewPaths[href] : href}
       onClick={() => setOpen(false)}
       className={"nav" + ((activePath || path) === href ? " active" : "")}
       aria-current={(activePath || path) === href ? "page" : undefined}
@@ -84,7 +91,7 @@ export function Shell({
   return (
     <div className={`shell${layout ? ` shell-${layout}` : ""}`}>
       <header className="mobile-bar">
-        <Brand />
+        <Brand href={previewMode ? "/prototype/follow-up?view=library" : undefined}/>
         <button
           ref={navigationButton}
           className="icon-button"
@@ -97,7 +104,7 @@ export function Shell({
         </button>
       </header>
       <aside id="workspace-navigation" className={"sidebar" + (open ? " mobile-open" : "")}>
-        <Brand />
+        <Brand href={previewMode ? "/prototype/follow-up?view=library" : undefined}/>
         <nav aria-label="Main navigation">
           {destinations.map(([href, label, Icon]) => nav(href, label, Icon))}
         </nav>
@@ -111,11 +118,13 @@ export function Shell({
           <nav aria-label="Preferences">
             {nav("/connections", "Connected apps", Link2)}
             {nav("/settings", "Settings", Settings)}
-            <button className="workspace-guide" onClick={() => { setOpen(false); setWelcome(true); }}>Set up your workspace</button>
+            <button className="workspace-guide" disabled={previewMode} onClick={() => { setOpen(false); setWelcome(true); }}>Set up your workspace</button>
           </nav>
           <Link
-            href="/settings"
-            onClick={() => setOpen(false)}
+            href={previewMode ? "#" : "/settings"}
+            aria-disabled={previewMode || undefined}
+            tabIndex={previewMode ? -1 : undefined}
+            onClick={event => { if (previewMode) { event.preventDefault(); return; } setOpen(false); }}
             className="account"
             aria-label={`Account settings, ${email}`}
           >

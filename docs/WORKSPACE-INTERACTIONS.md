@@ -56,6 +56,14 @@ remain explicitly synthetic where only the prototype is enabled. Provider choice
 audio services, account eligibility and migration/onboarding remain separate work.
 No UI label should imply a synthetic flow is live AI or that a save sent an email.
 
+Synthetic booking previews must supply a fixture transport to every nested editor,
+availability profile, booking action, message recipe and follow-up. A missing
+preview transport fails closed; preview data and rejected saves never fall back
+to authenticated scheduling or messaging APIs. Preview tab/sidebar/logo navigation
+stays within supported synthetic routes; provider connections and guest booking
+are unavailable. Browser QA counts attempted API requests and fails if any occur,
+without substituting intercepted fixture responses for this boundary.
+
 ## Primary references
 
 - [Apple: Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars)
