@@ -75,10 +75,20 @@ struct MailWorkspace: View {
             }
             WorkspaceCommandArea {
                 ToolbarItem(placement: .primaryAction) {
-                    Picker("Reading view", selection: $fullPageReading) {
-                        Text("Side-by-side").tag(false)
-                        Text("Full page").tag(true)
-                    }.pickerStyle(.menu).help("Choose a side-by-side reading pane or a full-page inbox and conversation.")
+                    Menu {
+                        Button { fullPageReading = false } label: {
+                            Label("Side-by-side", systemImage: fullPageReading ? "rectangle.split.2x1" : "checkmark")
+                        }
+                        Button { fullPageReading = true } label: {
+                            Label("Full page", systemImage: fullPageReading ? "checkmark" : "rectangle")
+                        }
+                    } label: {
+                        Label(fullPageReading ? "Full page" : "Side-by-side", systemImage: fullPageReading ? "rectangle" : "rectangle.split.2x1")
+                    }.labelStyle(WorkspaceCommandLabelStyle(iconOnly: false))
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilityLabel("Reading view")
+                        .accessibilityValue(fullPageReading ? "Full page" : "Side-by-side")
+                        .help("Choose a side-by-side reading pane or a full-page inbox and conversation.")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     toolbarButton("New message", icon: "square.and.pencil", detail: "Write a message and choose its From account.", iconOnly: false) { compose() }.disabled(mailbox.accounts.isEmpty)
@@ -205,43 +215,64 @@ struct MailWorkspace: View {
         }
     }
     private var threadList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: DS.Space.zero) {
-                ForEach(mailbox.threads.filter { search.isEmpty || !mailbox.offline || [$0.subject, $0.from, $0.snippet].joined(separator: " ").localizedCaseInsensitiveContains(search) }, id: \.identity) { thread in
-                    Button {
-                        selected = thread
-                    } label: {
-                        Group {
-                            if fullPageReading {
-                                ViewThatFits(in: .horizontal) {
-                                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.md) {
-                                        Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1).frame(width: DS.Layout.mailSenderColumnWidth, alignment: .leading)
-                                        Text(thread.subject).font(DS.Font.mailSubject(unread: thread.unread)).lineLimit(1).frame(width: DS.Layout.mailSubjectColumnWidth, alignment: .leading)
-                                        Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                                        if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { MailboxBadge(account: account) }
-                                        if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) }
-                                    }
-                                    threadSummary(thread)
-                                }
-                            } else { threadSummary(thread) }
-                        }.padding(.horizontal, DS.Space.md).padding(.vertical, DS.Space.sm).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(selected?.identity == thread.identity ? DS.Color.accentSoft : .clear, in: RoundedRectangle(cornerRadius: DS.Radius.sm))
-                    }.buttonStyle(.plain)
-                    Divider()
-                }
-                if mailbox.threads.isEmpty && !mailbox.loading { EmptyState(icon: "tray", label: "No mail in this view", detail: mailbox.offline ? "Only downloaded mail is available offline." : "Try a different folder or search.") }
-                if !mailbox.pages.isEmpty {
-                    ActionButton(title: "Load older messages", emphasis: .normal) { Task { await mailbox.load(accountID: accountID, query: mailQuery, more: true) } }.disabled(mailbox.loading)
+        GeometryReader { geometry in
+            let horizontalRows = fullPageReading && geometry.size.width >= DS.Layout.mailHorizontalRowMinimumWidth
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: DS.Space.zero) {
+                    ForEach(mailbox.threads.filter { search.isEmpty || !mailbox.offline || [$0.subject, $0.from, $0.snippet].joined(separator: " ").localizedCaseInsensitiveContains(search) }, id: \.identity) { thread in
+                        Button {
+                            selected = thread
+                        } label: {
+                            Group {
+                                if horizontalRows { horizontalThreadSummary(thread) }
+                                else { threadSummary(thread) }
+                            }.padding(.horizontal, DS.Space.md)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(height: horizontalRows ? DS.Layout.mailHorizontalRowHeight : accountID.isEmpty ? DS.Layout.mailStackedAccountRowHeight : DS.Layout.mailStackedRowHeight)
+                                .background(selected?.identity == thread.identity ? DS.Color.accentSoft : .clear, in: RoundedRectangle(cornerRadius: DS.Radius.sm))
+                        }.buttonStyle(.plain)
+                            .accessibilityValue(thread.unread ? "Unread" : "Read")
+                            .accessibilityIdentifier("mail-thread-row-" + thread.identity)
+                        Divider()
+                    }
+                    if mailbox.threads.isEmpty && !mailbox.loading { EmptyState(icon: "tray", label: "No mail in this view", detail: mailbox.offline ? "Only downloaded mail is available offline." : "Try a different folder or search.") }
+                    if !mailbox.pages.isEmpty {
+                        ActionButton(title: "Load older messages", emphasis: .normal) { Task { await mailbox.load(accountID: accountID, query: mailQuery, more: true) } }.disabled(mailbox.loading)
+                    }
                 }
             }
         }
     }
+    private func horizontalThreadSummary(_ thread: MailThread) -> some View {
+        HStack(spacing: DS.Space.md) {
+            Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1)
+                .frame(width: DS.Layout.mailSenderColumnWidth, alignment: .leading)
+            Text(thread.subject).font(DS.Font.mailSubject(unread: thread.unread)).lineLimit(1)
+                .frame(width: DS.Layout.mailSubjectColumnWidth, alignment: .leading)
+            Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if accountID.isEmpty {
+                Group {
+                    if let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { MailboxBadge(account: account) }
+                    else { Text("Mailbox unavailable").font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary) }
+                }.frame(width: DS.Layout.mailAccountColumnWidth, alignment: .trailing)
+            }
+            unreadIndicator(thread)
+        }
+    }
+    private func unreadIndicator(_ thread: MailThread) -> some View {
+        Image(systemName: "circle.fill").font(DS.Font.caption).foregroundStyle(DS.Color.accent)
+            .frame(width: DS.Layout.mailUnreadIndicatorWidth).opacity(thread.unread ? 1 : 0)
+            .accessibilityHidden(true)
+    }
     private func threadSummary(_ thread: MailThread) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.compact) {
-            HStack { Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1); Spacer(); if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) } }
-            Text(thread.subject).font(DS.Font.mailSubject(unread: thread.unread)).lineLimit(2)
+            HStack { Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1); Spacer(); unreadIndicator(thread) }
+            Text(thread.subject).font(DS.Font.mailSubject(unread: thread.unread)).lineLimit(1)
             Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
-            if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { Text(account.label).font(DS.Font.caption).foregroundStyle(DS.Color.mailbox(account.colour)).lineLimit(1) }
+            if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) {
+                MailboxBadge(account: account).frame(maxWidth: DS.Layout.mailAccountColumnWidth, alignment: .leading)
+            }
         }
     }
     @ViewBuilder private var reader: some View {
