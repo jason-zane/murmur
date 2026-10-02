@@ -12,6 +12,34 @@
   font-size: 14px;
   line-height: 1.5;
 }
+
+/* One command hierarchy across workspaces and selected items. */
+.shell .workspace-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.workspace-heading { min-width: 0; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.workspace-context { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.workspace-commands { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.shell.shell-notes .workspace-header { flex: none; padding: 18px 24px; margin: 0; border-bottom: 1px solid var(--line); }
+.notes-welcome > h2 { font-size: var(--workspace-workspace-title); letter-spacing: -.035em; }
+.command-help { position: relative; display: inline-flex; flex-shrink: 0; }
+.command-tooltip { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: max-content; max-width: min(280px, calc(100vw - 32px)); padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--workspace-control-radius); background: var(--surface); color: var(--ink); box-shadow: var(--shadow); font-size: 12px; line-height: 1.5; font-weight: 400; }
+.item-actions-panel > hr { border: 0; border-top: 1px solid var(--line); margin: 5px 0; }
+.item-actions-panel > select { width: 100%; max-width: 100%; padding: 8px; font: inherit; font-size: 13px; border: 1px solid var(--line); border-radius: var(--workspace-control-radius); background: var(--surface); color: var(--ink); }
+.shell .booking-share { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 12px 0; margin-bottom: 20px; border: 0; border-radius: 0; }
+.booking-share .url-copy { flex: 1; min-width: 220px; }
+.booking-share > a { margin: 0; white-space: nowrap; }
+.url-copy:has(.copy-link-error) { flex-wrap: wrap; }
+.copy-link-error { width: 100%; padding: 8px 12px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+.shell-mail .mail-reader > .mail-reader-toolbar { justify-content: flex-end; }
+.mail-reader-toolbar > button:first-child { margin-right: auto; }
+.mail-reader > .mail-actions .item-actions-panel { left: auto; right: 0; }
+@media(max-width:760px) {
+  .shell .workspace-header { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+  .workspace-commands { max-width: 100%; }
+  .shell.shell-notes .workspace-header { padding: 16px 20px; }
+  .shell .booking-share { gap: 10px; }
+  .booking-share .url-copy { min-width: 0; width: 100%; flex-basis: 100%; }
+  .booking-share > a { margin-left: auto; }
+}
 .shell .sidebar { padding: 20px 12px; }
 .shell .sidebar > .brand { margin: 0 4px 24px; font-size: var(--workspace-brand-size); font-weight: 700; }
 .shell .sidebar .brand-mark { background: var(--tint); width: 30px; height: 30px; border-radius: 50%; }
@@ -65,7 +93,7 @@
 .notes-detail-layout .document { min-width: 0; margin: 0; background: var(--surface); }
 .notes-detail-layout .document-toolbar { margin-bottom: 0; padding: 16px 28px; border-bottom: 1px solid var(--line); }
 .notes-detail-layout .document-inner { max-width: 840px; padding: 32px 40px; margin: 0 auto; }
-.notes-detail-layout .document-inner > h1 { font-size: 28px; margin-block: 12px; letter-spacing: -.035em; }
+.notes-detail-layout .document-inner > :is(h1, h2) { font-size: 28px; margin-block: 12px; letter-spacing: -.035em; }
 .notes-detail-layout .document-meta { margin-bottom: 24px; font-size: 13px; }
 .notes-detail-layout .eyebrow { font-size: 12px; letter-spacing: 0; font-weight: 400; text-transform: none; }
 .notes-detail-layout .document-tabs { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 28px; }
@@ -330,3 +358,7 @@
  .shell-mail .mail-reader > .mail-reader-toolbar { gap: 6px; padding: 10px 12px; }
  .shell-mail .mail-reader-scroll { padding-inline: 16px; }
 }
+.item-actions > .item-actions-trigger { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--workspace-control-radius); background: transparent; color: var(--muted); }
+.item-actions > .item-actions-trigger:hover, .item-actions[data-open] > .item-actions-trigger { background: var(--soft); }
+.item-actions-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.type-actions { justify-content: flex-end; margin-left: auto; }

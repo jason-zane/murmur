@@ -1,4 +1,6 @@
 "use client";
+import { CommandButton } from "@/components/command-button";
+import { WorkspaceHeader } from "@/components/workspace-header";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
@@ -116,13 +118,14 @@ export function Library({ email, userID, request = fetch, previewMode = false, p
     history.replaceState(null, "", notesPath(id));
   }
   return <Shell email={email} layout="notes" previewMode={previewMode} previewControls={previewControls} activePath="/notes">
+    <WorkspaceHeader title="Notes" actions={<CommandButton className="button primary" onClick={create} disabled={loading} help="Write a note in Concourse. Unfinished edits are recovered in this browser until you save."><Plus size={17}/>New note</CommandButton>}/>
     <div className={`notes-detail-layout${current ? " has-note" : ""}`}>
-      <WorkspaceList title="Notes" query={query} onQuery={setQuery} selected={selected}
-        onSelect={selectNote} onNew={create} loading={loading} error={message} onRetry={load}
+      <WorkspaceList title={filter === "pinned" ? "Pinned notes" : "All notes"} query={query} onQuery={setQuery} selected={selected}
+        onSelect={selectNote} loading={loading} error={message} onRetry={load}
         items={visible.map(row=>({id:row.id,title:row.title,meta:`${date(row.started_at)} · ${row.document.session.speakers.join(", ") || (row.document.session.engine==="Notes"?"Personal note":"Meeting")}`,pinned:Boolean(row.document.session.pinned)}))}>
         <div className="workspace-list-filters" aria-label="Filter notes"><button aria-pressed={filter==="all"} onClick={()=>setFilter("all")}>All notes <span>{rows.length}</span></button><button aria-pressed={filter==="pinned"} onClick={()=>setFilter("pinned")}><Pin size={13}/>Pinned</button><button className="icon-button" aria-label="Refresh notes" onClick={load}><RefreshCw size={15}/></button></div>
       </WorkspaceList>
-      {current ? <NoteDetail key={current.id} row={current} userID={userID} onBack={()=>selectNote(null)} onSaved={replace} request={request} previewMode={previewMode} followUpEnabled={followUpEnabled}/> : <section className="notes-welcome" aria-label="Notes workspace"><FileText size={28}/><h1>{loading?"Opening your notes":message?"Notes couldn’t open":selected?"Note unavailable":rows.length?"A little space to think":"Your next thought starts here"}</h1><p>{loading?"Your notes are loading…":message?"Your notes could not be loaded. Try again in the notes list.":selected?"This note could not be found in your library. Select another note or create a new one.":rows.length?"Select a note to read, edit or find a moment in its transcript.":"Write a note here, or connect the Mac app to bring your meeting notes together."}</p>{!message && !loading && <button className="button primary" onClick={create}><Plus size={16}/>New note</button>}<p className="fine-print">Your existing notes stay in Concourse. Editing creates a recoverable browser draft before you save.</p></section>}
+      {current ? <NoteDetail key={current.id} row={current} userID={userID} onBack={()=>selectNote(null)} onSaved={replace} request={request} previewMode={previewMode} followUpEnabled={followUpEnabled}/> : <section className="notes-welcome" aria-label="Notes workspace"><FileText size={28}/><h2>{loading?"Opening your notes":message?"Notes couldn’t open":selected?"Note unavailable":rows.length?"A little space to think":"Your next thought starts here"}</h2><p>{loading?"Your notes are loading…":message?"Your notes could not be loaded. Try again in the notes list.":selected?"This note could not be found in your library. Select another note or create a new one.":rows.length?"Select a note to read, edit or find a moment in its transcript.":"Write a note here, or connect the Mac app to bring your meeting notes together."}</p></section>}
     </div>
   </Shell>;
 }
@@ -318,19 +321,25 @@ function NoteDetail({
         </button>
         <div>
 
-          <button
-            className={
-              "icon-button " + (row.document.session.pinned ? "is-pinned" : "")
-            }
-            aria-label={row.document.session.pinned ? "Unpin note" : "Pin note"}
-            onClick={pin}
-            disabled={changed || busy}
-          >
-            <Pin size={17} />
-          </button>
-          <button
+          {tab === "note" &&
+            (editing ? (
+              <div className="note-edit-actions"><button className="button small" disabled={busy} onClick={()=>cancelEdit()}>Cancel edit</button><button
+                className="button primary small"
+                disabled={busy || !changed}
+                onClick={save}
+              >
+                {busy ? "Saving…" : "Save note"}
+                <Check size={15} />
+              </button></div>
+            ) : (
+              <button className="button small" onClick={() => setEditing(true)}>
+                Edit note
+              </button>
+            ))}
+          <CommandButton
             className="icon-button"
             aria-label="Copy note"
+            help="Copy the note title and text."
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(`# ${title}\n\n${text}`);
@@ -344,11 +353,11 @@ function NoteDetail({
             }}
           >
             {copied ? <Check size={17} /> : <Copy size={17} />}
-          </button>
-          <ItemActions label={row.title}>
+          </CommandButton>
+          <ItemActions label={`note: ${row.title}`}>
             <button disabled={busy || changed} onClick={pin}>{row.document.session.pinned ? "Unpin note" : "Pin note"}</button>
             <button onClick={download}>Export Markdown…</button>
-            <button disabled={busy} onClick={deleteNote}>Delete note…</button>
+            <hr/><button disabled={busy} onClick={deleteNote}>Delete note…</button>
           </ItemActions>
         </div>
       </header>
@@ -370,7 +379,7 @@ function NoteDetail({
             onChange={(e) => change(e.target.value, text)}
           />
         ) : (
-          <h1>{title}</h1>
+          <h2>{title}</h2>
         )}
         <div className="document-meta">
           {row.document.session.speakers.join(" · ")}
@@ -424,21 +433,7 @@ function NoteDetail({
               Transcript <span>{row.document.transcript.length}</span>
             </button>
           </div>
-          {tab === "note" &&
-            (editing ? (
-              <div className="note-edit-actions"><button className="button small" disabled={busy} onClick={()=>cancelEdit()}>Cancel edit</button><button
-                className="button primary small"
-                disabled={busy || !changed}
-                onClick={save}
-              >
-                {busy ? "Saving…" : "Save note"}
-                <Check size={15} />
-              </button></div>
-            ) : (
-              <button className="button small" onClick={() => setEditing(true)}>
-                Edit note
-              </button>
-            ))}
+
         </div>
         {cancelConfirm && <div className="notice" role="alert"><p>Discard these unsaved changes? Your saved note stays unchanged.</p><div className="form-actions"><button className="button small" onClick={()=>setCancelConfirm(false)}>Keep editing</button><button className="button small" onClick={()=>cancelEdit(true)}>Discard changes</button></div></div>}
         {message && (

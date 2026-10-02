@@ -1,3 +1,4 @@
+import { WorkspaceHeader } from "@/components/workspace-header";
 import { redirect } from "next/navigation";
 import { cloudReady } from "@/lib/config";
 import { serverClient } from "@/lib/supabase/server";
@@ -12,26 +13,21 @@ export default async function Page() {
   if (!user) redirect("/login");
   return (
     <Shell email={user.email || "Your account"}>
-      <header className="page-header">
-        <h1>Dictation</h1>
-        <p>Dictation history and settings live on your Mac.</p>
-      </header>
+      <WorkspaceHeader title="Dictation" context="Dictation history and settings live on your Mac." actions={<a className="button primary" href="murmur://dictation">Open Dictation on Mac</a>}/>
       <section className="workspace-card">
         <h2>Dictate on your Mac</h2>
         <p>
           Hold your push-to-talk key, speak, then release to insert your words
           into the app you’re using.
         </p>
-        <a className="button primary" href="murmur://dictation">
-          Open Dictation on Mac
-        </a>
+
       </section>
       <section className="settings-section">
         <h2>History and personalisation</h2>
         <p>
           Dictation history, your dictionary, shortcuts and transcription
-          settings are stored on your Mac. They are not uploaded to your Voice
-          Notes account.
+          settings are stored on your Mac. They are not uploaded to your Concourse
+          account.
         </p>
       </section>
     </Shell>

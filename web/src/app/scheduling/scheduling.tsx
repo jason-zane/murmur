@@ -1,4 +1,6 @@
 "use client";
+import { CommandButton } from "@/components/command-button";
+import { WorkspaceHeader } from "@/components/workspace-header";
 import { ItemActions } from "@/components/item-actions";
 import { DateField } from "@/components/date-field";
 import { AvailabilityProfiles } from "@/components/availability-profiles";
@@ -194,22 +196,25 @@ async function send(url: string, method: string, body?: unknown) {
 
 function CopyLink({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
   return (
     <div className="url-copy">
       <code>{url}</code>
       <button
         aria-label="Copy booking link"
         onClick={async () => {
+          setError("");
           try {
             await navigator.clipboard.writeText(url);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-          } catch {}
+          } catch { setError("Copy was blocked. Select the link to copy it."); }
         }}
       >
         {copied ? <Check size={17} /> : <Copy size={17} />}
         <span>{copied ? "Copied" : "Copy link"}</span>
       </button>
+      {error && <span className="copy-link-error" role="status">{error}</span>}
     </div>
   );
 }
@@ -217,9 +222,11 @@ function CopyLink({ url }: { url: string }) {
 export function Scheduling({
   email,
   googleReady,
+  previewMode = false,
 }: {
   email: string;
   googleReady: boolean;
+  previewMode?: boolean;
 }) {
   const [tab, setTab] = useState("Meeting types");
   const [bookingFilter, setBookingFilter] = useState("Upcoming");
@@ -397,7 +404,7 @@ export function Scheduling({
 
   if (!data || !profile)
     return (
-      <Shell email={email}>
+      <Shell email={email} activePath="/scheduling" previewMode={previewMode}>
         <div className="scheduling-page">
           <header className="page-header">
             <h1>Booking links</h1>
@@ -427,12 +434,10 @@ export function Scheduling({
   ];
 
   return (
-    <Shell email={email}>
+    <Shell email={email} activePath="/scheduling" previewMode={previewMode}>
       <div className="scheduling-page">
-        <header className="page-header">
-          <h1>Booking links</h1>
-          <p>Meeting types, availability and booked guests.</p>
-        </header>
+        <WorkspaceHeader title="Booking links" context="Meeting types, availability and booked guests." actions={<CommandButton className="button primary" disabled={Boolean(editing)} onClick={()=>{setTab("Meeting types");setEditing(blankType(data.types.length));}} help="Create a booking link with its own duration, availability and calendar."><Plus size={17}/>New meeting type</CommandButton>}/>
+        {previewMode && <p className="fine-print" role="status">Design preview · booking data is supplied by an isolated test transport.</p>}
         {message && (
           <p className="notice" role="status">
             {message}
@@ -440,8 +445,8 @@ export function Scheduling({
         )}
 
         {live ? (
-          <section className="booking-live">
-            <span className="eyebrow">Your booking page</span>
+          <section className="booking-live booking-share" aria-label="Your booking page">
+
             <CopyLink url={profileURL} />
             <Link
               className="text-link"
@@ -719,15 +724,7 @@ export function Scheduling({
         >
           <div className="heading-row">
             <h2 id="types-heading">Meeting types</h2>
-            {!editing && (
-              <button
-                className="button small"
-                onClick={() => setEditing(blankType(data.types.length))}
-              >
-                <Plus size={15} />
-                New meeting type
-              </button>
-            )}
+
           </div>
           {editing && !editing.id && (
             <TypeEditor
@@ -797,9 +794,9 @@ export function Scheduling({
                     />
                     <span>{type.active ? "On" : "Off"}</span>
                   </label>
-                  <ItemActions label={type.title}>
+                  <ItemActions label={`meeting type: ${type.title}`}>
                     <button onClick={() => setEditing(type)}>Edit meeting type</button>
-                    <button onClick={() => removeType(type)}>Delete meeting type…</button>
+                    <hr/><button onClick={() => removeType(type)}>Delete meeting type…</button>
                   </ItemActions>
                 </div>
               </div>
@@ -1163,6 +1160,7 @@ function TypeEditor({
         <label className="field">
           <span>Name</span>
           <input
+            autoFocus
             value={type.title}
             onChange={(e) => {
               set("title", e.target.value);

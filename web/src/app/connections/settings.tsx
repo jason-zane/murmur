@@ -1,4 +1,5 @@
 "use client";
+import { WorkspaceHeader } from "@/components/workspace-header";
 import { ItemActions } from "@/components/item-actions";
 import { EmailConnection } from "@/components/messages";
 import { LocalTime } from "@/components/local-time";
@@ -178,18 +179,10 @@ export function Connections({
   return (
     <Shell email={email}>
       <div className="connections-page">
-        <header className="page-header">
-          <h1>Connected apps</h1>
-          <p>
-            Calendars, email and the apps connected to your Concourse account.
-          </p>
-        </header>
+        <WorkspaceHeader title="Connected apps" context="Calendars, email and the apps connected to your Concourse account." actions={<Link href="/settings" className="button">Account settings <ArrowUpRight size={14}/></Link>}/>
         <div className="connection-account">
           <AccountIdentity email={email} />
-          <Link href="/settings" className="text-link">
-            Account settings
-            <ArrowUpRight size={14} />
-          </Link>
+
         </div>
         {message && (
           <p className="notice" role="status">
