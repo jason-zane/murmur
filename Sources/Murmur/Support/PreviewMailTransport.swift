@@ -37,7 +37,17 @@ import Foundation
             let query = params.first { $0.name == "q" || $0.name == "query" }?.value ?? "in:inbox"
             let visible = query == "in:trash" ? bin.contains(account) : !bin.contains(account) && (query.contains("in:inbox") ? !archive.contains(account) : query == "is:starred" ? stars.contains(account) : true)
             let thread: [String: Any] = ["id": "preview-thread", "subject": "Design review and next steps", "from": "Priya Nair", "date": "2026-10-02T00:00:00Z", "snippet": "Two images and a few next steps for our next conversation.", "unread": !read.contains(account), "starred": stars.contains(account)]
-            result = ["threads": visible ? [thread] : [], "next_page": NSNull()]
+            let layoutStress = ProcessInfo.processInfo.environment["MURMUR_PREVIEW_MAIL_LAYOUT_STRESS"] == "1"
+            let sampleThreads: [[String: Any]] = layoutStress ? (0..<48).map { index in
+                var sample = thread
+                sample["id"] = "preview-thread-\(index)"
+                sample["from"] = index.isMultiple(of: 3) ? "Northwind design team with a longer supplied name" : "Priya Nair"
+                sample["subject"] = index.isMultiple(of: 2) ? "Design review · sample \(index)" : String(repeating: "A longer subject to check truncation ", count: 8)
+                sample["snippet"] = index.isMultiple(of: 3) ? "Short preview." : String(repeating: "A long synthetic preview must not choose a different row composition. ", count: 12)
+                sample["unread"] = index.isMultiple(of: 2)
+                return sample
+            } : [thread]
+            result = ["threads": visible ? sampleThreads : [], "next_page": NSNull()]
         }
         return try JSONSerialization.data(withJSONObject: result)
     }

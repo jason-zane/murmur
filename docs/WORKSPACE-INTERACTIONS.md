@@ -65,7 +65,7 @@ formatting never changes addresses used for replies or sending.
 Web layout preferences belong to the signed-in user/browser; synthetic previews
 have a distinct preference key. Native layout preference is local to this Mac,
 with synthetic previews leaving the real preference untouched. Full-page native
-rows adapt to available width. Native replies still use the existing sheet.
+rows choose one composition from the available list width, so long message text cannot switch individual rows between columns and stacked content. Columns and unread slots stay aligned; the labelled Reading view menu always displays the current choice. Native replies still use the existing sheet.
 
 ## Boundaries and next product work
 

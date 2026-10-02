@@ -18,7 +18,7 @@ struct WorkspaceCommand: View {
     }
 }
 
-private struct WorkspaceCommandLabelStyle: LabelStyle {
+struct WorkspaceCommandLabelStyle: LabelStyle {
     let iconOnly: Bool
     func makeBody(configuration: Configuration) -> some View {
         if iconOnly { configuration.icon }
