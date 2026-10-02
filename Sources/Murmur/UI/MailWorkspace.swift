@@ -216,7 +216,7 @@ struct MailWorkspace: View {
                                 ViewThatFits(in: .horizontal) {
                                     HStack(alignment: .firstTextBaseline, spacing: DS.Space.md) {
                                         Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1).frame(width: DS.Layout.mailSenderColumnWidth, alignment: .leading)
-                                        Text(thread.subject).font(DS.Font.body).lineLimit(1).frame(width: DS.Layout.mailSubjectColumnWidth, alignment: .leading)
+                                        Text(thread.subject).font(DS.Font.mailSubject(unread: thread.unread)).lineLimit(1).frame(width: DS.Layout.mailSubjectColumnWidth, alignment: .leading)
                                         Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                                         if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { MailboxBadge(account: account) }
                                         if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) }
@@ -239,7 +239,7 @@ struct MailWorkspace: View {
     private func threadSummary(_ thread: MailThread) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.compact) {
             HStack { Text(mailSenderName(thread.from)).font(DS.Font.bodyEmphasis).lineLimit(1); Spacer(); if thread.unread { Image(systemName: "circle.fill").foregroundStyle(DS.Color.accent) } }
-            Text(thread.subject).font(DS.Font.body).lineLimit(2)
+            Text(thread.subject).font(DS.Font.mailSubject(unread: thread.unread)).lineLimit(2)
             Text(thread.snippet).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).lineLimit(1)
             if accountID.isEmpty, let account = mailbox.accounts.first(where: { $0.id == thread.accountID }) { Text(account.label).font(DS.Font.caption).foregroundStyle(DS.Color.mailbox(account.colour)).lineLimit(1) }
         }

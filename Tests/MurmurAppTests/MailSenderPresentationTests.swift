@@ -13,4 +13,10 @@ struct MailSenderPresentationTests {
         #expect(mailSenderName("") == "Unknown sender")
         #expect(mailAddresses(#""Doe, Jane" <jane@example.invalid>"#) == [#""Doe, Jane" <jane@example.invalid>"#])
     }
+    @Test func unreadSubjectTypographyRemainsDistinctFromReadMail() {
+        #expect(DS.Font.mailSubject(unread: true) == DS.Font.bodyEmphasis)
+        #expect(DS.Font.mailSubject(unread: false) == DS.Font.body)
+        #expect(DS.Font.mailSubject(unread: true) != DS.Font.mailSubject(unread: false))
+    }
+
 }

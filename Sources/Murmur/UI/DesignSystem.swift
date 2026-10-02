@@ -84,6 +84,8 @@ enum DS {
         static let headline = SwiftUI.Font.system(size: 14, weight: .semibold)
         static let body = SwiftUI.Font.system(size: 13, weight: .regular)
         static let bodyEmphasis = SwiftUI.Font.system(size: 13, weight: .medium)
+        /// Unread subjects retain emphasis in every Mail list layout.
+        static func mailSubject(unread: Bool) -> SwiftUI.Font { unread ? bodyEmphasis : body }
         static let callout = SwiftUI.Font.system(size: 12, weight: .regular)
         static let label = SwiftUI.Font.system(size: 11, weight: .medium)
         static let caption = SwiftUI.Font.system(size: 11, weight: .regular)
