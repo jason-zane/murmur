@@ -2,15 +2,29 @@ import SwiftUI
 import WebKit
 
 /// Provider HTML has already been sanitised on the server. The reader additionally
-/// has no scripts, app bridge, persistent cookies or permission to load remote resources.
+/// has no message scripts, app bridge or persistent cookies. Remote images require
+/// the same automatic loading policy as web Mail, with a block control scoped to
+/// this exact message body. Sender scripts and persistent cookies stay disabled.
 struct MailHTMLReader: View {
     let html: String
+    @State private var blockedHTML: String?
     @State private var height = DS.Layout.mailHTMLHeight
     @State private var width = DS.Space.zero
     var body: some View {
-        MailHTMLWebView(html: html, width: width, height: $height)
-            .frame(height: height)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            if html.contains(" data-concourse-image-src=\"") {
+                Button(blockedHTML == html ? "Load remote images" : "Block remote images") { blockedHTML = blockedHTML == html ? nil : html }
+                    .buttonStyle(.link).font(DS.Font.caption)
+                    .help("Loading remote images may tell the sender you opened this message.")
+            }
+            if html.contains(" data-concourse-unavailable-image=\"") {
+                Text("Some embedded images are unavailable. You can still download the attachments below.")
+                    .font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary)
+            }
+            MailHTMLWebView(html: MailHTMLDocument.make(html, allowRemoteImages: blockedHTML != html), width: width, height: $height)
+                .frame(height: height)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 private struct MailHTMLWebView: NSViewRepresentable {
@@ -22,7 +36,7 @@ private struct MailHTMLWebView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = MailContentWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator; view.uiDelegate = context.coordinator
         return view
     }
@@ -33,12 +47,8 @@ private struct MailHTMLWebView: NSViewRepresentable {
             return
         }
         context.coordinator.html = html; context.coordinator.width = width
-        let document = """
-        <!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-        <style>:root{color-scheme:light dark}body{margin:0;padding:0;font:\(DS.Layout.mailReaderFontSize)px system-ui;line-height:\(DS.Layout.mailReaderLineHeight);color:CanvasText;background:Canvas;overflow-wrap:anywhere}table{max-width:100%}blockquote{border-left:solid thin GrayText}</style>
-        \(html)
-        """
-        view.loadHTMLString(document, baseURL: nil)
+        (view as? MailContentWebView)?.canScrollVertically = false
+        view.loadHTMLString(html, baseURL: nil)
     }
     @MainActor final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var html: String?
@@ -49,8 +59,10 @@ private struct MailHTMLWebView: NSViewRepresentable {
         func measure(_ webView: WKWebView) {
             // Only our fixed layout measurement runs in an isolated client world.
             // Message scripts remain disabled; there is no message-to-app bridge.
+            let expectedHTML = html, expectedWidth = width
             webView.evaluateJavaScript("document.body.scrollHeight", in: nil, in: .defaultClient) { [weak self] result in
-                guard let self, case .success(let value) = result, let number = value as? NSNumber else { return }
+                guard let self, self.html == expectedHTML, self.width == expectedWidth, case .success(let value) = result, let number = value as? NSNumber else { return }
+                (webView as? MailContentWebView)?.canScrollVertically = CGFloat(number.doubleValue) > DS.Layout.mailHTMLMaximumHeight
                 let measured = min(DS.Layout.mailHTMLMaximumHeight, max(DS.Layout.mailHTMLMinimumHeight, CGFloat(number.doubleValue)))
                 if self.height.wrappedValue != measured { self.height.wrappedValue = measured }
             }
@@ -65,5 +77,34 @@ private struct MailHTMLWebView: NSViewRepresentable {
             if let url = action.request.url, ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") { NSWorkspace.shared.open(url) }
             return nil
         }
+    }
+}
+
+
+/// With a fully measured message, SwiftUI's conversation ScrollView owns vertical
+/// scrolling. WebKit otherwise consumes wheel events even when it has no scroll range.
+@MainActor
+private final class MailContentWebView: WKWebView {
+    var canScrollVertically = false
+    override func scrollWheel(with event: NSEvent) {
+        if canScrollVertically || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            super.scrollWheel(with: event)
+        } else {
+            nextResponder?.scrollWheel(with: event)
+        }
+    }
+}
+
+enum MailHTMLDocument {
+    /// Only server-sanitised HTML is accepted here; source_html is for forwarding only.
+    static func make(_ html: String, allowRemoteImages: Bool = false) -> String {
+        let body = allowRemoteImages ? html.replacingOccurrences(of: " data-concourse-image-src=\"", with: " src=\"") : html
+        let images = allowRemoteImages ? "data: https:" : "data:"
+        return """
+        <!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src \(images); base-uri 'none'; form-action 'none'">
+        <style>:root{color-scheme:light}body{margin:0;padding:0;font:\(DS.Layout.mailReaderFontSize)px system-ui;line-height:\(DS.Layout.mailReaderLineHeight);color:CanvasText;background:Canvas;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}blockquote{border-left:solid thin GrayText}</style></head><body>
+        \(body)
+        </body></html>
+        """
     }
 }

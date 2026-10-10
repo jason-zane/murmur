@@ -20,7 +20,7 @@ export function Dialog({
       ref={ref}
       className="meeting-dialog"
       aria-label={label}
-      onCancel={onClose}
+      onCancel={(e)=>{e.preventDefault();onClose();}}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

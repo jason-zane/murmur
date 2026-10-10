@@ -543,15 +543,9 @@ struct ItemActions<Content: View>: View {
     let label: String
     @ViewBuilder let content: () -> Content
     var body: some View {
-        Menu { content() } label: {
-            Image(systemName: "ellipsis").font(DS.Font.symbol)
-                .frame(width: DS.Layout.brandMark, height: DS.Layout.brandMark)
-                .contentShape(.rect)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Actions for \(label)")
-        .accessibilityLabel("Actions for \(label)")
+        WorkspaceMoreMenu(scope: label, content: content)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
     }
 }

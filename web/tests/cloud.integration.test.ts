@@ -5,6 +5,7 @@ import { POST as mcp } from "../src/app/mcp/route";
 import { POST as save, GET as library } from "../src/app/api/sessions/route";
 import { newDocument } from "../src/lib/documents";
 import { bearerClient } from "../src/lib/supabase/server";
+import { GET as readFollowUp, PUT as saveFollowUp } from "../src/app/api/sessions/[id]/follow-up/route";
 
 // Run only through scripts/test-integration.mjs. It supplies the isolated local stack's
 // credentials; this fixture refuses every hosted URL, including Murmur production.
@@ -143,5 +144,26 @@ describe("real local Auth, Postgres policies and MCP", () => {
     const verified = await bearerClient(token.access_token).auth.getClaims(token.access_token);
     expect(verified.error).toBeNull();
     expect(verified.data?.claims.aud).toBe(`${site}/mcp`);
+  });
+  it("persists follow-ups through real Auth/PostgREST and serialises conflicting saves", async () => {
+    // Prepared for an explicitly approved disposable-stack run. This test creates
+    // no extra provider grants beyond the existing synthetic Auth fixture above.
+    const context={params:Promise.resolve({id:document.session.id})};
+    const snapshot=await (await readFollowUp(request(`api/sessions/${document.session.id}/follow-up`,ownerToken),context)).json();
+    const source=await owner.from("sessions").select("document,version").eq("id",document.session.id).single();
+    const proposal={sourceVersion:source.data!.version,recipe:"meeting-follow-up/v1",fields:{recipient:"",subject:"Synthetic follow-up",body:"Unfinished wording"},evidence:[{kind:"note",id:"note",text:source.data!.document.note}],unknowns:["Recipient missing"],reviewed:false};
+    const put=(body:unknown,token=ownerToken)=>saveFollowUp(new Request(`${site}/api/sessions/${document.session.id}/follow-up`,{method:"PUT",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify(body)}),context);
+    expect(snapshot.draft).toBeNull();
+    const initial=await Promise.all([ownerToken,desktopToken].map(token=>put({document:proposal,expectedVersion:0},token)));
+    for(const first of initial){expect(first.status,await first.clone().text()).toBe(200);expect((await first.json()).draft.version).toBe(1);}
+    const edits=["Concurrent wording A","Concurrent wording B"].map(body=>({...proposal,fields:{...proposal.fields,body}}));
+    const replies=await Promise.all(edits.map(document=>put({document,expectedVersion:1})));
+    expect(replies.map(response=>response.status).sort()).toEqual([200,409]);
+    const winner=edits[replies.findIndex(response=>response.status===200)];
+    const retry=await put({document:winner,expectedVersion:1});expect((await retry.json()).draft.version).toBe(2);
+    expect((await readFollowUp(request(`api/sessions/${document.session.id}/follow-up`,otherToken),context)).status).toBe(404);
+    expect([401,403]).toContain((await readFollowUp(request(`api/sessions/${document.session.id}/follow-up`,externalToken),context)).status);
+    expect([401,403]).toContain((await put({document:proposal,expectedVersion:2},externalToken)).status);
+    const direct=await owner.from("follow_up_drafts").update({version:99}).eq("session_id",document.session.id);expect(direct.error?.code).toBe("42501");
   });
 });

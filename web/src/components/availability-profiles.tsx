@@ -1,6 +1,7 @@
 "use client";
 import { ItemActions } from "./item-actions";
 import { useState } from "react";
+import { schedulingRequest, type SchedulingRequest } from "@/lib/scheduling/request";
 import {
   AvailabilityFields,
   type Availability,
@@ -11,6 +12,7 @@ export function AvailabilityProfiles({
   defaultAvailability,
   types,
   onChanged,
+  request = schedulingRequest,
 }: {
   schedules: AvailabilitySchedule[];
   defaultAvailability: Availability;
@@ -20,6 +22,7 @@ export function AvailabilityProfiles({
     availability_schedule_id?: string | null;
   }[];
   onChanged: () => void;
+  request?: SchedulingRequest;
 }) {
   const [editing, setEditing] = useState<AvailabilitySchedule | null>(null),
     [error, setError] = useState(""),
@@ -29,13 +32,7 @@ export function AvailabilityProfiles({
     setBusy(true);
     setError("");
     try {
-      const r = await fetch("/api/scheduling/availability", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editing),
-      });
-      const b = await r.json();
-      if (!r.ok) throw new Error(b.error);
+      await request("/api/scheduling/availability", "POST", editing);
       setEditing(null);
       onChanged();
     } catch (e) {
@@ -49,11 +46,7 @@ export function AvailabilityProfiles({
       return;
     setBusy(true);
     try {
-      const r = await fetch(`/api/scheduling/availability?id=${s.id}`, {
-        method: "DELETE",
-      });
-      const b = await r.json();
-      if (!r.ok) throw new Error(b.error);
+      await request(`/api/scheduling/availability?id=${s.id}`, "DELETE");
       onChanged();
     } catch (e) {
       setError((e as Error).message);

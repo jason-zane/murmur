@@ -159,7 +159,9 @@ beforeAll(async () => {
       name: "Integration Host",
       is_primary: true,
       can_write: true,
-      selected: true,
+      selected: false,
+      blocks_availability: true,
+      meeting_suggestions: true,
     }),
   );
   must(
@@ -498,7 +500,7 @@ describe("booking links against the host's own calendar", () => {
     expect(stored.some((r) => r.bucket.includes("203.0.113"))).toBe(false);
   });
 
-  it("accepts bookings only from Voice Notes' own pages", async () => {
+  it("accepts bookings only from Concourse' own pages", async () => {
     const response = await book(
       new Request(`${site}/api/book/${handle}/intro`, {
         method: "POST",

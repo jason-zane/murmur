@@ -3,11 +3,13 @@ import Foundation
 enum WorkspaceTokens {
     static let accentLight: UInt32 = 0x4F46E5
     static let accentDark: UInt32 = 0x8B8BF5
-    static let navigationWidth: CGFloat = 224
+    static let navigationWidth: CGFloat = 208
     static let pageInset: CGFloat = 32
     static let workspaceTitle: CGFloat = 24
-    static let controlRadius: CGFloat = 8
-    static let navigationRowHeight: CGFloat = 36
-    static let navigationFontSize: CGFloat = 13
-    static let brandSize: CGFloat = 16
+    static let controlRadius: CGFloat = 6
+    static let navigationRowHeight: CGFloat = 40
+    static let navigationFontSize: CGFloat = 14
+    static let brandSize: CGFloat = 17
+    static let listTitleFontSize: CGFloat = 18
+    static let listItemFontSize: CGFloat = 14
 }

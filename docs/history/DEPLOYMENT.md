@@ -1,5 +1,24 @@
 # Voice Notes deployment
 
+## Calendar and Gmail workspace — 30 September 2026
+
+Production deployment `dpl_BTMrckn2qzsMUoEXaYaSraVmaueS` is READY at
+https://murmur-rho-pied.vercel.app. The installed, signed Mac app matches the refined
+workspace. Setup defaults to sign-in then Google connections, with offline access and
+secondary local-only use. Booking links and Dictation history remain permanent navigation.
+
+Applied calendar_workspace_accounts, mailbox_outbox, calendar_range_jobs and
+calendar_push_channels via MCP to Murmur project `olxjfdsslbpdvywsnzrc` in organisation
+Murmur `dxqglhelvchutaqnjiyi`. Hosted rollback-only access/range/recovery checks passed;
+all five new tables have RLS. Repeated runtime HTTP 200s confirm the three scheduled
+workers. Existing calendar reads/history and push registration work; new Google account
+setup reaches Google's chooser from the Mac's authenticated session.
+
+No mailbox consent was granted and no email was sent during verification. Gmail requires
+user approval through Google; live write/delivery acceptance is still outstanding.
+196 web tests and 25 targeted native tests pass. Full validation and longer-term scope
+are recorded in CALENDAR-AND-MAIL-VALIDATION.md and CALENDAR-AND-MAIL-PLAN.md.
+
 ## Unified meeting workspace — 11 September 2026
 
 Production code `97e19f3` is live at https://murmur-rho-pied.vercel.app. Deployment
@@ -244,3 +263,6 @@ reconnection returned to Synced. Ten focused native authentication/sync tests pa
 along with the web's 17 tests, TypeScript check and production build. Stable signing was
 preserved and the installed bundle passed strict signature verification. Native Account
 and the production web Account page were visually checked at desktop size.
+
+
+Concourse refinement deployed READY as `dpl_HhhofZtqxMVBfYJLMMe4cQkZRkNS` to the existing production alias on 30 September 2026. Public configuration remains ready, workspaceVersion 2, with Google enabled. The signed Mac update was installed and its signature verified with macOS trust-store access; installed accessibility state identifies Concourse. Google Auth Platform confirmed “Branding changes saved”; existing client identifiers, redirects and scopes are unchanged.

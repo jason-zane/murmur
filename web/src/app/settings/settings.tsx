@@ -1,4 +1,5 @@
 "use client";
+import { WorkspaceHeader } from "@/components/workspace-header";
 import { useState } from "react";
 import Link from "next/link";
 import {
@@ -86,10 +87,7 @@ export function AccountSettings({
   return (
     <Shell email={email}>
       <div className="settings-page">
-        <header className="page-header">
-          <h1>Settings</h1>
-          <p>Your account, connections and data.</p>
-        </header>
+        <WorkspaceHeader title="Settings" context="Your account, connections and data."/>
         <section className="account-card" aria-labelledby="account-heading">
           <h2 id="account-heading">Account</h2>
           <AccountIdentity email={email} />

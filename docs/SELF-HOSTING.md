@@ -1,4 +1,4 @@
-# Self-hosting the Voice Notes backend
+# Self-hosting the Concourse backend
 
 Everything about recording, transcription, notes, summaries and Claude Desktop works with
 no backend at all. Hosting one adds: your notes on the web, Google Calendar, and a
@@ -55,7 +55,7 @@ cd web && node scripts/configure-cloud.mjs
 It sets the Site URL, allows the two redirects (`<site>/auth/callback` and
 `murmur://oauth/callback`), enables the OAuth server with the `/oauth/consent` page and
 dynamic client registration, enables the custom access-token hook, writes the MCP
-audience (`<site>/mcp`) into `murmur_config`, registers the public **Voice Notes for Mac**
+audience (`<site>/mcp`) into `murmur_config`, registers the public **Concourse for Mac**
 OAuth client and saves its id to `.env.local`.
 
 Without a management token, do the Auth settings by hand in the dashboard
@@ -121,3 +121,39 @@ the origin they came from, so changing it means sign out, sign in.
 Pull, `supabase db push` for new migrations, redeploy on Vercel, and rebuild the Mac app
 with the same `SITE_URL`. [CLOUD.md](CLOUD.md) describes the trust model and the sync
 contract if you want to know what the pieces do.
+
+
+## Calendar and Gmail workspace activation
+
+Apply `20260930033900_calendar_workspace_accounts.sql`,
+`20260930034502_mailbox_outbox.sql`, `20260930044720_calendar_range_jobs.sql`
+and `20260930060000_calendar_push_channels.sql`
+through the normal migration process before deploying. `npm run test:integration`
+uses an isolated local stack and runs rollback-only ownership/RLS checks.
+
+Enable Gmail API in the Google Cloud project. Connections ▸ Connect Gmail requests
+`https://www.googleapis.com/auth/gmail.modify` separately from Calendar. Existing
+Calendar grants do not gain Mail. Google classifies this as restricted; resolve test-user
+limits, production verification and any applicable security assessment before public
+rollout. See [Gmail scope classification](https://developers.google.com/workspace/gmail/api/auth/scopes)
+and [restricted-scope requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification).
+
+Set a strong `CRON_SECRET`. `web/vercel.json` schedules Calendar and Mail dispatch every
+minute alongside the existing booking worker. Confirm the hosting plan supports that
+cadence or invoke the same endpoints with `Authorization: Bearer <CRON_SECRET>` from your
+job runner. Opening Mail cannot deliver scheduled messages while the client is asleep.
+Preserve `GOOGLE_TOKEN_ENCRYPTION_KEY`; it also protects outgoing MIME.
+
+Before rollout, test consent, multiple accounts/calendars, past and moved recurring
+events, conflicts, reply-all sender choice, attachment downloads, scheduled sends/Undo
+and provider-acceptance interruptions. Install the signed Mac build through the normal
+release process. This checkout has not been deployed or installed; live acceptance
+is not claimed.
+
+Calendar push uses `<NEXT_PUBLIC_SITE_URL>/api/calendar/notifications`, which must have a
+valid public HTTPS certificate. The cron worker registers and renews channels with
+independent verification secrets. Requests with the wrong token/resource or an expired
+channel are rejected. See [Google Calendar push notifications](https://developers.google.com/workspace/calendar/api/guides/push).
+The 15-minute reconciliation path remains available when notifications are missed;
+registration failures do not remove cached data. Mail still fetches directly from Gmail
+and polls while open; Gmail Pub/Sub/history ingestion is a separate outstanding phase.

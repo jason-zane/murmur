@@ -11,6 +11,7 @@ final class CalendarWorkspaceStore {
     private(set) var calendars: [Source] = []
     private(set) var loading = false
     private(set) var message: String?
+    private(set) var needsAttention = false
     private(set) var complete = false
     private(set) var hasAuthoritativeSnapshot = false
     private(set) var updating = false
@@ -59,7 +60,7 @@ final class CalendarWorkspaceStore {
     }
     func reset() {
         generation = UUID(); loadedRange = nil
-        events = []; calendars = []; message = nil; complete = false; hasAuthoritativeSnapshot = false; updating = false; loading = false
+        events = []; calendars = []; message = nil; needsAttention = false; complete = false; hasAuthoritativeSnapshot = false; updating = false; loading = false
     }
     init(transport: (any CloudSyncTransport)? = nil, root: URL = SessionStore().root.deletingLastPathComponent().appendingPathComponent("calendar-ranges")) {
         self.transport = transport ?? AccountSyncTransport()
@@ -67,8 +68,11 @@ final class CalendarWorkspaceStore {
     }
     func load(from start: Date, to end: Date, force: Bool = false) async {
         let run = UUID(); generation = run
-        guard !PreviewEnvironment.isActive, let userID = transport.userID else {
-            events = []; calendars = []; message = nil; complete = false; hasAuthoritativeSnapshot = false; updating = false; loading = false; return
+        if PreviewEnvironment.isActive {
+            reset(); message = PreviewEnvironment.calendarMessage; needsAttention = message != nil; return
+        }
+        guard let userID = transport.userID else {
+            reset(); return
         }
         let userRoot = root.appendingPathComponent(Data(userID.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_"))
         let file = userRoot.appendingPathComponent("\(Int(start.timeIntervalSince1970))-\(Int(end.timeIntervalSince1970)).json")
@@ -76,7 +80,7 @@ final class CalendarWorkspaceStore {
         let changedRange = loadedRange != range
         loadedRange = range
         complete = false; loading = true
-        if changedRange { events = []; calendars = []; message = nil; hasAuthoritativeSnapshot = false }
+        if changedRange { events = []; calendars = []; message = nil; needsAttention = false; hasAuthoritativeSnapshot = false }
         if changedRange, let data = try? Data(contentsOf: file), let cache = try? CloudCoding.decoder.decode(Cache.self, from: data), cache.userID == userID {
             events = cache.page.events; calendars = cache.page.calendars; hasAuthoritativeSnapshot = cache.authoritative ?? cache.page.complete
         }
@@ -91,7 +95,10 @@ final class CalendarWorkspaceStore {
             guard !Task.isCancelled else { loading = false; return }
             let page = try CloudCoding.decoder.decode(Page.self, from: data)
             events = page.events; calendars = page.calendars; complete = page.complete; hasAuthoritativeSnapshot = hasAuthoritativeSnapshot || page.complete; updating = (page.pending ?? 0) > 0
-            message = page.failures.isEmpty ? ((page.pending ?? 0) > 0 ? "Updating calendars · showing downloaded events." : nil) : page.failures.map(\.message).joined(separator: " · ")
+            needsAttention = !page.failures.isEmpty
+            var seen: Set<String> = []
+            let failures = page.failures.map(\.message).filter { seen.insert($0).inserted }
+            message = failures.isEmpty ? ((page.pending ?? 0) > 0 ? "Updating calendars · showing downloaded events." : nil) : failures.joined(separator: " · ")
             try FileManager.default.createDirectory(at: userRoot, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try CloudCoding.encoder.encode(Cache(userID: userID, page: page, authoritative: hasAuthoritativeSnapshot)).write(to: file, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
@@ -100,6 +107,7 @@ final class CalendarWorkspaceStore {
             guard transport.userID == userID else { reset(); return }
             guard !Task.isCancelled else { loading = false; return }
             updating = false
+            needsAttention = true
             if let http = error as? CloudHTTPError, http.status == 404 {
                 message = "Google Calendar history needs the hosted workspace upgrade. Calendars on this Mac remain available."
             } else {

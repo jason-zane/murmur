@@ -25,7 +25,6 @@ struct ConnectedAppsWorkspace: View {
                         Hint("Bring your day together. Connect only what you want to use.")
                     }
                     Spacer()
-                    ActionButton(title: "Setup guide", emphasis: .quiet) { showWelcome = true }
                 }
                 if !account.isConnected {
                     VStack(alignment: .leading, spacing: DS.Space.md) {
@@ -38,7 +37,7 @@ struct ConnectedAppsWorkspace: View {
                     Label(account.email, systemImage: "checkmark.circle").font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 }
                 VStack(spacing: DS.Space.zero) {
-                    connection("Google Calendar", icon: "calendar", detail: sync.calendarConnected ? "Connected. Choose calendars, add another account or change access." : "Work and personal calendars together, including past meetings.", action: sync.calendarConnected ? "Manage calendars" : "Connect Google Calendar") { destination = "/connections?focus=calendar" }
+                    connection("Google Calendar", icon: "calendar", detail: sync.calendarConnected ? "Account linked. Manage calendars to check each account’s status, retry updates or reconnect." : "Work and personal calendars together, including past meetings.", action: sync.calendarConnected ? "Manage calendars" : "Connect Google Calendar") { destination = "/connections?focus=calendar" }
                     Divider()
                     connection("Gmail", icon: "envelope", detail: "Read, reply and organise work and personal inboxes. Google asks for mailbox access separately.", action: "Connect or manage Gmail") { destination = "/connections?focus=gmail" }
                     Divider()
@@ -64,6 +63,13 @@ struct ConnectedAppsWorkspace: View {
                     ConnectionsSettings().padding(.top, DS.Space.lg)
                 }.font(DS.Font.callout)
             }.padding(DS.Space.xxl).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .toolbar {
+            WorkspaceCommandArea {
+                ToolbarItem(placement: .primaryAction) {
+                    WorkspaceCommand(title: "Setup guide", systemImage: "questionmark.circle", help: "Review how to connect your workspace.") { showWelcome = true }
+                }
+            }
         }
         .task {
             while !Task.isCancelled {

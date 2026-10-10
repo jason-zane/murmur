@@ -104,7 +104,7 @@ if (audience) throw audience;
 let desktop = await findDesktopClient(client.auth.admin.oauth);
 if (!desktop) {
   const result = await client.auth.admin.oauth.createClient({
-    client_name: "Voice Notes for Mac",
+    client_name: "Concourse for Mac",
     client_uri: origin,
     redirect_uris: ["murmur://oauth/callback"],
     grant_types: ["authorization_code", "refresh_token"],
@@ -117,7 +117,7 @@ if (!desktop) {
 }
 const { error: registration } = await client
   .from("first_party_clients")
-  .upsert({ client_id: desktop.client_id, label: "Voice Notes for Mac" });
+  .upsert({ client_id: desktop.client_id, label: "Concourse for Mac" });
 if (registration) throw registration;
 await saveEnv("MURMUR_DESKTOP_CLIENT_ID", desktop.client_id);
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)

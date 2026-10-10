@@ -17,7 +17,7 @@ export default async function Page() {
       .order("created_at"),
     client
       .from("calendar_sources")
-      .select("connection_id,calendar_id,name,color,is_primary,can_write,selected")
+      .select("connection_id,calendar_id,name,color,is_primary,can_write,selected,blocks_availability,meeting_suggestions")
       .order("is_primary", { ascending: false })
       .order("name"),
   ]);

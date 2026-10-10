@@ -10,5 +10,5 @@ export default async function Page() {
     data: { user },
   } = await client.auth.getUser();
   if (!user) redirect("/login");
-  return <Library email={user.email || "Your account"} userID={user.id} />;
+  return <Library email={user.email || "Your account"} userID={user.id} followUpEnabled={process.env.FOLLOW_UP_DRAFTS_ENABLED === "true"} />;
 }

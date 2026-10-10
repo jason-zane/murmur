@@ -8,7 +8,7 @@ export function GET() {
       ],
       scopes_supported: ["openid", "email", "profile"],
       bearer_methods_supported: ["header"],
-      resource_name: "Voice Notes library",
+      resource_name: "Concourse library",
       resource_documentation: `${siteURL()}/connections`,
     },
     { headers: { "Access-Control-Allow-Origin": "*" } },

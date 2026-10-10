@@ -8,7 +8,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     <main id="main" className="book-shell">
       <ManageBooking id={id} />
       <p className="book-foot">
-        <BrandMark compact /> Scheduling by Voice Notes
+        <BrandMark compact /> Scheduling by Concourse
       </p>
     </main>
   );

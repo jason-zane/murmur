@@ -88,12 +88,12 @@ export function EmailConnection() {
           <Mail size={18} /> Email
         </h2>
         <a className="button small" href="/api/google/connect?mail=1">
-          Connect Gmail
+          Allow booking emails
         </a>
       </div>
       <p>
         Send preparation, reminders and reviewed follow-ups from your own
-        account. Replies go to your inbox. Voice Notes does not read your email.
+        account. Replies go to your inbox. This permission allows sending only. Connecting a Gmail inbox above separately allows reading and organising mail.
       </p>
       {data && (
         <div className="form-grid">
@@ -182,9 +182,13 @@ const labels: Record<string, string> = {
 export function Messages({
   types,
   bookingID,
+  request = mailRequest,
+  previewMode = false,
 }: {
   types: { id?: string; title: string }[];
   bookingID?: string;
+  request?: typeof mailRequest;
+  previewMode?: boolean;
 }) {
   const [data, setData] = useState<MailData | null>(null),
     [error, setError] = useState(""),
@@ -194,11 +198,11 @@ export function Messages({
     [expanded, setExpanded] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      setData(await mailRequest());
+      setData(await request());
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [request]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -206,7 +210,7 @@ export function Messages({
     setBusy(true);
     setError("");
     try {
-      const result = await mailRequest(body);
+      const result = await request(body);
       if (result.status)
         setError(
           result.status === "sent"
@@ -243,11 +247,11 @@ export function Messages({
                   <h2>Meeting messages</h2>
                   <p>Thoughtful preparation. Clear follow-through.</p>
                 </div>
-                <Link className="text-link" href="/connections#email">
+                {!previewMode && <Link className="text-link" href="/connections#email">
                   {data.settings?.enabled
                     ? `From ${data.senders.find((s) => s.id === data.settings?.connection_id)?.email || "your account"}`
                     : "Connect an email sender"}
-                </Link>
+                </Link>}
               </div>
               <p className="fine-print">
                 Recipes are off until you enable them. Thank-you emails only
@@ -534,6 +538,7 @@ export function Messages({
 export function FollowUp({
   booking,
   onSaved,
+  request = mailRequest,
 }: {
   booking: {
     id: string;
@@ -542,6 +547,7 @@ export function FollowUp({
     guest_email: string;
   };
   onSaved?: () => void;
+  request?: typeof mailRequest;
 }) {
   const [open, setOpen] = useState(false),
     [subject, setSubject] = useState(`Following up: ${booking.title}`),
@@ -563,7 +569,7 @@ export function FollowUp({
             e.preventDefault();
             setBusy(true);
             try {
-              await mailRequest({
+              await request({
                 action: "draft",
                 booking_id: booking.id,
                 subject,

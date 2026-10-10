@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AvailabilityRequest } from "@/lib/scheduling/availability-request";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -57,7 +58,10 @@ export function Booker(props: {
   const [phone, setPhone] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [availabilityError, setAvailabilityError] = useState("");
+  const availability = useRef(new AvailabilityRequest());
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [done, setDone] = useState<Done | null>(null);
   const [reschedule, setReschedule] = useState<{ id: string; token: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -79,30 +83,28 @@ export function Booker(props: {
   const load = useCallback(async () => {
     if (!month) return;
     setLoading(true);
-    setError("");
+    setAvailabilityError("");
+    setSlots([]);
+    setDay(null);
+    setSlot(null);
     // A day in any time zone falls inside the month plus 14 hours either side.
     const from = new Date(Date.UTC(month.y, month.m, 1) - 14 * 3600e3);
     const to = new Date(Date.UTC(month.y, month.m + 1, 1) + 14 * 3600e3);
-    try {
-      const r = await fetch(
-        `/api/book/${encodeURIComponent(props.handle)}/${encodeURIComponent(props.slug)}?${new URLSearchParams({
-          from: from.toISOString(),
-          to: to.toISOString(),
-          timeZone,
-        })}`,
-      );
-      const body = await r.json();
-      if (!r.ok) throw new Error(body.error);
-      setSlots(body.slots);
-    } catch (e) {
-      setSlots([]);
-      setError(e instanceof Error ? e.message : "Open times couldn’t be loaded. Try again.");
-    } finally {
-      setLoading(false);
-    }
+    const result = await availability.current.load(
+      `/api/book/${encodeURIComponent(props.handle)}/${encodeURIComponent(props.slug)}?${new URLSearchParams({
+        from: from.toISOString(),
+        to: to.toISOString(),
+        timeZone,
+      })}`,
+    );
+    if (!result) return;
+    if ("slots" in result) setSlots(result.slots);
+    else setAvailabilityError(result.error);
+    setLoading(false);
   }, [month, timeZone, props.handle, props.slug]);
   useEffect(() => {
     void load();
+    return () => availability.current.cancel();
   }, [load]);
 
   const byDay = useMemo(() => {
@@ -138,11 +140,13 @@ export function Booker(props: {
     setMonth({ y: d.getUTCFullYear(), m: d.getUTCMonth() });
     setDay(null);
     setSlot(null);
+    setError("");
   };
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!slot) return;
+    if (!slot || submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     setError("");
     try {
@@ -176,6 +180,7 @@ export function Booker(props: {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Your booking couldn’t be completed. Try again.");
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -256,7 +261,7 @@ export function Booker(props: {
       {summary}
       {slot ? (
         <form className="book-form" onSubmit={submit}>
-          <button type="button" className="text-link" onClick={() => setSlot(null)}>
+          <button type="button" className="text-link" disabled={busy} onClick={() => { setSlot(null); setError(""); }}>
             <ArrowLeft size={14} />
             Choose another time
           </button>
@@ -369,20 +374,22 @@ export function Booker(props: {
             </label>
           </div>
           <div className="book-times">
+            {error && <p className="notice" role="alert">{error}</p>}
             {loading ? (
               <p className="muted" role="status">
                 <LoaderCircle className="spin" size={15} /> Finding open times…
               </p>
-            ) : error ? (
-              <p className="notice" role="alert">
-                {error}
-              </p>
+            ) : availabilityError ? (
+              <div>
+                <p className="notice" role="alert">{availabilityError}</p>
+                <button type="button" className="button" onClick={() => void load()}>Try again</button>
+              </div>
             ) : day ? (
               <>
                 <h2>{longDate(new Date(byDay.get(day)![0]), timeZone)}</h2>
                 <div className="slot-list">
                   {byDay.get(day)!.map((s) => (
-                    <button key={s} className="slot" onClick={() => setSlot(s)}>
+                    <button key={s} className="slot" onClick={() => { setSlot(s); setError(""); }}>
                       {clock(new Date(s), timeZone)}
                     </button>
                   ))}

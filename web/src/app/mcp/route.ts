@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     ?.match(/^Bearer (\S+)$/i)?.[1];
   const unauthorized = () =>
     Response.json(
-      { error: "Connect your Voice Notes account to read your notes." },
+      { error: "Connect your Concourse account to read your notes." },
       {
         status: 401,
         headers: {

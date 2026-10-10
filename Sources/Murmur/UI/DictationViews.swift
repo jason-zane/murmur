@@ -43,9 +43,6 @@ struct DictationList: View {
                         Text(caption).font(DS.Font.caption).foregroundStyle(DS.Color.textSecondary).monospacedDigit()
                     }
                     Spacer(minLength: DS.Space.sm)
-                    if !store.runs.isEmpty {
-                        ActionButton(title: "Clear all", emphasis: .quiet) { isConfirmingClear = true }
-                    }
                 }
                 if let message = controller.lastError {
                     InlineNotice(text: message, tone: .warning) {
@@ -91,6 +88,19 @@ struct DictationList: View {
             }
             .padding(DS.Space.xxl)
             .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .toolbar {
+            WorkspaceCommandArea {
+                ToolbarItem(placement: .primaryAction) {
+                    WorkspaceCommand(title: "Dictation settings", systemImage: "slider.horizontal.3", help: "Change your push-to-talk key, engine and dictation preferences.") { SettingsRouter.shared.open(.dictation) }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    WorkspaceMoreMenu(scope: "dictation history") {
+                        Button("Delete all dictations…") { isConfirmingClear = true }
+                            .disabled(store.runs.isEmpty)
+                    }
+                }
+            }
         }
         .confirmationDialog(
             "Delete all \(store.runs.count) dictations?",
@@ -154,6 +164,7 @@ private struct DictationRow: View {
                 ActionButton(title: copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc", emphasis: .quiet, action: onCopy)
                 ItemActions(label: "dictation") {
                     Button("Copy", action: onCopy)
+                    Divider()
                     Button("Delete dictation…") { confirmingDelete = true }
                 }
             }
