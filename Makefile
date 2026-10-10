@@ -4,6 +4,10 @@ MODELS   := murmur-models
 CONFIG   ?= debug
 LAUNCH   ?= 1
 TEST_ARGS ?=
+## Swift 6.4 defaults to Swift Build, which cannot initialise this command-line package
+## with the standalone Command Line Tools. Keep SwiftPM's native builder explicit.
+BUILD_SYSTEM ?= native
+SDK ?= $(shell xcrun --show-sdk-path)
 
 ## What the app reports about itself. Tagged commits give "0.5.0"; anything else gives
 ## the short hash, which the update check treats as "not a release" and leaves alone.
@@ -50,11 +54,11 @@ endif
 all: app
 
 build:
-	swift build -c $(CONFIG) --scratch-path "$(SCRATCH)"
+	swift build -c $(CONFIG) --build-system $(BUILD_SYSTEM) --sdk "$(SDK)" --scratch-path "$(SCRATCH)"
 
 test:
 	@cmp shared/dictionary-test-vectors.json Tests/MurmurDictionaryTests/dictionary-test-vectors.json
-	swift test --scratch-path "$(SCRATCH)" $(TEST_ARGS)
+	swift test --build-system $(BUILD_SYSTEM) --sdk "$(SDK)" --scratch-path "$(SCRATCH)" $(TEST_ARGS)
 
 ## Regenerates AppIcon.icns from Tools/makeicon.swift. Not a dependency of `app` — the
 ## icon rarely changes and rendering 10 PNGs on every build is wasted time.
@@ -73,7 +77,6 @@ app: build
 	@# spawn: /Applications/Murmur.app/Contents/MacOS/murmur-mcp. It is signed on its own
 	@# first — codesign does not descend into MacOS/ for helper executables.
 	@cp $(MCPBUILD) "$(CONTENTS)/MacOS/$(MCP)"
-	@codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$(CONTENTS)/MacOS/$(MCP)"
 	@cp Resources/Info.plist "$(CONTENTS)/Info.plist"
 	@plutil -replace CFBundleShortVersionString -string "$(VERSION)" "$(CONTENTS)/Info.plist"
 	@plutil -replace CFBundleVersion -string "$(BUILD_NUMBER)" "$(CONTENTS)/Info.plist"
@@ -83,12 +86,17 @@ app: build
 	@# Belt and braces: the staging dir isn't synced, but the copied binary can still carry
 	@# xattrs inherited from the synced .build directory.
 	@xattr -cr "$(BUNDLE)"
-	@codesign --force --sign "$(SIGN_ID)" \
-		--entitlements Resources/$(EXEC).entitlements \
-		--options runtime \
-		--timestamp=none \
-		"$(BUNDLE)"
+	@mkdir -p "$(CONTENTS)/Frameworks"
+	@cp -R "$(SCRATCH)/$(CONFIG)/Sparkle.framework" "$(CONTENTS)/Frameworks/"
+	@install_name_tool -add_rpath '@executable_path/../Frameworks' "$(CONTENTS)/MacOS/$(EXEC)"
+	@sh Tools/sign-bundle.sh "$(BUNDLE)" "$(SIGN_ID)" Resources/$(EXEC).entitlements
 	@echo "built $(BUNDLE) $(VERSION) ($(BUILD_NUMBER))  [signed: $(SIGN_ID)]"
+
+## Re-sign a CI-built bundle locally without exporting the Apple private key to CI.
+.PHONY: resign
+resign:
+	@test "$(SIGN_ID)" != "-" || (echo 'A stable signing identity is required'; exit 1)
+	@sh Tools/sign-bundle.sh "$(BUNDLE)" "$(SIGN_ID)" Resources/$(EXEC).entitlements
 
 ## Only ever targets the Murmur executable — never the separate `murmur` app.
 run: install
@@ -124,14 +132,14 @@ package:
 	@mkdir -p "$(DIST)"
 	@rm -rf "$(STAGE)/dist-staging" && mkdir -p "$(STAGE)/dist-staging"
 	@if [ "$(ZIP)" = "1" ]; then \
-		ditto -c -k --keepParent "$(BUNDLE)" "$(DIST)/VoiceNotes-$(VERSION).zip"; \
-		echo "wrote $(DIST)/VoiceNotes-$(VERSION).zip"; \
+		ditto -c -k --keepParent "$(BUNDLE)" "$(DIST)/Concourse-$(VERSION).zip"; \
+		echo "wrote $(DIST)/Concourse-$(VERSION).zip"; \
 	else \
 		cp -R "$(BUNDLE)" "$(STAGE)/dist-staging/"; \
 		ln -s /Applications "$(STAGE)/dist-staging/Applications"; \
-		hdiutil create -volname "Voice Notes" -srcfolder "$(STAGE)/dist-staging" -format UDZO -ov \
-			"$(DIST)/VoiceNotes-$(VERSION).dmg" >/dev/null; \
-		echo "wrote $(DIST)/VoiceNotes-$(VERSION).dmg"; \
+		hdiutil create -volname "Concourse" -srcfolder "$(STAGE)/dist-staging" -format UDZO -ov \
+			"$(DIST)/Concourse-$(VERSION).dmg" >/dev/null; \
+		echo "wrote $(DIST)/Concourse-$(VERSION).dmg"; \
 	fi
 	@rm -rf "$(STAGE)/dist-staging"
 
@@ -144,5 +152,5 @@ doctor:
 WHICH ?= all
 .PHONY: models
 models:
-	swift build --scratch-path $(SCRATCH) --product $(MODELS)
+	swift build --build-system $(BUILD_SYSTEM) --scratch-path $(SCRATCH) --product $(MODELS)
 	$(SCRATCH)/$(CONFIG)/$(MODELS) download $(WHICH)

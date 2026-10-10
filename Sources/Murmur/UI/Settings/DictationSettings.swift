@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The key you hold, the bar that appears, and the engine that listens.
 struct DictationSettings: View {
@@ -15,6 +16,8 @@ struct DictationSettings: View {
             pushToTalk
             dictationBar
             transcription
+            writingStyle
+            Card { DictationPractice(controller: controller) }
         }
         .onDisappear { cancelCapture() }
     }
@@ -182,6 +185,47 @@ struct DictationSettings: View {
     }
 
     // MARK: - Recording a key
+
+    private var writingStyle: some View {
+        Card {
+            VStack(alignment: .leading, spacing: DS.Space.md) {
+                SectionLabel(text: "Writing style")
+                PickerRow(title: "Default", selection: $settings.dictationStyle,
+                          options: DictationStyle.allCases.map { ($0, $0.title) })
+                Hint(settings.dictationStyle.detail)
+                Hint("Styles use Smart cleanup. Your wording, names and numbers stay the same. Without Apple Intelligence, the standard cleanup still works.")
+                ForEach(settings.appDictationStyles.keys.sorted(), id: \.self) { bundleID in
+                    HStack(spacing: DS.Space.sm) {
+                        PickerRow(title: appName(bundleID), selection: Binding(
+                            get: { settings.dictationStyle(for: bundleID) },
+                            set: { settings.appDictationStyles[bundleID] = $0.rawValue }
+                        ), options: DictationStyle.allCases.map { ($0, $0.title) })
+                        ActionButton(title: "Use default", emphasis: .quiet) {
+                            settings.appDictationStyles.removeValue(forKey: bundleID)
+                        }
+                        .accessibilityLabel("Use default style for \(appName(bundleID))")
+                    }
+                }
+                ActionButton(title: "Add app…", systemImage: "plus", emphasis: .normal, action: addApp)
+            }
+        }
+    }
+
+    private func appName(_ bundleID: String) -> String {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
+            .deletingPathExtension().lastPathComponent ?? bundleID
+    }
+
+    private func addApp() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an app for dictation"
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+              let bundleID = Bundle(url: url)?.bundleIdentifier else { return }
+        settings.appDictationStyles[bundleID] = settings.dictationStyle.rawValue
+    }
 
     private func startCapture() {
         captureNote = nil

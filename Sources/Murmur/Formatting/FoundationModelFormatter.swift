@@ -15,6 +15,7 @@ import MurmurSessions
 /// - **Guarded.** Output is rejected if it looks like the model answered the text instead
 ///   of cleaning it — the classic failure when dictation reads as an instruction.
 struct FoundationModelFormatter: TextFormatter {
+    var style: DictationStyle = .original
     /// Deterministic fallback used on timeout, unavailability, or a rejected response.
     private let fallback = RuleBasedFormatter()
 
@@ -53,7 +54,8 @@ struct FoundationModelFormatter: TextFormatter {
         do {
             // A task group waits for a noncooperative model even after cancelAll(). The
             // deadline returns promptly and discards any late result instead.
-            let cleaned = try await AsyncDeadline.run(for: timeout) { try await Self.clean(trimmed) }
+            let style = style
+            let cleaned = try await AsyncDeadline.run(for: timeout) { try await Self.clean(trimmed, style: style) }
 
             guard Self.isPlausibleCleanup(original: trimmed, cleaned: cleaned) else {
                 Log.speech.info("Foundation model output rejected — using rule-based cleanup")
@@ -89,7 +91,7 @@ struct FoundationModelFormatter: TextFormatter {
         }
     }
 
-    private static func clean(_ text: String) async throws -> String {
+    private static func clean(_ text: String, style: DictationStyle) async throws -> String {
         let session = LanguageModelSession(instructions: """
             You clean up raw speech-to-text transcripts. You are a text processor, not an \
             assistant.
@@ -105,6 +107,7 @@ struct FoundationModelFormatter: TextFormatter {
             becomes "Send it Wednesday."
             - Preserve the speaker's wording, tone, and meaning. Do not summarize, expand, \
             translate, or improve the writing.
+            - \(style.instructions)
             """)
 
         let response = try await session.respond(

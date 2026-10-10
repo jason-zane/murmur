@@ -18,7 +18,7 @@ backend in `web/`.
 It replaces a Wispr Flow subscription, so "as good as Wispr for daily use" is the bar —
 not "a demo that transcribes."
 
-Product name **Voice Notes**; bundle id `com.jasonhunt.murmur`, executable `Murmur`,
+Product name **Concourse**; bundle id `com.jasonhunt.murmur`, executable `Murmur`,
 `Murmur.app`, `murmur://`, Keychain service `com.jasonhunt.murmur.cloud`. Those are TCC and
 Keychain identity on installed copies and don't change.
 
@@ -138,7 +138,7 @@ accent, depth from soft shadow and hairline separators. Not negotiable:
   Identifiers and persisted raw values stay as they are.
 - **One word per thing**: note (never session/conversation/recording in copy), Record
   meeting / Stop, New note, "notes window" (not notepad), dictation bar, dictation(s),
-  push-to-talk key, Transcription · Apple / Parakeet, Voice Notes account, Connected apps,
+  push-to-talk key, Transcription · Apple / Parakeet, Concourse account, Connected apps,
   Claude Desktop. Settings paths use `▸`.
 
 Panels that float (dictation bar, the meeting offer, the notes rail) use a transparent
@@ -191,5 +191,7 @@ start the clock after model load; Wispr's is end-to-end including network.
    read of `kAXSelectedTextAttribute` plus an LLM round-trip.
 2. **Notarisation** — needs the Apple Developer Program. Releases are signed (Apple
    Development) and users click Open Anyway once.
-3. **Sparkle-style in-app updates** — the app checks GitHub Releases daily and links to the
-   download; installing is drag-over.
+
+Release builds use Sparkle for signed in-app updates. The Ed25519 key stays in the local
+Keychain under account `com.jasonhunt.murmur`; CI builds are candidates, never production
+updates until locally signed. Development and preview builds cannot start the updater.

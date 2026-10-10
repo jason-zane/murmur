@@ -5,7 +5,8 @@ let package = Package(
     name: "Murmur",
     platforms: [.macOS(.v26)],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.6")
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.6"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.10.0")
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
                 "MurmurDictionary",
                 "MurmurSessions",
                 .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Murmur",
             swiftSettings: [

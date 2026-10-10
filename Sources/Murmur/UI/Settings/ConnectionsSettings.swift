@@ -9,14 +9,14 @@ struct ConnectionsSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
+            AccountCard()
+            DisclosureGroup("Claude Desktop permissions and configuration") {
+                ClaudeDesktopCard().padding(.top, DS.Space.md)
+            }.font(DS.Font.callout)
             if account.isConnected {
-                AccountCard()
-                Card { CalendarAccountDetails() }
-                ConnectedAppsCard()
-                ClaudeDesktopCard()
-            } else {
-                ClaudeDesktopCard()
-                AccountCard()
+                DisclosureGroup("Remote connector configuration") {
+                    ConnectedAppsCard().padding(.top, DS.Space.md)
+                }.font(DS.Font.callout)
             }
         }
     }
@@ -39,8 +39,8 @@ private struct ClaudeDesktopCard: View {
                 HStack(alignment: .top, spacing: DS.Space.md) {
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text("Let Claude read your notes on this Mac").font(DS.Font.headline).foregroundStyle(DS.Color.text)
-                        Hint(configured ? "Connected. Works while Voice Notes is running."
-                             : "Ask about last week's decisions, or have a note summarised. Nothing leaves this Mac.")
+                        Hint(configured ? "Connected. Works while Concourse is running."
+                             : "Ask about last week's decisions, or have a note summarised. The connection runs locally; text Claude requests is shared with Claude.")
                     }
                     Spacer(minLength: DS.Space.md)
                     if configured { Chip(text: "Connected", tint: DS.Color.success, filled: true) }
@@ -77,7 +77,7 @@ private struct ClaudeDesktopCard: View {
                             NSPasteboard.general.setString(ClaudeDesktopIntegration.snippet(allowWrites: allowWrites), forType: .string)
                             copied = true
                         }
-                        Hint("Any MCP app can run the same command. It only answers while Voice Notes is running.")
+                        Hint("Any MCP app can run the same command. It only answers while Concourse is running.")
                     }
                     .padding(.top, DS.Space.sm)
                 }
@@ -103,7 +103,7 @@ struct AccountCard: View {
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
-                SectionLabel(text: "Voice Notes account")
+                SectionLabel(text: "Concourse account")
                 HStack(spacing: DS.Space.md) {
                     Image(systemName: "person.crop.circle")
                         .font(DS.Font.largeSymbol).foregroundStyle(DS.Color.accent)
@@ -163,7 +163,7 @@ struct AccountCard: View {
                 }
             }
         }
-        .alert("Sign out of Voice Notes?", isPresented: $confirmSignOut) {
+        .alert("Sign out of Concourse?", isPresented: $confirmSignOut) {
             Button("Sign out", role: .destructive) { account.signOut() }
             Button("Cancel", role: .cancel) {}
         } message: {

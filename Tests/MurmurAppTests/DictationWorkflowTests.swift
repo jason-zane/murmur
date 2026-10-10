@@ -7,6 +7,63 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DictationWorkflowTests {
+    @Test func practiceReturnsLocallyWithoutInsertionOrHistory() async throws {
+        var inserted: [String] = [], saved: [String] = [], result: String?
+        let controller = DictationController(formatter: PassthroughFormatter(),
+            makeEngine: { ControlledEngine(text: "My practice words") }, capture: MockMicrophone(),
+            requestMicrophone: { true }, insertText: { inserted.append($0) }, saveRun: { saved.append($0.text) })
+        controller.startPractice { result = $0 }
+        try await wait { controller.state == .listening }
+        controller.stopPractice()
+        try await wait { controller.state == .idle }
+        #expect(result == "My practice words")
+        #expect(inserted.isEmpty && saved.isEmpty)
+        #expect(!controller.isPractising)
+    }
+
+    @Test func practiceCancellationDropsLateText() async throws {
+        let engine = ControlledEngine(text: "Late practice", blockFinish: true)
+        var result: String?
+        let controller = DictationController(formatter: PassthroughFormatter(), makeEngine: { engine },
+            capture: MockMicrophone(), requestMicrophone: { true }, insertText: { _ in Issue.record("Practice inserted externally") }, saveRun: { _ in Issue.record("Practice entered history") })
+        controller.startPractice { result = $0 }
+        try await wait { controller.state == .listening }
+        controller.stopPractice()
+        try await wait { await engine.isFinishing }
+        controller.cancelPractice()
+        await engine.releaseFinish()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(result == nil && controller.state == .idle)
+    }
+
+    @Test func destinationAndPreferencesAreFrozenWhenRecordingStarts() async throws {
+        let settings = Settings.shared
+        let oldDefault = settings.dictationStyle, oldOverrides = settings.appDictationStyles
+        let oldCleanup = settings.cleanupEnabled
+        defer {
+            settings.dictationStyle = oldDefault; settings.appDictationStyles = oldOverrides
+            settings.cleanupEnabled = oldCleanup
+        }
+        settings.cleanupEnabled = true
+        settings.dictationStyle = .original
+        settings.appDictationStyles["com.example.mail"] = DictationStyle.email.rawValue
+        var destination = "com.example.mail"
+        var inserted: [String] = []
+        let controller = DictationController(formatter: SentenceFormatter(),
+            makeEngine: { ControlledEngine(text: "Keep my words") }, capture: MockMicrophone(),
+            requestMicrophone: { true }, insertText: { inserted.append($0) }, saveRun: { _ in }, destinationBundleID: { destination })
+        controller.startButtonRecording()
+        try await wait { controller.state == .listening }
+        destination = "com.example.chat"
+        settings.appDictationStyles["com.example.mail"] = DictationStyle.message.rawValue
+        settings.cleanupEnabled = false
+        #expect(controller.currentStyle == .email)
+        controller.stopButtonRecording()
+        try await wait { controller.state == .idle }
+        #expect(controller.currentStyle == .email)
+        #expect(inserted == ["Keep my words."])
+    }
+
     @Test func stopDuringTranscriptionCancelsImmediatelyAndNextRecordingWorks() async throws {
         let old = ControlledEngine(text: "Cancelled words", blockFinish: true)
         let next = ControlledEngine(text: "Next recording")
@@ -152,6 +209,10 @@ private actor ControlledEngine: TranscriptionEngine {
     func cancel() async { output?.finish() }
     func releaseStart() { startGate?.resume(); startGate = nil }
     func releaseFinish() { finishGate?.resume(); finishGate = nil }
+}
+
+private struct SentenceFormatter: TextFormatter {
+    func format(_ raw: String) async -> String { raw + "." }
 }
 
 private actor SuspendedFormatter: TextFormatter {

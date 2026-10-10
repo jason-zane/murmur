@@ -1,4 +1,4 @@
-# Developing Voice Notes
+# Developing Concourse
 
 ## Toolchain
 
@@ -134,23 +134,43 @@ use `40001`, which means a serialisation failure and can trigger automatic retri
 
 ## Releasing
 
-1. Tag: `git tag v0.6.0 && git push origin v0.6.0`.
-2. `.github/workflows/release.yml` builds `make dist` on a macOS runner and publishes the
-   disk image to a GitHub release. With `SIGNING_CERTIFICATE_P12` (base64 of the exported
-   Apple Development certificate and key) and `SIGNING_CERTIFICATE_PASSWORD` set as
-   repository secrets, it signs with that identity — the same one every time, so users'
-   Accessibility grants survive updates. Without them the release is ad-hoc signed and the
-   notes say so.
-3. The app's update check (`Support/UpdateCheck.swift`) compares the release tag with the
-   bundle version once a day. Development builds carry a git hash as their version and
-   never report an update.
+1. Run the native CI checks and download the `Concourse-release-candidate` artifact.
+   Tag builds also produce this artifact; CI never publishes an ad-hoc production update.
+2. Unzip the candidate into a local staging directory. Sign it with the existing stable
+   Apple identity without exporting its private key:
+
+   ```bash
+   make resign BUNDLE=/absolute/staging/Murmur.app
+   make package BUNDLE=/absolute/staging/Murmur.app VERSION=0.7.0
+   ```
+
+3. Use Sparkle 2.10.0's official `generate_keys --account com.jasonhunt.murmur` tool only
+   for initial setup. The public key must match `SUPublicEDKey`; the private key stays in
+   the login Keychain. Then sign and verify the release archive and update feed:
+
+   ```bash
+   python3 Tools/appcast.py dist/Concourse-0.7.0.dmg --version 0.7.0 \
+     --build <candidate-CFBundleVersion> --sign-tool /absolute/path/to/sign_update
+   ```
+
+   Allow the native Keychain prompt for `sign_update`. Do not export the private key to
+   the repository, build logs or CI. Preserve the Keychain key across machines and resets.
+4. After checking the signature, archive contents and installed-app behaviour, publish the
+   DMG and `dist/appcast.xml` together on the corresponding GitHub release. Sparkle reads
+   the latest release's feed, verifies the archive before extraction, and uses the numeric
+   `CFBundleVersion` to compare updates. Build numbers must increase; development versions
+   and debug preview builds cannot initialise the production updater.
+5. Version 0.7.0 introduces Sparkle, so existing older installations need one manual
+   drag-over installation. Later releases can install in-app. Automatic checks follow
+   Settings ▸ General; no automatic downloads or system profiling are enabled. Dictation
+   and meeting capture postpone installation and relaunch.
 
 Notarisation is deliberately not part of this: it needs the Apple Developer Program.
 [INSTALL.md](INSTALL.md) tells people how to open an un-notarised app.
 
 ## Checking Bluetooth call capture
 
-With a debug build installed, quit Voice Notes and run
+With a debug build installed, quit Concourse and run
 `/Applications/Murmur.app/Contents/MacOS/Murmur --diagnose-system-audio`.
 It opens the microphone (to exercise Bluetooth call mode), plays a short system sound,
 prints the call-side buffer count and peak level, and quits. It creates no note and stores

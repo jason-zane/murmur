@@ -111,6 +111,8 @@ extension SessionStore {
         var transcript = Data()
         for segment in document.transcript { transcript.append(try CloudCoding.encoder.encode(segment)); transcript.append(0x0a) }
         try transcript.write(to: directory.appendingPathComponent("transcript.jsonl"), options: .atomic)
+        try Self.readableTranscript(session: document.session, segments: document.transcript)
+            .write(to: directory.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
         let noteURL = directory.appendingPathComponent("note.md")
         if let note = document.note { try note.write(to: noteURL, atomically: true, encoding: .utf8) }
         else if FileManager.default.fileExists(atPath: noteURL.path) { try FileManager.default.removeItem(at: noteURL) }
