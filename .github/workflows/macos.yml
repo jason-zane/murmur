@@ -5,10 +5,10 @@ name: macOS
 
 on:
   push:
-    branches: [master]
-    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Package.swift', 'Package.resolved', 'Makefile', '.github/workflows/macos.yml']
+    branches: [master, codex/orca-improvements]
+    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Tools/**', 'Package.swift', 'Package.resolved', 'Makefile', '.github/workflows/macos.yml']
   pull_request:
-    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Package.swift', 'Package.resolved', 'Makefile', '.github/workflows/macos.yml']
+    paths: ['Sources/**', 'Tests/**', 'shared/**', 'Resources/**', 'Tools/**', 'Package.swift', 'Package.resolved', 'Makefile', '.github/workflows/macos.yml']
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ jobs:
   dictionary-contract:
     name: Native tests and dictionary contract
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +44,32 @@ jobs:
       # helper executable fails here rather than on the release tag.
       - name: Assemble the app bundle
         run: make app
+
+      - name: Preserve debug candidate for isolated UI preview
+        if: github.ref == 'refs/heads/codex/orca-improvements'
+        run: ditto -c -k --keepParent "$HOME/Library/Caches/MurmurBuild/Murmur.app" "$RUNNER_TEMP/Concourse-preview.zip"
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/codex/orca-improvements'
+        with:
+          name: Concourse-debug-preview
+          path: ${{ runner.temp }}/Concourse-preview.zip
+          retention-days: 7
+
+      - name: Assemble release candidate
+        if: github.ref == 'refs/heads/codex/orca-improvements'
+        run: make app CONFIG=release VERSION=0.7.0 BUILD_NUMBER=2026101001
+
+      - name: Preserve release candidate for local signing
+        if: github.ref == 'refs/heads/codex/orca-improvements'
+        run: ditto -c -k --keepParent "$HOME/Library/Caches/MurmurBuild/Murmur.app" "$RUNNER_TEMP/Concourse-candidate.zip"
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/codex/orca-improvements'
+        with:
+          name: Concourse-release-candidate
+          path: ${{ runner.temp }}/Concourse-candidate.zip
+          retention-days: 7
 
       - name: Confirm the vectors on both sides are identical
         run: |

@@ -8,7 +8,10 @@ bad()  { printf '  ✗ %s\n' "$1"; status=1; }
 
 echo "Xcode"
 if dev=$(xcode-select -p 2>/dev/null); then
-  ok "$dev"
+  case "$dev" in
+    */Xcode*.app/Contents/Developer) ok "$dev" ;;
+    *) bad "$dev — the standalone Command Line Tools lack Foundation Models macros; select a full Xcode 26 installation" ;;
+  esac
 else
   bad "no developer directory — install Xcode 26 from the App Store, then: sudo xcode-select -s /Applications/Xcode.app"
 fi

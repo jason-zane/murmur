@@ -16,7 +16,7 @@ final class OnboardingWindow: NSWindow {
         set { UserDefaults.standard.set(newValue, forKey: "onboarding.completed") }
     }
 
-    init() {
+    init(controller: DictationController) {
         super.init(
             contentRect: NSRect(origin: .zero, size: DS.Layout.onboardingSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -28,7 +28,7 @@ final class OnboardingWindow: NSWindow {
         titleVisibility = .hidden
         isReleasedWhenClosed = false
         isMovableByWindowBackground = true
-        contentView = NSHostingView(rootView: OnboardingView { [weak self] in
+        contentView = NSHostingView(rootView: OnboardingView(controller: controller) { [weak self] in
             Self.isCompleted = true
             UserDefaults.standard.set(true, forKey: "workspace.welcome.v2")
             self?.orderOut(nil)
@@ -44,6 +44,7 @@ final class OnboardingWindow: NSWindow {
 }
 
 struct OnboardingView: View {
+    let controller: DictationController
     let onDone: () -> Void
 
     enum Page: Int, CaseIterable {
@@ -62,7 +63,7 @@ struct OnboardingView: View {
         var lead: String {
             switch self {
             case .welcome: "Sign in, connect your calendars and Gmail, and bring your day together."
-            case .dictate: "Two permissions make dictation work. Each row shows what macOS reports right now."
+            case .dictate: "Try your voice here. Accessibility lets the push-to-talk key type into other apps."
             case .meetings: "Two more let Concourse hear a call and name it. Both are optional."
             case .extras: "Your calendars, Gmail and notes can live together. Connect apps whenever you’re ready."
             case .done: "Your workspace is ready. Dictation is always a held key away."
@@ -110,7 +111,7 @@ struct OnboardingView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Group {
+            ScrollView {
                 switch page {
                 case .welcome: welcome
                 case .dictate: dictate
@@ -119,6 +120,7 @@ struct OnboardingView: View {
                 case .done: done
                 }
             }
+            .scrollIndicators(.hidden)
             .transition(.opacity)
 
             Spacer(minLength: DS.Space.zero)
@@ -136,8 +138,7 @@ struct OnboardingView: View {
                         else { Task { await account.signIn(); if account.isConnected { finish(.connections) } } }
                     }.disabled(account.isSigningIn)
                 case .dictate:
-                    if !essentialsGranted { ActionButton(title: "Skip for now", emphasis: .quiet) { move(1) } }
-                    ActionButton(title: "Continue", emphasis: .prominent) { move(1) }.disabled(!essentialsGranted)
+                    ActionButton(title: essentialsGranted ? "Continue" : "Set up later", emphasis: .prominent) { move(1) }
                 case .meetings, .extras:
                     ActionButton(title: "Continue", emphasis: .prominent) { move(1) }
                 case .done:
@@ -189,6 +190,7 @@ struct OnboardingView: View {
 
     private var dictate: some View {
         VStack(spacing: DS.Space.md) {
+            DictationPractice(controller: controller)
             PermissionRow(
                 title: "Accessibility",
                 detail: "Sees the key you hold, inserts text where you're typing, and reads a browser window's title to tell a Meet call from a YouTube tab.",

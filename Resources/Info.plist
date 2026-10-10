@@ -25,6 +25,20 @@
 	<!-- The hosted backend the app signs in to. Self-hosters build with their own. -->
 	<key>VoiceNotesSiteURL</key>
 	<string>https://murmur-rho-pied.vercel.app</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/jason-zane/murmur/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>cXDlp/7aS6H488rMTEXMnBv3odF5vGissP/sVAGQYO0=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<!-- murmur://toggle, murmur://meeting, murmur://notes, murmur://sessions/<id>,

@@ -125,9 +125,12 @@ struct GeneralSettings: View {
                     }
                     ToggleRow(
                         title: "Check for updates automatically",
-                        hint: "Once a day, from the project's GitHub releases. Nothing about you is sent.",
+                        hint: "Once a day. Updates are downloaded only when you choose to install them.",
                         isOn: $settings.checkForUpdates
                     )
+                    .onChange(of: settings.checkForUpdates) { _, enabled in
+                        InAppUpdater.shared.setAutomaticChecks(enabled)
+                    }
                     Divider().padding(.vertical, DS.Space.xs)
                     HStack(spacing: DS.Space.md) {
                         Hint("Your notes are ordinary files in ~/Library/Application Support/Murmur.")

@@ -138,12 +138,17 @@ struct SessionDetailView: View {
             Divider()
             Button("Copy notes") { copy(note.isEmpty ? bullets.map(\.text).joined(separator: "\n") : note, label: "notes") }
             Button("Copy full meeting as Markdown") { copy(store.markdown(for: session.id), label: "meeting") }
-            Button("Copy for AI") { copyForAI() }
+            Button("Copy for AI") { copyForAI(.summary) }
             Divider()
             Button("Export Markdown…") { export() }
             Button("Note history…") { revisionPreview = nil; showHistory = true }
                 .disabled(store.noteRevisionCount(for: session.id) == 0)
-            Button("Reveal files in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)]) }
+            Button("Reveal files in Finder") {
+                do {
+                    try store.refreshReadableTranscript(for: session.id)
+                    NSWorkspace.shared.activateFileViewerSelecting([store.directory(for: session.id)])
+                } catch { self.error = error.localizedDescription }
+            }
             Divider()
             Button("Move to Trash…") { confirmTrash = true }
         }
@@ -235,6 +240,7 @@ struct SessionDetailView: View {
                 } else {
                     MarkdownNoteView(text: note, onToggleTask: toggleTask, onTimestamp: jump)
                 }
+                if !editing, hasSource || !note.isEmpty { aiHandoff }
                 if !bullets.isEmpty {
                     VStack(alignment: .leading, spacing: DS.Space.lg) {
                         Divider()
@@ -254,6 +260,28 @@ struct SessionDetailView: View {
             .padding(DS.Space.xl)
             .frame(maxWidth: DS.Layout.documentWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var aiHandoff: some View {
+        Card {
+            VStack(alignment: .leading, spacing: DS.Space.md) {
+                SectionLabel(text: "Use this note with AI")
+                Hint("Draft a recap, find commitments or review decisions. Copy the source into your AI app, or connect it to your notes.")
+                HStack(spacing: DS.Space.sm) {
+                    Menu {
+                        ForEach(AIHandoff.allCases) { task in
+                            Button(task.title) { copyForAI(task) }
+                        }
+                    } label: {
+                        Label(copied == "ai" ? "Copied" : "Copy for AI", systemImage: "doc.on.doc")
+                    } primaryAction: { copyForAI(.summary) }
+                    ActionButton(title: "Connect an AI app", systemImage: "link", emphasis: .quiet) {
+                        SettingsRouter.shared.open(.connections)
+                    }
+                }
+                Hint("Pasting into a cloud AI app shares this text with its provider. Review drafts before sending them.")
+            }
         }
     }
 
@@ -441,9 +469,12 @@ struct SessionDetailView: View {
             loadNote(); editing = false; externalChange = false; showHistory = false; onChanged()
         } catch { self.error = error.localizedDescription; showHistory = false }
     }
-    private func copyForAI() {
-        copy(MeetingNotes.prompt(session: session, bullets: bullets, segments: segments, template: template)
-             + (note.isEmpty ? "" : "\n\nCurrent note (for reference):\n" + note), label: "ai")
+    private func copyForAI(_ task: AIHandoff) {
+        if editing, !saveDraft() { return }
+        saveTitle()
+        copy(task.prompt(session: session, bullets: store.bullets(for: session.id),
+                         segments: store.transcript(for: session.id), note: store.note(for: session.id) ?? "",
+                         template: template), label: "ai")
     }
     private func copy(_ text: String, label: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); copied = label

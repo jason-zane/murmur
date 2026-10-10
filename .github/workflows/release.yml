@@ -1,12 +1,7 @@
 name: Release
 
-# Tag a commit `v0.5.0` and push the tag: this builds the app, packages a disk image and
-# attaches it to a GitHub release. The app's own update check reads that release.
-#
-# Signing: with SIGNING_CERTIFICATE_P12 (base64 of a .p12) and SIGNING_CERTIFICATE_PASSWORD
-# set as repository secrets, the bundle is signed with that identity — the same one every
-# time, which is what keeps the Accessibility grant across updates. Without them the build
-# is ad-hoc signed and the release notes say so.
+# Tags build candidates for local signing. Never publish an ad-hoc app as a production
+# update. The Apple certificate and Sparkle Ed25519 key stay in the local Keychain.
 
 on:
   push:
@@ -14,11 +9,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
-    name: Build and publish the disk image
+    name: Build a candidate for local signing
     runs-on: macos-26
     timeout-minutes: 40
 
@@ -33,51 +28,22 @@ jobs:
           echo "Using $latest"
           sudo xcode-select -s "$latest/Contents/Developer"
 
-      - name: Import the signing certificate
-        if: ${{ env.CERT != '' }}
-        env:
-          CERT: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
-        run: |
-          keychain="$RUNNER_TEMP/signing.keychain-db"
-          password=$(uuidgen)
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/signing.p12"
-          security import "$RUNNER_TEMP/signing.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
-          security list-keychain -d user -s "$keychain" login.keychain-db
-          echo "SIGNED=1" >> "$GITHUB_ENV"
+      - name: Test the native app, session store and MCP server
+        run: make test
 
-      - name: Build the disk image
+      - name: Build the release candidate
         run: |
           version="${GITHUB_REF_NAME#v}"
-          make dist VERSION="$version" BUILD_NUMBER="${{ github.run_number }}"
-          make doctor || true
-          ls -la dist
-
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists (published by hand); leaving its assets alone."
-            exit 0
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Run this workflow on a numeric release tag, such as v0.7.0."
+            exit 1
           fi
-          if [ "${SIGNED:-0}" = "1" ]; then
-            signing="Signed with the project's Apple Development certificate. Not notarised — see the install notes."
-          else
-            signing="Ad-hoc signed: macOS will reset the Accessibility permission after each update. Not notarised — see the install notes."
-          fi
-          cat > notes.md <<EOF
-          ## Concourse $version
+          build=$(date -u +%Y%m%d%H%M%S)
+          make app CONFIG=release VERSION="$version" BUILD_NUMBER="$build"
+          ditto -c -k --keepParent "$HOME/Library/Caches/MurmurBuild/Murmur.app" "$RUNNER_TEMP/Concourse-candidate.zip"
 
-          Download the disk image, drag Concourse to Applications, then right-click ▸ Open.
-          If macOS refuses, open System Settings ▸ Privacy & Security and choose **Open Anyway**.
-          Full instructions: https://github.com/${{ github.repository }}/blob/master/docs/INSTALL.md
-
-          $signing
-          EOF
-          gh release create "$GITHUB_REF_NAME" dist/Concourse-"$version".dmg --title "Concourse $version" --notes-file notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Concourse-release-candidate
+          path: ${{ runner.temp }}/Concourse-candidate.zip
+          retention-days: 7

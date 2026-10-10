@@ -110,7 +110,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wireMeetings()
         MeetingSchedule.shared.start()
         CloudSync.shared.start()
+        let store = meetings.store
+        Task.detached(priority: .utility) {
+            for session in store.listSessions() where !session.state.isInterrupted {
+                try? store.refreshReadableTranscript(for: session.id)
+            }
+        }
         UpdateCheck.shared.start()
+        InAppUpdater.shared.start { [weak self] in
+            guard let self else { return true }
+            return self.controller.state.isActive || self.meetings.state != .idle
+        }
 
         if !OnboardingWindow.isCompleted {
             showOnboarding()
@@ -118,7 +128,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Permissions.rememberTrusted()
         if !controller.activate() {
-            Permissions.promptForAccessibility()
             // The tap can only be created once the user grants Accessibility, and there's
             // no notification for that — poll until it takes.
             retryActivation()
@@ -220,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showOnboarding() {
-        if onboarding == nil { onboarding = OnboardingWindow() }
+        if onboarding == nil { onboarding = OnboardingWindow(controller: controller) }
         onboarding?.present()
     }
 
@@ -316,6 +325,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // An updater or ordinary Quit must not discard a dictation being processed.
+        if controller.state.isActive { return .terminateCancel }
         guard meetings.state != .idle else { return .terminateNow }
         if meetings.state == .saveFailed { showNotepad(); return .terminateCancel }
         if meetings.state.isActive { meetings.stop() }

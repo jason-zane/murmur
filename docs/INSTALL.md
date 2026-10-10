@@ -34,8 +34,9 @@ You only do this once. Updates installed the same way keep the approval.
 
 ## 2. Permissions
 
-The first run walks you through four permissions. Each row shows what macOS actually
-reports right now, so you can see when a grant has taken.
+The first run offers a local dictation practice field and explains the permissions.
+You can choose **Set up later** and continue using the app. Each row shows what macOS
+actually reports right now, so you can see when a grant has taken.
 
 | Permission | Needed for | Required? |
 |---|---|---|
@@ -90,10 +91,13 @@ the download button appears right there. Until it's downloaded, Apple is used.
 
 ## Updating
 
-Concourse checks the project's releases once a day (Settings ▸ General) and shows
-**Update available** in the menu bar. Download the new disk image and drag it over the old
-copy in Applications. Your permissions survive because every release is signed the same
-way; your notes are never inside the app.
+From version 0.7.0, release builds check for signed in-app updates once a day when enabled
+in **Settings ▸ General**. **Check for updates** opens the update window. Installation
+waits for dictation and meetings to finish before restarting. Your notes live outside the
+app and are kept through updates.
+
+To update an older version, download the new disk image and drag it over the old copy in
+Applications. The existing stable signing identity is retained.
 
 ## Uninstalling
 

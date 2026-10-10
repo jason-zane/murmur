@@ -190,6 +190,7 @@ enum DS {
         static let statusDot: CGFloat = 6
         static let transcriptTime: CGFloat = 48
         static let editorHeight: CGFloat = 360
+        static let practiceHeight: CGFloat = 88
         static let modelProgress: CGFloat = 260
         static let permissionDot: CGFloat = 7
         static let sheetWidth: CGFloat = 620

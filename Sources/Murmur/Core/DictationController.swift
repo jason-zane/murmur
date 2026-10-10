@@ -58,6 +58,7 @@ final class DictationController {
     private let saveRun: @MainActor (DictationRun) -> Void
     private let finishLimit: Duration
     private let startupLimit: Duration
+    private let destinationBundleID: @MainActor () -> String?
     private var sessionID: UUID?
     private var setupTask: Task<Void, Never>?
     private var finishTask: Task<Void, Never>?
@@ -66,13 +67,16 @@ final class DictationController {
 
     /// Injected only by tests; production reads the setting per-utterance below.
     private let formatter: (any TextFormatter)?
+    private var sessionFormatter: (any TextFormatter)?
+    private var sessionCleanupEnabled = true
+    private(set) var currentStyle: DictationStyle = .original
+    private var practiceCompletion: (@MainActor (String) -> Void)?
+    var isPractising: Bool { practiceCompletion != nil }
 
     /// Chosen per-utterance so the menu toggle applies to the very next hold.
     private var activeFormatter: any TextFormatter {
         if let formatter { return formatter }
-        return Settings.shared.smartCleanup
-            ? FoundationModelFormatter()
-            : RuleBasedFormatter()
+        return sessionFormatter ?? RuleBasedFormatter()
     }
 
     private var engine: (any TranscriptionEngine)?
@@ -125,7 +129,8 @@ final class DictationController {
         insertText: @escaping @MainActor (String) -> Void = { TextInjector.insert($0) },
         saveRun: @escaping @MainActor (DictationRun) -> Void = { RunLog.record($0) },
         finishLimit: Duration = .seconds(25),
-        startupLimit: Duration = .seconds(60)
+        startupLimit: Duration = .seconds(60),
+        destinationBundleID: @escaping @MainActor () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     ) {
         self.formatter = formatter
         self.makeEngine = makeEngine
@@ -135,6 +140,7 @@ final class DictationController {
         self.saveRun = saveRun
         self.finishLimit = finishLimit
         self.startupLimit = startupLimit
+        self.destinationBundleID = destinationBundleID
     }
 
     // MARK: - Lifecycle
@@ -242,6 +248,24 @@ final class DictationController {
 
     // MARK: - Button-driven recording
 
+    /// Uses the real capture/cleanup pipeline, but returns text to the practice field.
+    /// Practice never inserts into another app, enters history or invokes compare mode.
+    func startPractice(onResult: @escaping @MainActor (String) -> Void) {
+        guard !state.isActive else { return }
+        practiceCompletion = onResult
+        beginDictation()
+    }
+
+    func stopPractice() {
+        guard isPractising else { return }
+        endDictation()
+    }
+
+    func cancelPractice() {
+        guard isPractising else { return }
+        forceReset()
+    }
+
     /// Starts a recording from a Record button rather than the hotkey.
     ///
     /// Wispr Flow's hotkey is held down for the duration **only in compare mode**. Reaching
@@ -300,7 +324,12 @@ final class DictationController {
         pendingStop = false
         transcript = ""
         holdStarted = Date()
-        isComparing = Settings.shared.compareMode
+        let settings = Settings.shared
+        let style = settings.dictationStyle(for: isPractising ? nil : destinationBundleID())
+        currentStyle = style
+        sessionCleanupEnabled = settings.cleanupEnabled
+        sessionFormatter = settings.smartCleanup ? FoundationModelFormatter(style: style) : RuleBasedFormatter()
+        isComparing = !isPractising && settings.compareMode
         recorded.removeAll(keepingCapacity: true)
         let choice = Settings.shared.engine
         let fellBack = choice == .parakeet && !ParakeetModels.isDownloaded
@@ -523,7 +552,7 @@ final class DictationController {
                 return
             }
 
-            let cleaned = Settings.shared.cleanupEnabled
+            let cleaned = sessionCleanupEnabled
                 ? await activeFormatter.format(raw)
                 : raw
             guard self.sessionID == runID, !Task.isCancelled else { return }
@@ -536,17 +565,25 @@ final class DictationController {
                 Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
             }
 
-            recordRun(text: output, corrections: corrections)
-            insertText(output)
+            let completion = practiceCompletion
+            if completion == nil {
+                recordRun(text: output, corrections: corrections)
+                insertText(output)
+            }
             if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
             state = .idle
             sessionID = nil
             transcript = ""
+            practiceCompletion = nil
+            sessionFormatter = nil
+            completion?(output)
         }
     }
 
     private func cancelDictation() {
+        practiceCompletion = nil
+        sessionFormatter = nil
         sessionID = nil
         setupTask?.cancel()
         setupTask = nil

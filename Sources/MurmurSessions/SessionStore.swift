@@ -122,6 +122,11 @@ public final class SessionStore: Sendable {
     private func writeManifest(_ session: MeetingSession) throws {
         let data = try Self.encoder.encode(session)
         try data.write(to: manifestURL(session.id), options: .atomic)
+        // A derived view must never turn a successful canonical save into a failure.
+        // In-flight transcripts are exported once finalised, avoiding quadratic rewrites.
+        if !session.state.isInterrupted {
+            try? writeReadableTranscript(session: session)
+        }
     }
 
     @discardableResult
@@ -184,7 +189,37 @@ public final class SessionStore: Sendable {
             payload.append(0x0A)
         }
         try payload.write(to: transcriptURL(id), options: .atomic)
+        if let session = session(id: id) { try? writeReadableTranscript(session: session) }
         }
+    }
+
+    /// Regenerates an agent-readable view of the canonical JSONL, also for old notes.
+    public func refreshReadableTranscript(for id: String) throws {
+        try locked {
+            try validate(id)
+            guard let session = session(id: id), !session.state.isInterrupted else { return }
+            try writeReadableTranscript(session: session)
+        }
+    }
+
+    private func writeReadableTranscript(session: MeetingSession) throws {
+        let text = Self.readableTranscript(session: session, segments: transcript(for: session.id))
+        let url = directory(for: session.id).appendingPathComponent("transcript.md")
+        if (try? String(contentsOf: url, encoding: .utf8)) != text {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    static func readableTranscript(session: MeetingSession, segments: [TranscriptSegment]) -> String {
+        let title = session.title.replacingOccurrences(of: "\n", with: " ")
+        var text = "# \(title)\n\n_Transcript · generated from transcript.jsonl. Edit speaker names in Concourse._\n\n"
+        if segments.isEmpty { text += "No speech was captured in this note.\n" }
+        for segment in segments.sorted(by: { $0.start < $1.start }) {
+            let name = (segment.speaker ?? (segment.source == .you ? "You" : "Speaker"))
+                .replacingOccurrences(of: "\n", with: " ")
+            text += "**\(TimeFormat.clock(segment.start)) \(name):** \(segment.text)\n\n"
+        }
+        return text
     }
 
     // MARK: - Notes

@@ -111,6 +111,20 @@ final class Settings {
         didSet { defaults.set(smartCleanup, forKey: Keys.smartCleanup) }
     }
 
+    var dictationStyle: DictationStyle {
+        didSet { defaults.set(dictationStyle.rawValue, forKey: Keys.dictationStyle) }
+    }
+
+    var appDictationStyles: [String: String] {
+        didSet { defaults.set(appDictationStyles, forKey: Keys.appDictationStyles) }
+    }
+
+    func dictationStyle(for bundleID: String?) -> DictationStyle {
+        guard let bundleID, let raw = appDictationStyles[bundleID],
+              let style = DictationStyle(rawValue: raw) else { return dictationStyle }
+        return style
+    }
+
     var soundEnabled: Bool {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
@@ -151,7 +165,7 @@ final class Settings {
         triggers.sorted { $0.rawValue < $1.rawValue }.compactMap(\.caveat)
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     private enum Keys {
         static let triggers = "triggers"
@@ -162,6 +176,8 @@ final class Settings {
         static let soundEnabled = "soundEnabled"
         static let engine = "engine"
         static let smartCleanup = "smartCleanup"
+        static let dictationStyle = "dictationStyle"
+        static let appDictationStyles = "appDictationStyles"
         static let compareMode = "compareMode"
         static let developerMode = "developerMode"
         static let checkForUpdates = "checkForUpdates"
@@ -171,7 +187,8 @@ final class Settings {
         static let legacyPushToTalkKey = "pushToTalkKey"
     }
 
-    private init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // Resolved entirely in locals: stored properties can't be read back until every one
         // of them is initialized.
         var resolvedTriggers: Set<PushToTalkTrigger>
@@ -208,6 +225,8 @@ final class Settings {
         // than raw ASR. It degrades to RuleBasedFormatter where Foundation Models isn't
         // available, so defaulting it on is safe.
         smartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? true
+        dictationStyle = DictationStyle(rawValue: defaults.string(forKey: Keys.dictationStyle) ?? "") ?? .original
+        appDictationStyles = defaults.dictionary(forKey: Keys.appDictationStyles) as? [String: String] ?? [:]
         developerMode = defaults.bool(forKey: Keys.developerMode)
         // Compare mode stops dictation typing into other apps. Nobody should lose that
         // silently because a switch they never see is off.

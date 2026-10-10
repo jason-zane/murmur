@@ -191,5 +191,7 @@ start the clock after model load; Wispr's is end-to-end including network.
    read of `kAXSelectedTextAttribute` plus an LLM round-trip.
 2. **Notarisation** — needs the Apple Developer Program. Releases are signed (Apple
    Development) and users click Open Anyway once.
-3. **Sparkle-style in-app updates** — the app checks GitHub Releases daily and links to the
-   download; installing is drag-over.
+
+Release builds use Sparkle for signed in-app updates. The Ed25519 key stays in the local
+Keychain under account `com.jasonhunt.murmur`; CI builds are candidates, never production
+updates until locally signed. Development and preview builds cannot start the updater.
